@@ -44,6 +44,16 @@
                                                 PointerReleased="SectionControl_PointerReleased"/>
                 </Canvas>
 
+                <!-- BOTTOM BAR: AB Line Guidance Panel (Draggable) -->
+                <Canvas>
+                    <panels:BottomNavigationPanel x:Name="BottomNavPanel"
+                                                  Canvas.Left="200" Canvas.Top="420"
+                                                  DataContext="{Binding}"
+                                                  PointerPressed="BottomNavPanel_PointerPressed"
+                                                  PointerMoved="BottomNavPanel_PointerMoved"
+                                                  PointerReleased="BottomNavPanel_PointerReleased"/>
+                </Canvas>
+
                 <!-- Zoom Controls - Bottom Right -->
                 <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom"
                             Margin="0,0,20,20" Spacing="10">
@@ -58,6 +68,20 @@
                 </StackPanel>
             </Grid>
         </Grid>
+
+        <!-- AB Creation Instruction Banner -->
+        <Border Background="#CC000000" CornerRadius="8" Padding="16,8"
+                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,80,0,0"
+                IsVisible="{Binding IsCreatingABLine}">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <TextBlock Text="{Binding ABCreationInstructions}"
+                           Foreground="White" FontSize="16" VerticalAlignment="Center"/>
+                <Button Content="Cancel"
+                        Command="{Binding CancelABCreationCommand}"
+                        Background="#DD3333" Foreground="White"
+                        Padding="12,4"/>
+            </StackPanel>
+        </Border>
 
         <!-- Modal Dialog Overlays (rendered on top of everything) -->
         <dialogs:SimCoordsDialogPanel/>
@@ -74,5 +98,8 @@
         <dialogs:DataIODialogPanel/>
         <dialogs:HeadlandBuilderDialogPanel/>
         <dialogs:HeadlandDialogPanel/>
+        <dialogs:QuickABSelectorPanel/>
+        <dialogs:TracksDialogPanel/>
+        <dialogs:DrawABDialogPanel/>
     </Panel>
 </UserControl>

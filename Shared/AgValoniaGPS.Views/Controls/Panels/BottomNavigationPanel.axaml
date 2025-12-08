@@ -1,0 +1,312 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AgValoniaGPS.ViewModels"
+             xmlns:converters="using:AgValoniaGPS.Views.Converters"
+             mc:Ignorable="d"
+             x:Class="AgValoniaGPS.Views.Controls.Panels.BottomNavigationPanel"
+             x:DataType="vm:MainViewModel"
+             ClipToBounds="False"
+             Background="{x:Null}"
+             IsHitTestVisible="True">
+
+    <UserControl.Resources>
+        <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <!-- Floating Panel Style -->
+        <Style Selector="Border.FloatingPanel">
+            <Setter Property="Background" Value="#DD1E2A38"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="BorderBrush" Value="#444"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <!-- Bottom Panel Button Style -->
+        <Style Selector="Button.BottomPanelButton">
+            <Setter Property="Background" Value="#DD34495E"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Width" Value="64"/>
+            <Setter Property="Height" Value="64"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.BottomPanelButton:pointerover">
+            <Setter Property="Background" Value="#DD475A6E"/>
+        </Style>
+        <Style Selector="Button.BottomPanelButton:pressed">
+            <Setter Property="Background" Value="#DD3E5872"/>
+        </Style>
+
+        <!-- Active State for toggle buttons -->
+        <Style Selector="Button.BottomPanelButton.Active">
+            <Setter Property="Background" Value="#DD2ECC71"/>
+        </Style>
+        <Style Selector="Button.BottomPanelButton.Active:pointerover">
+            <Setter Property="Background" Value="#DD27AE60"/>
+        </Style>
+
+        <!-- Menu Button (opens flyout) -->
+        <Style Selector="Button.MenuButton">
+            <Setter Property="Background" Value="#DD2C3E50"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Width" Value="64"/>
+            <Setter Property="Height" Value="64"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.MenuButton:pointerover">
+            <Setter Property="Background" Value="#DD3D5266"/>
+        </Style>
+        <Style Selector="Button.MenuButton:pressed">
+            <Setter Property="Background" Value="#DD4A6278"/>
+        </Style>
+
+        <!-- Flyout Panel Style -->
+        <Style Selector="Border.FlyoutPanel">
+            <Setter Property="Background" Value="#EE1E2A38"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <!-- Panel Separator -->
+        <Style Selector="Separator.BottomPanelSeparator">
+            <Setter Property="Background" Value="#444"/>
+            <Setter Property="Width" Value="2"/>
+            <Setter Property="Margin" Value="4,8"/>
+        </Style>
+    </UserControl.Styles>
+
+    <!-- Main container -->
+    <Canvas ClipToBounds="False" Background="{x:Null}">
+        <!-- Main bottom bar - negative Top positions above bottom edge -->
+        <Border x:Name="MainPanel" Classes="FloatingPanel" Canvas.Left="0" Canvas.Top="-78">
+            <StackPanel x:Name="ButtonStack" Spacing="4" Orientation="Horizontal">
+
+                <!-- Touch Handle: Tap to rotate, Hold to drag -->
+                <Grid x:Name="DragHandle" Width="40" Margin="0"
+                      Background="#DD2C3E50"
+                      Cursor="Hand"
+                      ToolTip.Tip="Tap to rotate | Hold and drag to move">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+                        <TextBlock Text="=" Foreground="#AAA" FontSize="16" FontWeight="Bold" IsHitTestVisible="False"/>
+                        <TextBlock Text="R" Foreground="#AAA" FontSize="14" FontWeight="Bold" IsHitTestVisible="False"/>
+                    </StackPanel>
+                </Grid>
+
+                <Separator Classes="BottomPanelSeparator"/>
+
+                <!-- === AB LINE DEPENDENT BUTTONS (Hidden when no AB line) === -->
+
+                <!-- U-Turn Skip Rows Dropdown (0-9) - hidden when no AB line -->
+                <ComboBox x:Name="SkipRowsComboBox"
+                          Width="64" Height="64"
+                          SelectedIndex="{Binding UTurnSkipRows}"
+                          IsVisible="{Binding HasActiveTrack}"
+                          ToolTip.Tip="U-Turn Skip Rows (0-9)"
+                          HorizontalContentAlignment="Center"
+                          VerticalContentAlignment="Center"
+                          Background="#DD34495E"
+                          Foreground="White"
+                          FontSize="20"
+                          FontWeight="Bold">
+                    <ComboBoxItem Content="0"/>
+                    <ComboBoxItem Content="1"/>
+                    <ComboBoxItem Content="2"/>
+                    <ComboBoxItem Content="3"/>
+                    <ComboBoxItem Content="4"/>
+                    <ComboBoxItem Content="5"/>
+                    <ComboBoxItem Content="6"/>
+                    <ComboBoxItem Content="7"/>
+                    <ComboBoxItem Content="8"/>
+                    <ComboBoxItem Content="9"/>
+                </ComboBox>
+
+                <!-- U-Turn Skip Rows On/Off - hidden when no AB line -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="U-Turn Skip Rows On/Off"
+                        Command="{Binding ToggleUTurnSkipRowsCommand}"
+                        IsVisible="{Binding HasActiveTrack}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/YouSkipOff.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- === ALWAYS VISIBLE BUTTONS === -->
+
+                <!-- Color Picker / Section Mapping - always visible -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Section Mapping Color"
+                        Command="{Binding ChangeMappingColorCommand}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SectionMapping.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- Reset Tool Heading - always visible -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Reset Tool Heading"
+                        Command="{Binding ResetToolHeadingCommand}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ResetTool.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- Section Control in Headland - always visible (toggle button) -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Section Control in Headland"
+                        Command="{Binding ToggleSectionInHeadlandCommand}">
+                    <Panel>
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/HeadlandSectionOn.png" Stretch="Uniform"
+                               IsVisible="{Binding IsSectionControlInHeadland}"/>
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/HeadlandSectionOff.png" Stretch="Uniform"
+                               IsVisible="{Binding IsSectionControlInHeadland, Converter={StaticResource InverseBoolConverter}}"/>
+                    </Panel>
+                </Button>
+
+                <!-- Headland On/Off - always visible (toggle button) -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Toggle Headland"
+                        Command="{Binding ToggleHeadlandCommand}">
+                    <Panel>
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/HeadlandOn.png" Stretch="Uniform"
+                               IsVisible="{Binding IsHeadlandOn}"/>
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/HeadlandOff.png" Stretch="Uniform"
+                               IsVisible="{Binding IsHeadlandOn, Converter={StaticResource InverseBoolConverter}}"/>
+                    </Panel>
+                </Button>
+
+                <!-- Flags Menu Button - always visible -->
+                <Button x:Name="FlagMenuButton" Classes="MenuButton" ToolTip.Tip="Flags">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/FlagRed.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- === AB LINE DEPENDENT BUTTONS (Hidden when no AB line) === -->
+
+                <!-- Snap Left - hidden when no AB line -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Snap to Left Track"
+                        Command="{Binding SnapLeftCommand}"
+                        IsVisible="{Binding HasActiveTrack}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SnapLeft.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- Snap Right - hidden when no AB line -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Snap to Right Track"
+                        Command="{Binding SnapRightCommand}"
+                        IsVisible="{Binding HasActiveTrack}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SnapRight.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- Snap to Pivot - hidden when no AB line -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Snap to Pivot"
+                        Command="{Binding SnapToPivotCommand}"
+                        IsVisible="{Binding HasActiveTrack}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SnapToPivot.png" Stretch="Uniform"/>
+                </Button>
+
+                <Separator Classes="BottomPanelSeparator"/>
+
+                <!-- AB Line Menu Button (opens flyout) - always visible -->
+                <Button x:Name="ABLineMenuButton" Classes="MenuButton" ToolTip.Tip="AB Line Options">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/TrackOn.png" Stretch="Uniform"/>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- AB Line Flyout Menu (positioned above the AB Line menu button) -->
+        <Border x:Name="ABLineFlyoutPanel" Classes="FlyoutPanel"
+                Canvas.Left="500" Canvas.Top="-350"
+                IsVisible="False">
+            <StackPanel Spacing="6">
+                <!-- AB Tracks Dialog (manage saved tracks) -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Tracks - Manage AB Lines"
+                        Command="{Binding ShowTracksDialogCommand}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ABTracks.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- Quick AB (mode selector for drive-in creation) -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Quick AB Line Creator"
+                        Command="{Binding ShowQuickABSelectorCommand}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ABTrackAPlus.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- Draw AB (tap on map to place points) -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Draw AB Line on Map"
+                        Command="{Binding ShowDrawABDialogCommand}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ABDraw.png" Stretch="Uniform"/>
+                </Button>
+
+                <Separator Background="#444" Height="2" Margin="4" IsVisible="{Binding HasActiveTrack}"/>
+
+                <!-- Cycle Lines -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Cycle AB Lines"
+                        Command="{Binding CycleABLinesCommand}"
+                        IsVisible="{Binding HasActiveTrack}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ABLineCycle.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- Smooth -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Smooth AB Line"
+                        Command="{Binding SmoothABLineCommand}"
+                        IsVisible="{Binding HasActiveTrack}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ABSmooth.png" Stretch="Uniform"/>
+                </Button>
+
+                <Separator Background="#444" Height="2" Margin="4" IsVisible="{Binding HasActiveTrack}"/>
+
+                <!-- Nudge Controls -->
+                <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasActiveTrack}">
+                    <Button Classes="BottomPanelButton" ToolTip.Tip="Nudge Left (A+)"
+                            Command="{Binding NudgeLeftCommand}">
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/APlusPlusA.png" Stretch="Uniform"/>
+                    </Button>
+                    <Button Classes="BottomPanelButton" ToolTip.Tip="Nudge Right (B+)"
+                            Command="{Binding NudgeRightCommand}">
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/APlusPlusB.png" Stretch="Uniform"/>
+                    </Button>
+                </StackPanel>
+
+                <!-- Fine Nudge Controls -->
+                <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasActiveTrack}">
+                    <Button Classes="BottomPanelButton" ToolTip.Tip="Fine Nudge Left (A-)"
+                            Command="{Binding FineNudgeLeftCommand}">
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/APlusMinusA.png" Stretch="Uniform"/>
+                    </Button>
+                    <Button Classes="BottomPanelButton" ToolTip.Tip="Fine Nudge Right (B-)"
+                            Command="{Binding FineNudgeRightCommand}">
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/APlusMinusB.png" Stretch="Uniform"/>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Flags Flyout Menu (positioned above the flags menu button) -->
+        <Border x:Name="FlagsFlyoutPanel" Classes="FlyoutPanel"
+                Canvas.Left="440" Canvas.Top="-280"
+                IsVisible="False">
+            <StackPanel Spacing="6">
+                <!-- Red Flag -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Place Red Flag"
+                        Command="{Binding PlaceRedFlagCommand}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/FlagRed.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- Green Flag -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Place Green Flag"
+                        Command="{Binding PlaceGreenFlagCommand}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/FlagGrn.png" Stretch="Uniform"/>
+                </Button>
+
+                <!-- Yellow Flag -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Place Yellow Flag"
+                        Command="{Binding PlaceYellowFlagCommand}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/FlagYel.png" Stretch="Uniform"/>
+                </Button>
+
+                <Separator Background="#444" Height="2" Margin="4"/>
+
+                <!-- Delete Flags -->
+                <Button Classes="BottomPanelButton" ToolTip.Tip="Delete All Flags"
+                        Command="{Binding DeleteAllFlagsCommand}">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Cancel64.png" Stretch="Uniform"/>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Canvas>
+</UserControl>

@@ -1,0 +1,109 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="250"
+             x:Class="AgValoniaGPS.Views.Controls.Dialogs.DrawABDialogPanel"
+             x:DataType="vm:MainViewModel"
+             IsVisible="{Binding IsDrawABDialogVisible}"
+             IsHitTestVisible="{Binding IsDrawABDialogVisible}">
+
+    <UserControl.Styles>
+        <Style Selector="Button.ModeButton">
+            <Setter Property="Background" Value="#34495E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="MinHeight" Value="80"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.ModeButton:pointerover">
+            <Setter Property="Background" Value="#4A6278"/>
+        </Style>
+        <Style Selector="Button.ModeButton:pressed">
+            <Setter Property="Background" Value="#1ABC9C"/>
+        </Style>
+
+        <Style Selector="Button.CancelButton">
+            <Setter Property="Background" Value="#C0392B"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="MinHeight" Value="80"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.CancelButton:pointerover">
+            <Setter Property="Background" Value="#E74C3C"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid>
+        <!-- Semi-transparent backdrop -->
+        <Border Background="#80000000" PointerPressed="Backdrop_PointerPressed"/>
+
+        <!-- Draw AB panel - centered -->
+        <Border Background="#2C3E50" CornerRadius="12"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                Padding="20" BoxShadow="0 8 32 #40000000">
+            <StackPanel Spacing="16">
+                <!-- Title -->
+                <TextBlock Text="Draw AB Line on Map"
+                           Foreground="White" FontSize="18" FontWeight="Bold"
+                           HorizontalAlignment="Center"/>
+
+                <TextBlock Text="Tap on the map to place points"
+                           Foreground="#BDC3C7" FontSize="14"
+                           HorizontalAlignment="Center"/>
+
+                <!-- Instructions -->
+                <Border Background="#34495E" CornerRadius="8" Padding="12">
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="20" Height="20" Fill="#E74C3C"/>
+                            <TextBlock Text="1. Tap map to set Point A" Foreground="#BDC3C7" FontSize="13"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="20" Height="20" Fill="#3498DB"/>
+                            <TextBlock Text="2. Tap map to set Point B" Foreground="#BDC3C7" FontSize="13"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="20" Height="20" Fill="#27AE60"/>
+                            <TextBlock Text="3. Confirm to create line" Foreground="#BDC3C7" FontSize="13"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Action buttons -->
+                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                    <!-- Start Drawing -->
+                    <Button Classes="ModeButton" ToolTip.Tip="Start drawing mode"
+                            Command="{Binding StartDrawABModeCommand}">
+                        <StackPanel Spacing="8" HorizontalAlignment="Center">
+                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ABLineCycle.png"
+                                   Width="40" Height="40" Stretch="Uniform"/>
+                            <TextBlock Text="Start" FontSize="12" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Cancel -->
+                    <Button Classes="CancelButton" ToolTip.Tip="Cancel and close"
+                            Command="{Binding CloseDrawABDialogCommand}">
+                        <StackPanel Spacing="8" HorizontalAlignment="Center">
+                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Cancel64.png"
+                                   Width="40" Height="40" Stretch="Uniform"/>
+                            <TextBlock Text="Cancel" FontSize="12" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

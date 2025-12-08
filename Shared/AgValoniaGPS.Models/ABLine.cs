@@ -1,6 +1,28 @@
 namespace AgValoniaGPS.Models;
 
 /// <summary>
+/// Mode for creating AB lines/curves
+/// </summary>
+public enum ABCreationMode
+{
+    None,           // Not creating an AB line
+    DriveAB,        // Drive from A to B - uses current position when tapping
+    DrawAB,         // Draw on map - tap to place points
+    APlusLine,      // Create from current position + heading
+    Curve           // Record curve while driving
+}
+
+/// <summary>
+/// Which point is being set in AB creation
+/// </summary>
+public enum ABPointStep
+{
+    None,
+    SettingPointA,
+    SettingPointB
+}
+
+/// <summary>
 /// Represents an AB guidance line for field operations
 /// </summary>
 public class ABLine

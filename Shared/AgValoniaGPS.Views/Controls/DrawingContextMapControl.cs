@@ -147,6 +147,10 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     // Clip path (for curved headland clipping - follows the headland curve)
     private IReadOnlyList<AgValoniaGPS.Models.Base.Vec2>? _clipPath;
 
+    // AB Line data
+    private AgValoniaGPS.Models.ABLine? _activeABLine;
+    private AgValoniaGPS.Models.Position? _pendingPointA; // Point A while waiting for Point B
+
     // Pens and brushes (reused for performance)
     private readonly Pen _gridPenMinor;
     private readonly Pen _gridPenMajor;
@@ -163,6 +167,10 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     private readonly IBrush _selectionMarkerBrush;
     private readonly Pen _selectionMarkerPen;
     private readonly Pen _clipLinePen;
+    private readonly Pen _abLinePen;
+    private readonly Pen _abLineExtendPen;
+    private readonly IBrush _pointABrush;
+    private readonly IBrush _pointBBrush;
     private IImage? _vehicleImage;
 
     // Render timer
@@ -193,6 +201,10 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         _selectionMarkerBrush = new SolidColorBrush(Color.FromRgb(255, 0, 255)); // Magenta selection markers
         _selectionMarkerPen = new Pen(Brushes.White, 2); // White outline
         _clipLinePen = new Pen(Brushes.Red, 3); // Red clip line
+        _abLinePen = new Pen(new SolidColorBrush(Color.FromRgb(255, 165, 0)), 3); // Orange AB line
+        _abLineExtendPen = new Pen(new SolidColorBrush(Color.FromArgb(128, 255, 165, 0)), 1.5); // Semi-transparent extended line
+        _pointABrush = new SolidColorBrush(Color.FromRgb(0, 255, 0)); // Green Point A
+        _pointBBrush = new SolidColorBrush(Color.FromRgb(255, 0, 0)); // Red Point B
 
         // Load vehicle (tractor) image from embedded resources
         LoadVehicleImage();
@@ -278,6 +290,12 @@ public class DrawingContextMapControl : Control, ISharedMapControl
             if (_clipLine.HasValue || (_clipPath != null && _clipPath.Count >= 2))
             {
                 DrawClipLine(context);
+            }
+
+            // Draw AB Line (active line and pending Point A)
+            if (_activeABLine != null || _pendingPointA != null)
+            {
+                DrawABLine(context);
             }
 
             // Draw vehicle (can be hidden for headland editing mode)
@@ -641,6 +659,99 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         context.DrawLine(_clipLinePen, start, end);
     }
 
+    private void DrawABLine(DrawingContext context)
+    {
+        // Calculate scale factor: convert from desired screen size to world units
+        // At zoom=1, viewHeight=200m maps to screen height
+        // For ~0.75mm points at 96 DPI, that's about 3 pixels
+        // worldRadius = screenPixels * (viewHeight / screenHeight)
+        double viewHeight = 200.0 / _zoom;
+        double screenHeight = Bounds.Height > 0 ? Bounds.Height : 600;
+        double worldPerPixel = viewHeight / screenHeight;
+
+        double pointRadius = 4 * worldPerPixel;  // ~4 pixels for point markers
+        double lineThickness = 2 * worldPerPixel; // ~2 pixels for lines
+        double labelOffset = 8 * worldPerPixel;   // Offset for A/B labels
+
+        // Create scaled pens
+        var abLinePenScaled = new Pen(new SolidColorBrush(Color.FromRgb(255, 165, 0)), lineThickness);
+        var abLineExtendPenScaled = new Pen(new SolidColorBrush(Color.FromArgb(128, 255, 165, 0)), lineThickness * 0.5);
+        var pointOutlinePen = new Pen(Brushes.White, lineThickness * 0.5);
+
+        // Draw pending Point A (green marker while waiting for Point B)
+        if (_pendingPointA != null)
+        {
+            var pointA = new Point(_pendingPointA.Easting, _pendingPointA.Northing);
+            context.DrawEllipse(_pointABrush, pointOutlinePen, pointA, pointRadius, pointRadius);
+
+            // Draw "A" label offset to the right
+            DrawLabel(context, "A", pointA.X + labelOffset, pointA.Y, worldPerPixel, Brushes.LimeGreen);
+        }
+
+        // Draw active AB line
+        if (_activeABLine != null)
+        {
+            var pointA = new Point(_activeABLine.PointA.Easting, _activeABLine.PointA.Northing);
+            var pointB = new Point(_activeABLine.PointB.Easting, _activeABLine.PointB.Northing);
+
+            // Calculate heading and extend the line in both directions
+            double dx = pointB.X - pointA.X;
+            double dy = pointB.Y - pointA.Y;
+            double length = Math.Sqrt(dx * dx + dy * dy);
+
+            if (length > 0.01) // Avoid division by zero
+            {
+                // Normalize direction
+                double nx = dx / length;
+                double ny = dy / length;
+
+                // Extend line 500 meters in each direction
+                double extendDistance = 500.0;
+                var extendA = new Point(pointA.X - nx * extendDistance, pointA.Y - ny * extendDistance);
+                var extendB = new Point(pointB.X + nx * extendDistance, pointB.Y + ny * extendDistance);
+
+                // Draw extended line (semi-transparent)
+                context.DrawLine(abLineExtendPenScaled, extendA, extendB);
+            }
+
+            // Draw main AB line (solid orange)
+            context.DrawLine(abLinePenScaled, pointA, pointB);
+
+            // Draw Point A marker (green)
+            context.DrawEllipse(_pointABrush, pointOutlinePen, pointA, pointRadius, pointRadius);
+
+            // Draw Point B marker (red)
+            context.DrawEllipse(_pointBBrush, pointOutlinePen, pointB, pointRadius, pointRadius);
+
+            // Draw labels
+            DrawLabel(context, "A", pointA.X + labelOffset, pointA.Y, worldPerPixel, Brushes.LimeGreen);
+            DrawLabel(context, "B", pointB.X + labelOffset, pointB.Y, worldPerPixel, Brushes.Red);
+        }
+    }
+
+    private void DrawLabel(DrawingContext context, string text, double x, double y, double worldPerPixel, IBrush brush)
+    {
+        // Scale font size based on zoom (target ~12 pixels on screen)
+        double fontSize = 12 * worldPerPixel;
+
+        var typeface = new Typeface("Arial", FontStyle.Normal, FontWeight.Bold);
+        var formattedText = new FormattedText(
+            text,
+            System.Globalization.CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            fontSize,
+            brush);
+
+        // Note: Y is flipped in world coordinates, so we need to handle that
+        // The camera transform already handles the flip, so just draw normally
+        // But text will appear upside down - we need to flip it back
+        using (context.PushTransform(Matrix.CreateScale(1, -1) * Matrix.CreateTranslation(x, y)))
+        {
+            context.DrawText(formattedText, new Point(0, -fontSize));
+        }
+    }
+
     // Mouse event handlers
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -913,6 +1024,17 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     public void SetClipPath(IReadOnlyList<AgValoniaGPS.Models.Base.Vec2>? path)
     {
         _clipPath = path;
+    }
+
+    // AB Line visualization
+    public void SetActiveABLine(AgValoniaGPS.Models.ABLine? abLine)
+    {
+        _activeABLine = abLine;
+    }
+
+    public void SetPendingPointA(AgValoniaGPS.Models.Position? pointA)
+    {
+        _pendingPointA = pointA;
     }
 
     // Mouse interaction support (for external control)

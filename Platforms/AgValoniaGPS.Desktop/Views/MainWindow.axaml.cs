@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -51,6 +52,7 @@ public partial class MainWindow : Window
         if (ViewModel != null)
         {
             ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+            ViewModel.SavedTracks.CollectionChanged += SavedTracks_CollectionChanged;
         }
 
         // Add keyboard shortcut for 3D mode toggle (F3)
@@ -65,6 +67,8 @@ public partial class MainWindow : Window
         {
             LeftNavPanel.DragMoved += LeftNavPanel_DragMoved;
         }
+
+        // Note: BottomNavigationPanel is now a fixed-position panel without drag support
     }
 
     private void MovePanel(Control panel, Vector delta)
@@ -100,6 +104,36 @@ public partial class MainWindow : Window
         {
             var mapService = App.Services.GetRequiredService<AgValoniaGPS.Desktop.Services.MapService>();
             mapService.SetMapControl(MapControl);
+        }
+
+        // Wire up MapClicked event for AB line creation
+        mapControl.MapClicked += OnMapClicked;
+    }
+
+    private void OnMapClicked(object? sender, MapClickEventArgs e)
+    {
+        if (ViewModel == null) return;
+
+        Console.WriteLine($"[OnMapClicked] Mode={ViewModel.CurrentABCreationMode}, Step={ViewModel.CurrentABPointStep}, Easting={e.Easting:F2}, Northing={e.Northing:F2}");
+
+        // For DriveAB mode, we use current GPS position (not the clicked position)
+        // For DrawAB mode, we use the clicked map position
+        if (ViewModel.CurrentABCreationMode == ABCreationMode.DriveAB)
+        {
+            // In DriveAB mode, any tap triggers setting the point at current GPS position
+            Console.WriteLine($"[OnMapClicked] DriveAB - Using GPS position: E={ViewModel.Easting:F2}, N={ViewModel.Northing:F2}");
+            ViewModel.SetABPointCommand?.Execute(null);
+        }
+        else if (ViewModel.CurrentABCreationMode == ABCreationMode.DrawAB)
+        {
+            // In DrawAB mode, pass the clicked map coordinates
+            var mapPosition = new Position
+            {
+                Easting = e.Easting,
+                Northing = e.Northing
+            };
+            Console.WriteLine($"[OnMapClicked] DrawAB - Using map position: E={e.Easting:F2}, N={e.Northing:F2}");
+            ViewModel.SetABPointCommand?.Execute(mapPosition);
         }
     }
 
@@ -353,6 +387,38 @@ public partial class MainWindow : Window
             // Brightness control depends on platform-specific implementation
             // Currently marked as not supported in DisplaySettingsService
         }
+        else if (e.PropertyName == nameof(MainViewModel.EnableABClickSelection))
+        {
+            if (MapControl is DrawingContextMapControl dcMapControl)
+            {
+                dcMapControl.EnableClickSelection = ViewModel?.EnableABClickSelection ?? false;
+            }
+        }
+        else if (e.PropertyName == nameof(MainViewModel.PendingPointA))
+        {
+            // Update map with pending Point A marker
+            if (MapControl is DrawingContextMapControl dcMapControl)
+            {
+                dcMapControl.SetPendingPointA(ViewModel?.PendingPointA);
+            }
+        }
+    }
+
+    private void SavedTracks_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        // When a new track is added, show the most recently active one
+        UpdateActiveABLine();
+    }
+
+    private void UpdateActiveABLine()
+    {
+        if (MapControl is DrawingContextMapControl dcMapControl && ViewModel != null)
+        {
+            // Find the active AB line (or the most recently added one)
+            var activeLine = ViewModel.SavedTracks.FirstOrDefault(t => t.IsActive)
+                          ?? ViewModel.SavedTracks.LastOrDefault();
+            dcMapControl.SetActiveABLine(activeLine);
+        }
     }
 
     // Map overlay event handlers that forward to MapControl
@@ -371,6 +437,16 @@ public partial class MainWindow : Window
 
             if (point.Properties.IsLeftButtonPressed)
             {
+                // In AB creation mode, handle tap for setting points instead of panning
+                if (ViewModel?.EnableABClickSelection == true && MapControl is DrawingContextMapControl dcMapControl)
+                {
+                    // Get the world position from the click and fire MapClicked event
+                    var worldPos = dcMapControl.ScreenToWorld(point.Position.X, point.Position.Y);
+                    OnMapClicked(dcMapControl, new MapClickEventArgs(worldPos.Easting, worldPos.Northing));
+                    e.Handled = true;
+                    return;
+                }
+
                 MapControl.StartPan(point.Position);
                 e.Handled = true;
             }
@@ -456,8 +532,8 @@ public partial class MainWindow : Window
         Canvas.SetTop(LeftNavPanel, newTop);
     }
 
-    // NOTE: All panel drag handlers are now handled by shared controls
-    // via DragMoved events wired up in constructor
+    // NOTE: BottomNavigationPanel is now a fixed-position panel with flyout menu
+    // (no longer draggable - follows AgOpenGPS pattern)
 
     // Helper method to check if pointer is over any UI panel
     private bool IsPointerOverUIPanel(PointerEventArgs e)
@@ -491,6 +567,23 @@ public partial class MainWindow : Window
             if (double.IsNaN(top)) top = 600;
 
             var panelBounds = new Rect(left, top, SectionControlPanel.Bounds.Width, SectionControlPanel.Bounds.Height);
+
+            if (panelBounds.Contains(position))
+            {
+                return true;
+            }
+        }
+
+        // Check bottom navigation panel
+        if (BottomNavPanel != null && BottomNavPanel.IsVisible && BottomNavPanel.Bounds.Width > 0 && BottomNavPanel.Bounds.Height > 0)
+        {
+            double left = Canvas.GetLeft(BottomNavPanel);
+            double top = Canvas.GetTop(BottomNavPanel);
+
+            if (double.IsNaN(left)) left = 400;
+            if (double.IsNaN(top)) top = 650;
+
+            var panelBounds = new Rect(left, top, BottomNavPanel.Bounds.Width, BottomNavPanel.Bounds.Height);
 
             if (panelBounds.Contains(position))
             {

@@ -1,0 +1,171 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
+             xmlns:models="clr-namespace:AgValoniaGPS.Models;assembly=AgValoniaGPS.Models"
+             mc:Ignorable="d" d:DesignWidth="500" d:DesignHeight="400"
+             x:Class="AgValoniaGPS.Views.Controls.Dialogs.TracksDialogPanel"
+             x:DataType="vm:MainViewModel"
+             IsVisible="{Binding IsTracksDialogVisible}"
+             IsHitTestVisible="{Binding IsTracksDialogVisible}">
+
+    <UserControl.Styles>
+        <Style Selector="TextBlock.Header">
+            <Setter Property="Foreground" Value="#3498DB"/>
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style Selector="Button.DialogButton">
+            <Setter Property="Background" Value="#3498DB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Button.DialogButton:pointerover">
+            <Setter Property="Background" Value="#2980B9"/>
+        </Style>
+        <Style Selector="Button.CancelButton">
+            <Setter Property="Background" Value="#5D6D7E"/>
+        </Style>
+        <Style Selector="Button.CancelButton:pointerover">
+            <Setter Property="Background" Value="#4A5A6A"/>
+        </Style>
+        <Style Selector="Button.DangerButton">
+            <Setter Property="Background" Value="#E74C3C"/>
+        </Style>
+        <Style Selector="Button.DangerButton:pointerover">
+            <Setter Property="Background" Value="#C0392B"/>
+        </Style>
+        <Style Selector="Button.ToolbarButton">
+            <Setter Property="Background" Value="#34495E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="48"/>
+            <Setter Property="Height" Value="48"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Button.ToolbarButton:pointerover">
+            <Setter Property="Background" Value="#4A6278"/>
+        </Style>
+        <Style Selector="ListBox">
+            <Setter Property="Background" Value="#1E2930"/>
+            <Setter Property="BorderBrush" Value="#4A5F73"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="ListBoxItem:pointerover">
+            <Setter Property="Background" Value="#2C3E50"/>
+        </Style>
+        <Style Selector="ListBoxItem:selected">
+            <Setter Property="Background" Value="#3498DB"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid>
+        <!-- Semi-transparent backdrop -->
+        <Border Background="#80000000" PointerPressed="Backdrop_PointerPressed"/>
+
+        <!-- Dialog panel -->
+        <Border Background="#2C3E50"
+                CornerRadius="12"
+                BorderBrush="#444"
+                BorderThickness="1"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                MinWidth="420"
+                MaxWidth="550"
+                MaxHeight="500"
+                Padding="16">
+            <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+                <!-- Header -->
+                <TextBlock Grid.Row="0" Classes="Header" Text="AB Line Tracks"/>
+
+                <!-- Toolbar -->
+                <Border Grid.Row="1" Background="#34495E" CornerRadius="6" Padding="4" Margin="0,0,0,12">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <!-- Delete Track -->
+                        <Button Classes="ToolbarButton" ToolTip.Tip="Delete Selected Track"
+                                Command="{Binding DeleteSelectedTrackCommand}">
+                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Cancel64.png"
+                                   Width="28" Height="28" Stretch="Uniform"/>
+                        </Button>
+
+                        <!-- Swap A/B Points -->
+                        <Button Classes="ToolbarButton" ToolTip.Tip="Swap A and B Points"
+                                Command="{Binding SwapABPointsCommand}">
+                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/YouTurnReverse.png"
+                                   Width="28" Height="28" Stretch="Uniform"/>
+                        </Button>
+
+                        <Separator Background="#555" Width="2" Margin="4"/>
+
+                        <!-- Select/Activate Track -->
+                        <Button Classes="ToolbarButton" ToolTip.Tip="Activate Selected Track"
+                                Command="{Binding SelectTrackAsActiveCommand}">
+                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/TrackOn.png"
+                                   Width="28" Height="28" Stretch="Uniform"/>
+                        </Button>
+                    </StackPanel>
+                </Border>
+
+                <!-- Column Headers -->
+                <Border Grid.Row="2" Background="#34495E" CornerRadius="4,4,0,0" Padding="12,8" Margin="0,0,0,0">
+                    <Grid ColumnDefinitions="*,80,60">
+                        <TextBlock Grid.Column="0" Text="Track Name" Foreground="#BDC3C7" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="1" Text="Type" Foreground="#BDC3C7" FontWeight="SemiBold" TextAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="Active" Foreground="#BDC3C7" FontWeight="SemiBold" TextAlignment="Center"/>
+                    </Grid>
+                </Border>
+
+                <!-- Tracks ListBox -->
+                <ListBox x:Name="TracksListBox"
+                         Grid.Row="3"
+                         SelectionMode="Single"
+                         MinHeight="200"
+                         MaxHeight="300"
+                         ItemsSource="{Binding SavedTracks}"
+                         SelectedItem="{Binding SelectedTrack}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="models:ABLine">
+                            <Grid ColumnDefinitions="*,80,60">
+                                <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="White" FontSize="14"
+                                           VerticalAlignment="Center"/>
+                                <Panel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Text="Curve" Foreground="#BDC3C7" FontSize="14" IsVisible="{Binding IsCurve}"/>
+                                    <TextBlock Text="Line" Foreground="#BDC3C7" FontSize="14" IsVisible="{Binding !IsCurve}"/>
+                                </Panel>
+                                <Panel Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Ellipse Width="16" Height="16" Fill="#27AE60" IsVisible="{Binding IsActive}"/>
+                                    <Ellipse Width="16" Height="16" Fill="#7F8C8D" IsVisible="{Binding !IsActive}"/>
+                                </Panel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- Action Buttons -->
+                <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+                    <!-- Spacer -->
+                    <Border Grid.Column="0"/>
+
+                    <!-- Close Button -->
+                    <Button Grid.Column="1" Classes="DialogButton CancelButton" Content="Close"
+                            Command="{Binding CloseTracksDialogCommand}"/>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

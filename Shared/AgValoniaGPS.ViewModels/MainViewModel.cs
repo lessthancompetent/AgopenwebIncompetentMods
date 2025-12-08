@@ -806,6 +806,63 @@ public class MainViewModel : ReactiveObject
             this.RaisePropertyChanged(nameof(WorkedAreaDisplay));
             this.RaisePropertyChanged(nameof(RemainingPercent));
         }
+
+        // Load headland from field directory if available
+        LoadHeadlandFromField(field);
+
+        // Load AB lines from field directory if available
+        LoadABLinesFromField(field);
+    }
+
+    /// <summary>
+    /// Load headland line from field directory
+    /// </summary>
+    private void LoadHeadlandFromField(Field? field)
+    {
+        if (field == null || string.IsNullOrEmpty(field.DirectoryPath))
+        {
+            // Clear headland if no field
+            _currentHeadlandLine = null;
+            _mapService.SetHeadlandLine(null);
+            HasHeadland = false;
+            IsHeadlandOn = false;
+            return;
+        }
+
+        try
+        {
+            var headlandLine = HeadlandLineSerializer.Load(field.DirectoryPath);
+
+            if (headlandLine.Tracks.Count > 0 && headlandLine.Tracks[0].TrackPoints.Count > 0)
+            {
+                // Use direct field assignment to avoid triggering save
+                _currentHeadlandLine = headlandLine.Tracks[0].TrackPoints;
+                _mapService.SetHeadlandLine(_currentHeadlandLine);
+                this.RaisePropertyChanged(nameof(CurrentHeadlandLine));
+
+                HasHeadland = true;
+                IsHeadlandOn = true;
+                HeadlandDistance = headlandLine.Tracks[0].MoveDistance;
+
+                Console.WriteLine($"[Headland] Loaded headland from {field.DirectoryPath} ({_currentHeadlandLine.Count} points)");
+            }
+            else
+            {
+                _currentHeadlandLine = null;
+                _mapService.SetHeadlandLine(null);
+                HasHeadland = false;
+                IsHeadlandOn = false;
+                Console.WriteLine($"[Headland] No headland found in {field.DirectoryPath}");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Console.WriteLine($"[Headland] Failed to load headland: {ex.Message}");
+            _currentHeadlandLine = null;
+            _mapService.SetHeadlandLine(null);
+            HasHeadland = false;
+            IsHeadlandOn = false;
+        }
     }
 
     // ========== View Settings ==========
@@ -900,6 +957,100 @@ public class MainViewModel : ReactiveObject
 
     private string _fieldSelectionDirectory = string.Empty;
     private bool _fieldsSortedAZ = false;
+
+    // Tracks Dialog properties
+    private bool _isTracksDialogVisible;
+    public bool IsTracksDialogVisible
+    {
+        get => _isTracksDialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isTracksDialogVisible, value);
+    }
+
+    // Quick AB Selector properties
+    private bool _isQuickABSelectorVisible;
+    public bool IsQuickABSelectorVisible
+    {
+        get => _isQuickABSelectorVisible;
+        set => this.RaiseAndSetIfChanged(ref _isQuickABSelectorVisible, value);
+    }
+
+    // Draw AB Dialog properties
+    private bool _isDrawABDialogVisible;
+    public bool IsDrawABDialogVisible
+    {
+        get => _isDrawABDialogVisible;
+        set => this.RaiseAndSetIfChanged(ref _isDrawABDialogVisible, value);
+    }
+
+    // AB Line Creation Mode state
+    private ABCreationMode _currentABCreationMode = ABCreationMode.None;
+    public ABCreationMode CurrentABCreationMode
+    {
+        get => _currentABCreationMode;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _currentABCreationMode, value);
+            this.RaisePropertyChanged(nameof(IsCreatingABLine));
+            this.RaisePropertyChanged(nameof(EnableABClickSelection));
+            this.RaisePropertyChanged(nameof(ABCreationInstructions));
+        }
+    }
+
+    private ABPointStep _currentABPointStep = ABPointStep.None;
+    public ABPointStep CurrentABPointStep
+    {
+        get => _currentABPointStep;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _currentABPointStep, value);
+            this.RaisePropertyChanged(nameof(ABCreationInstructions));
+        }
+    }
+
+    // Temporary storage for Point A during AB creation
+    private Position? _pendingPointA;
+    public Position? PendingPointA
+    {
+        get => _pendingPointA;
+        set => this.RaiseAndSetIfChanged(ref _pendingPointA, value);
+    }
+
+    // Computed properties for UI binding
+    public bool IsCreatingABLine => CurrentABCreationMode != ABCreationMode.None;
+
+    public bool EnableABClickSelection => CurrentABCreationMode == ABCreationMode.DrawAB ||
+                                          CurrentABCreationMode == ABCreationMode.DriveAB;
+
+    public string ABCreationInstructions
+    {
+        get
+        {
+            return (CurrentABCreationMode, CurrentABPointStep) switch
+            {
+                (ABCreationMode.DriveAB, ABPointStep.SettingPointA) => "Tap screen to set Point A at current position",
+                (ABCreationMode.DriveAB, ABPointStep.SettingPointB) => "Drive to B, then tap screen to set Point B",
+                (ABCreationMode.DrawAB, ABPointStep.SettingPointA) => "Tap on map to place Point A",
+                (ABCreationMode.DrawAB, ABPointStep.SettingPointB) => "Tap on map to place Point B",
+                (ABCreationMode.Curve, _) => "Drive along curve path, then tap to finish",
+                _ => string.Empty
+            };
+        }
+    }
+
+    // Tracks Dialog data properties
+    public ObservableCollection<ABLine> SavedTracks { get; } = new();
+
+    private ABLine? _selectedTrack;
+    public ABLine? SelectedTrack
+    {
+        get => _selectedTrack;
+        set => this.RaiseAndSetIfChanged(ref _selectedTrack, value);
+    }
+
+    // Track management commands
+    public ICommand? DeleteSelectedTrackCommand { get; private set; }
+    public ICommand? SwapABPointsCommand { get; private set; }
+    public ICommand? SelectTrackAsActiveCommand { get; private set; }
 
     // New Field Dialog properties
     private bool _isNewFieldDialogVisible;
@@ -1501,6 +1652,36 @@ public class MainViewModel : ReactiveObject
         }
     }
 
+    private bool _isSectionControlInHeadland;
+    /// <summary>
+    /// When true, section control remains active in headland area
+    /// </summary>
+    public bool IsSectionControlInHeadland
+    {
+        get => _isSectionControlInHeadland;
+        set => this.RaiseAndSetIfChanged(ref _isSectionControlInHeadland, value);
+    }
+
+    private int _uTurnSkipRows;
+    /// <summary>
+    /// Number of rows to skip during U-turn (0-9)
+    /// </summary>
+    public int UTurnSkipRows
+    {
+        get => _uTurnSkipRows;
+        set => this.RaiseAndSetIfChanged(ref _uTurnSkipRows, Math.Max(0, Math.Min(9, value)));
+    }
+
+    private bool _isUTurnSkipRowsEnabled;
+    /// <summary>
+    /// When true, U-turn skip rows feature is enabled
+    /// </summary>
+    public bool IsUTurnSkipRowsEnabled
+    {
+        get => _isUTurnSkipRowsEnabled;
+        set => this.RaiseAndSetIfChanged(ref _isUTurnSkipRowsEnabled, value);
+    }
+
     private double _headlandDistance = 12.0;
     public double HeadlandDistance
     {
@@ -1523,6 +1704,7 @@ public class MainViewModel : ReactiveObject
         {
             this.RaiseAndSetIfChanged(ref _currentHeadlandLine, value);
             _mapService.SetHeadlandLine(value);
+            SaveHeadlandToFile(value);
         }
     }
 
@@ -1542,6 +1724,37 @@ public class MainViewModel : ReactiveObject
     {
         get => _hasHeadland;
         set => this.RaiseAndSetIfChanged(ref _hasHeadland, value);
+    }
+
+    // Bottom strip state properties (matching AgOpenGPS conditional button visibility)
+    private bool _hasActiveTrack;
+    /// <summary>
+    /// True when an AB line or track is active for guidance (equivalent to AgOpenGPS trk.idx > -1)
+    /// </summary>
+    public bool HasActiveTrack
+    {
+        get => _hasActiveTrack;
+        set => this.RaiseAndSetIfChanged(ref _hasActiveTrack, value);
+    }
+
+    private bool _hasBoundary;
+    /// <summary>
+    /// True when a field boundary exists (equivalent to AgOpenGPS isBnd)
+    /// </summary>
+    public bool HasBoundary
+    {
+        get => _hasBoundary;
+        set => this.RaiseAndSetIfChanged(ref _hasBoundary, value);
+    }
+
+    private bool _isNudgeEnabled;
+    /// <summary>
+    /// True when AB line nudging is enabled (controls visibility of snap/adjust buttons)
+    /// </summary>
+    public bool IsNudgeEnabled
+    {
+        get => _isNudgeEnabled;
+        set => this.RaiseAndSetIfChanged(ref _isNudgeEnabled, value);
     }
 
     /// <summary>
@@ -2048,6 +2261,8 @@ public class MainViewModel : ReactiveObject
     // Headland commands
     public ICommand? ShowHeadlandBuilderCommand { get; private set; }
     public ICommand? ToggleHeadlandCommand { get; private set; }
+    public ICommand? ToggleSectionInHeadlandCommand { get; private set; }
+    public ICommand? ResetToolHeadingCommand { get; private set; }
     public ICommand? BuildHeadlandCommand { get; private set; }
     public ICommand? ClearHeadlandCommand { get; private set; }
     public ICommand? CloseHeadlandBuilderCommand { get; private set; }
@@ -2069,6 +2284,46 @@ public class MainViewModel : ReactiveObject
     public ICommand? ClipHeadlandLineCommand { get; private set; }
     public ICommand? UndoHeadlandCommand { get; private set; }
     public ICommand? TurnOffHeadlandCommand { get; private set; }
+
+    // AB Line Guidance Commands - Bottom Bar (always visible)
+    public ICommand? SnapLeftCommand { get; private set; }
+    public ICommand? SnapRightCommand { get; private set; }
+    public ICommand? StopGuidanceCommand { get; private set; }
+    public ICommand? UTurnCommand { get; private set; }
+
+    // AB Line Guidance Commands - Flyout Menu
+    public ICommand? ShowTracksDialogCommand { get; private set; }
+    public ICommand? ShowQuickABSelectorCommand { get; private set; }
+    public ICommand? ShowDrawABDialogCommand { get; private set; }
+    public ICommand? CloseTracksDialogCommand { get; private set; }
+    public ICommand? CloseQuickABSelectorCommand { get; private set; }
+    public ICommand? CloseDrawABDialogCommand { get; private set; }
+    public ICommand? StartNewABLineCommand { get; private set; }
+    public ICommand? StartNewABCurveCommand { get; private set; }
+    public ICommand? StartAPlusLineCommand { get; private set; }
+    public ICommand? StartDriveABCommand { get; private set; }
+    public ICommand? StartCurveRecordingCommand { get; private set; }
+    public ICommand? CycleABLinesCommand { get; private set; }
+    public ICommand? SmoothABLineCommand { get; private set; }
+    public ICommand? NudgeLeftCommand { get; private set; }
+    public ICommand? NudgeRightCommand { get; private set; }
+    public ICommand? FineNudgeLeftCommand { get; private set; }
+    public ICommand? FineNudgeRightCommand { get; private set; }
+    public ICommand? StartDrawABModeCommand { get; private set; }
+    public ICommand? SetABPointCommand { get; private set; }
+    public ICommand? CancelABCreationCommand { get; private set; }
+
+    // Bottom Strip Commands (matching AgOpenGPS panelBottom)
+    public ICommand? ChangeMappingColorCommand { get; private set; }
+    public ICommand? SnapToPivotCommand { get; private set; }
+    public ICommand? ToggleYouSkipCommand { get; private set; }
+    public ICommand? ToggleUTurnSkipRowsCommand { get; private set; }
+
+    // Flags Commands
+    public ICommand? PlaceRedFlagCommand { get; private set; }
+    public ICommand? PlaceGreenFlagCommand { get; private set; }
+    public ICommand? PlaceYellowFlagCommand { get; private set; }
+    public ICommand? DeleteAllFlagsCommand { get; private set; }
 
     private void InitializeCommands()
     {
@@ -2318,6 +2573,15 @@ public class MainViewModel : ReactiveObject
 
             // Try to load background image from field
             LoadBackgroundImage(fieldPath, boundary);
+
+            // Set the active field so headland and other field-specific data loads
+            var field = new Field
+            {
+                Name = SelectedFieldInfo.Name,
+                DirectoryPath = fieldPath,
+                Boundary = boundary
+            };
+            _fieldService.SetActiveField(field);
 
             IsFieldSelectionDialogVisible = false;
             IsJobMenuPanelVisible = false;
@@ -3062,6 +3326,18 @@ public class MainViewModel : ReactiveObject
             IsHeadlandOn = !IsHeadlandOn;
         });
 
+        ToggleSectionInHeadlandCommand = new RelayCommand(() =>
+        {
+            IsSectionControlInHeadland = !IsSectionControlInHeadland;
+            StatusMessage = IsSectionControlInHeadland ? "Section control in headland: ON" : "Section control in headland: OFF";
+        });
+
+        ResetToolHeadingCommand = new RelayCommand(() =>
+        {
+            // Reset tool heading to be directly behind tractor
+            StatusMessage = "Tool heading reset";
+        });
+
         BuildHeadlandCommand = new RelayCommand(() =>
         {
             BuildHeadlandFromBoundary();
@@ -3197,6 +3473,304 @@ public class MainViewModel : ReactiveObject
             StatusMessage = "Headland turned off";
         });
 
+        // AB Line Guidance Commands - Bottom Bar
+        SnapLeftCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Snap to Left Track - not yet implemented";
+        });
+
+        SnapRightCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Snap to Right Track - not yet implemented";
+        });
+
+        StopGuidanceCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Guidance Stopped";
+        });
+
+        UTurnCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "U-Turn - not yet implemented";
+        });
+
+        // AB Line Guidance Commands - Flyout Menu
+        ShowTracksDialogCommand = new RelayCommand(() =>
+        {
+            IsTracksDialogVisible = true;
+        });
+
+        CloseTracksDialogCommand = new RelayCommand(() =>
+        {
+            IsTracksDialogVisible = false;
+        });
+
+        // Track management commands
+        DeleteSelectedTrackCommand = new RelayCommand(() =>
+        {
+            if (SelectedTrack != null)
+            {
+                SavedTracks.Remove(SelectedTrack);
+                SelectedTrack = null;
+                SaveABLinesToFile(); // Persist deletion to disk
+                StatusMessage = "Track deleted";
+            }
+        });
+
+        SwapABPointsCommand = new RelayCommand(() =>
+        {
+            if (SelectedTrack != null)
+            {
+                // Swap A and B points
+                var temp = SelectedTrack.PointA;
+                SelectedTrack.PointA = SelectedTrack.PointB;
+                SelectedTrack.PointB = temp;
+                // Reverse heading by 180 degrees
+                SelectedTrack.Heading = (SelectedTrack.Heading + 180) % 360;
+                StatusMessage = $"Swapped A/B points for {SelectedTrack.Name}";
+            }
+        });
+
+        SelectTrackAsActiveCommand = new RelayCommand(() =>
+        {
+            if (SelectedTrack != null)
+            {
+                // Deactivate all tracks first
+                foreach (var track in SavedTracks)
+                {
+                    track.IsActive = false;
+                }
+                // Activate the selected track
+                SelectedTrack.IsActive = true;
+                HasActiveTrack = true;
+                StatusMessage = $"Activated track: {SelectedTrack.Name}";
+                IsTracksDialogVisible = false;
+            }
+        });
+
+        ShowQuickABSelectorCommand = new RelayCommand(() =>
+        {
+            IsQuickABSelectorVisible = true;
+        });
+
+        CloseQuickABSelectorCommand = new RelayCommand(() =>
+        {
+            IsQuickABSelectorVisible = false;
+        });
+
+        ShowDrawABDialogCommand = new RelayCommand(() =>
+        {
+            IsDrawABDialogVisible = true;
+        });
+
+        CloseDrawABDialogCommand = new RelayCommand(() =>
+        {
+            IsDrawABDialogVisible = false;
+        });
+
+        StartNewABLineCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Starting new AB Line - not yet implemented";
+        });
+
+        StartNewABCurveCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Starting new AB Curve - not yet implemented";
+        });
+
+        // Quick AB Mode Commands
+        StartAPlusLineCommand = new RelayCommand(() =>
+        {
+            IsQuickABSelectorVisible = false;
+            StatusMessage = "A+ Line mode: Line created from current position and heading";
+            // TODO: Create AB line from current position using current heading
+        });
+
+        StartDriveABCommand = new RelayCommand(() =>
+        {
+            IsQuickABSelectorVisible = false;
+            CurrentABCreationMode = ABCreationMode.DriveAB;
+            CurrentABPointStep = ABPointStep.SettingPointA;
+            PendingPointA = null;
+            StatusMessage = ABCreationInstructions;
+        });
+
+        StartCurveRecordingCommand = new RelayCommand(() =>
+        {
+            IsQuickABSelectorVisible = false;
+            StatusMessage = "Curve mode: Start driving to record curve path";
+            // TODO: Start curve recording mode
+        });
+
+        StartDrawABModeCommand = new RelayCommand(() =>
+        {
+            IsDrawABDialogVisible = false;
+            CurrentABCreationMode = ABCreationMode.DrawAB;
+            CurrentABPointStep = ABPointStep.SettingPointA;
+            PendingPointA = null;
+            StatusMessage = ABCreationInstructions;
+        });
+
+        // SetABPointCommand is called when user taps during AB creation mode
+        // For DriveAB mode: uses current GPS position
+        // For DrawAB mode: uses the tapped map coordinates (passed as parameter)
+        SetABPointCommand = new RelayCommand<object?>(param =>
+        {
+            System.Console.WriteLine($"[SetABPointCommand] Called with param={param?.GetType().Name ?? "null"}, Mode={CurrentABCreationMode}, Step={CurrentABPointStep}");
+
+            if (CurrentABCreationMode == ABCreationMode.None)
+            {
+                System.Console.WriteLine("[SetABPointCommand] Mode is None, returning");
+                return;
+            }
+
+            Position pointToSet;
+
+            if (CurrentABCreationMode == ABCreationMode.DriveAB)
+            {
+                // Use current GPS position
+                pointToSet = new Position
+                {
+                    Latitude = Latitude,
+                    Longitude = Longitude,
+                    Easting = Easting,
+                    Northing = Northing,
+                    Heading = Heading
+                };
+                System.Console.WriteLine($"[SetABPointCommand] DriveAB - GPS position: E={Easting:F2}, N={Northing:F2}");
+            }
+            else if (CurrentABCreationMode == ABCreationMode.DrawAB && param is Position mapPos)
+            {
+                // Use the tapped map position
+                pointToSet = mapPos;
+                System.Console.WriteLine($"[SetABPointCommand] DrawAB - Map position: E={mapPos.Easting:F2}, N={mapPos.Northing:F2}");
+            }
+            else
+            {
+                System.Console.WriteLine($"[SetABPointCommand] Invalid state - returning");
+                return; // Invalid state
+            }
+
+            if (CurrentABPointStep == ABPointStep.SettingPointA)
+            {
+                // Store Point A and move to Point B
+                PendingPointA = pointToSet;
+                CurrentABPointStep = ABPointStep.SettingPointB;
+                StatusMessage = ABCreationInstructions;
+                System.Console.WriteLine($"[SetABPointCommand] Set Point A: E={pointToSet.Easting:F2}, N={pointToSet.Northing:F2}");
+            }
+            else if (CurrentABPointStep == ABPointStep.SettingPointB)
+            {
+                // Create the AB line with Point A and Point B
+                if (PendingPointA != null)
+                {
+                    var heading = CalculateHeading(PendingPointA, pointToSet);
+                    var newLine = new ABLine
+                    {
+                        Name = $"AB_{heading:F1}° {DateTime.Now:HH:mm:ss}",
+                        PointA = PendingPointA,
+                        PointB = pointToSet,
+                        Heading = heading,
+                        IsCurve = false,
+                        IsActive = true
+                    };
+
+                    SavedTracks.Add(newLine);
+                    SaveABLinesToFile(); // Persist to disk
+                    StatusMessage = $"Created AB line: {newLine.Name} ({newLine.Heading:F1}°)";
+                    System.Console.WriteLine($"[SetABPointCommand] Created AB Line: {newLine.Name}, A=({PendingPointA.Easting:F2},{PendingPointA.Northing:F2}), B=({pointToSet.Easting:F2},{pointToSet.Northing:F2}), Heading={newLine.Heading:F1}°");
+
+                    // Reset state
+                    CurrentABCreationMode = ABCreationMode.None;
+                    CurrentABPointStep = ABPointStep.None;
+                    PendingPointA = null;
+                }
+            }
+        });
+
+        CancelABCreationCommand = new RelayCommand(() =>
+        {
+            CurrentABCreationMode = ABCreationMode.None;
+            CurrentABPointStep = ABPointStep.None;
+            PendingPointA = null;
+            StatusMessage = "AB line creation cancelled";
+        });
+
+        CycleABLinesCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Cycle AB Lines - not yet implemented";
+        });
+
+        SmoothABLineCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Smooth AB Line - not yet implemented";
+        });
+
+        NudgeLeftCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Nudge Left - not yet implemented";
+        });
+
+        NudgeRightCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Nudge Right - not yet implemented";
+        });
+
+        FineNudgeLeftCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Fine Nudge Left - not yet implemented";
+        });
+
+        FineNudgeRightCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Fine Nudge Right - not yet implemented";
+        });
+
+        // Bottom Strip Commands (matching AgOpenGPS panelBottom)
+        ChangeMappingColorCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Section Mapping Color - not yet implemented";
+        });
+
+        SnapToPivotCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Snap to Pivot - not yet implemented";
+        });
+
+        ToggleYouSkipCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "YouSkip Toggle - not yet implemented";
+        });
+
+        ToggleUTurnSkipRowsCommand = new RelayCommand(() =>
+        {
+            IsUTurnSkipRowsEnabled = !IsUTurnSkipRowsEnabled;
+            StatusMessage = IsUTurnSkipRowsEnabled
+                ? $"U-Turn skip rows: ON ({UTurnSkipRows} rows)"
+                : "U-Turn skip rows: OFF";
+        });
+
+        // Flags Commands
+        PlaceRedFlagCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Place Red Flag - not yet implemented";
+        });
+
+        PlaceGreenFlagCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Place Green Flag - not yet implemented";
+        });
+
+        PlaceYellowFlagCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Place Yellow Flag - not yet implemented";
+        });
+
+        DeleteAllFlagsCommand = new RelayCommand(() =>
+        {
+            StatusMessage = "Delete All Flags - not yet implemented";
+        });
+
         // Field Commands
         CloseFieldCommand = new RelayCommand(() =>
         {
@@ -3257,6 +3831,15 @@ public class MainViewModel : ReactiveObject
 
                 // Load background image from field
                 LoadBackgroundImage(fieldPath, boundary);
+
+                // Set the active field so headland and other field-specific data loads
+                var field = new Field
+                {
+                    Name = lastField,
+                    DirectoryPath = fieldPath,
+                    Boundary = boundary
+                };
+                _fieldService.SetActiveField(field);
 
                 IsJobMenuPanelVisible = false;
                 StatusMessage = $"Resumed field: {lastField}";
@@ -4610,6 +5193,19 @@ public class MainViewModel : ReactiveObject
     }
 
     /// <summary>
+    /// Calculate heading (in degrees) from point A to point B using Easting/Northing
+    /// </summary>
+    private double CalculateHeading(Position pointA, Position pointB)
+    {
+        double dx = pointB.Easting - pointA.Easting;
+        double dy = pointB.Northing - pointA.Northing;
+        double headingRadians = System.Math.Atan2(dx, dy); // atan2(east, north) for navigation heading
+        double headingDegrees = headingRadians * 180.0 / System.Math.PI;
+        if (headingDegrees < 0) headingDegrees += 360.0;
+        return headingDegrees;
+    }
+
+    /// <summary>
     /// Calculate the total length of a path
     /// </summary>
     private double CalculatePathLength(List<Models.Base.Vec2> path)
@@ -4902,6 +5498,168 @@ public class MainViewModel : ReactiveObject
         Console.WriteLine($"[Headland] BuildClipPath(forward={forward}): {path.Count} points, cut1 seg={cut1.segmentIndex}, cut2 seg={cut2.segmentIndex}");
 
         return path;
+    }
+
+    /// <summary>
+    /// Save headland line to file in the active field directory
+    /// </summary>
+    private void SaveHeadlandToFile(List<Models.Base.Vec3>? headlandPoints)
+    {
+        var activeField = _fieldService.ActiveField;
+        if (activeField == null || string.IsNullOrEmpty(activeField.DirectoryPath))
+        {
+            return; // No active field to save to
+        }
+
+        try
+        {
+            var headlandLine = new Models.Guidance.HeadlandLine();
+
+            if (headlandPoints != null && headlandPoints.Count > 0)
+            {
+                var headlandPath = new Models.Guidance.HeadlandPath
+                {
+                    Name = "Headland",
+                    TrackPoints = headlandPoints,
+                    MoveDistance = HeadlandDistance,
+                    Mode = 0,
+                    APointIndex = 0
+                };
+                headlandLine.Tracks.Add(headlandPath);
+            }
+
+            HeadlandLineSerializer.Save(activeField.DirectoryPath, headlandLine);
+            Console.WriteLine($"[Headland] Saved headland to {activeField.DirectoryPath} ({headlandPoints?.Count ?? 0} points)");
+        }
+        catch (System.Exception ex)
+        {
+            Console.WriteLine($"[Headland] Failed to save headland: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Save AB lines to file in the active field directory
+    /// Extended format: Name,Heading,PointA_Easting,PointA_Northing,PointB_Easting,PointB_Northing
+    /// </summary>
+    private void SaveABLinesToFile()
+    {
+        var activeField = _fieldService.ActiveField;
+        if (activeField == null || string.IsNullOrEmpty(activeField.DirectoryPath))
+        {
+            return; // No active field to save to
+        }
+
+        try
+        {
+            var filePath = System.IO.Path.Combine(activeField.DirectoryPath, "ABLines.txt");
+            var lines = new System.Collections.Generic.List<string>();
+
+            foreach (var track in SavedTracks)
+            {
+                if (!track.IsCurve)
+                {
+                    // Format: Name,Heading,PointA_Easting,PointA_Northing,PointB_Easting,PointB_Northing
+                    var line = $"{track.Name},{track.Heading:F5},{track.PointA.Easting:F3},{track.PointA.Northing:F3},{track.PointB.Easting:F3},{track.PointB.Northing:F3}";
+                    lines.Add(line);
+                }
+            }
+
+            System.IO.File.WriteAllLines(filePath, lines);
+            Console.WriteLine($"[ABLines] Saved {lines.Count} AB lines to {filePath}");
+        }
+        catch (System.Exception ex)
+        {
+            Console.WriteLine($"[ABLines] Failed to save AB lines: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Load AB lines from field directory
+    /// Supports extended format with Point B, or legacy format (calculates Point B from heading)
+    /// </summary>
+    private void LoadABLinesFromField(Field? field)
+    {
+        // Clear existing tracks
+        SavedTracks.Clear();
+
+        if (field == null || string.IsNullOrEmpty(field.DirectoryPath))
+        {
+            Console.WriteLine("[ABLines] No field directory to load from");
+            return;
+        }
+
+        var filePath = System.IO.Path.Combine(field.DirectoryPath, "ABLines.txt");
+        if (!System.IO.File.Exists(filePath))
+        {
+            Console.WriteLine($"[ABLines] No ABLines.txt found in {field.DirectoryPath}");
+            return;
+        }
+
+        try
+        {
+            var lines = System.IO.File.ReadAllLines(filePath);
+            int loadedCount = 0;
+
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                var parts = line.Split(',');
+                if (parts.Length >= 4)
+                {
+                    // Parse: Name,Heading,PointA_Easting,PointA_Northing[,PointB_Easting,PointB_Northing]
+                    var name = parts[0];
+                    if (double.TryParse(parts[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var heading) &&
+                        double.TryParse(parts[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var eastingA) &&
+                        double.TryParse(parts[3], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var northingA))
+                    {
+                        double eastingB, northingB;
+
+                        // Check if Point B is included in the file (extended format)
+                        if (parts.Length >= 6 &&
+                            double.TryParse(parts[4], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out eastingB) &&
+                            double.TryParse(parts[5], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out northingB))
+                        {
+                            // Use stored Point B
+                        }
+                        else
+                        {
+                            // Legacy format: Calculate Point B from Point A and heading
+                            var headingRad = heading * Math.PI / 180.0;
+                            var lineLength = 100.0; // 100m extension for legacy format
+                            eastingB = eastingA + Math.Sin(headingRad) * lineLength;
+                            northingB = northingA + Math.Cos(headingRad) * lineLength;
+                        }
+
+                        var abLine = new ABLine
+                        {
+                            Name = name,
+                            PointA = new Position { Easting = eastingA, Northing = northingA },
+                            PointB = new Position { Easting = eastingB, Northing = northingB },
+                            Heading = heading,
+                            IsCurve = false,
+                            IsActive = loadedCount == 0 // First line is active by default
+                        };
+
+                        SavedTracks.Add(abLine);
+                        loadedCount++;
+                    }
+                }
+            }
+
+            Console.WriteLine($"[ABLines] Loaded {loadedCount} AB lines from {filePath}");
+
+            // Set HasActiveTrack if we loaded any lines (first line is active by default)
+            if (loadedCount > 0)
+            {
+                HasActiveTrack = true;
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Console.WriteLine($"[ABLines] Failed to load AB lines: {ex.Message}");
+        }
     }
 }
 
