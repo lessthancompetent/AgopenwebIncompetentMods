@@ -394,6 +394,43 @@ public class MainViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _isAutoSteerDataOk, value);
     }
 
+    // Right Navigation Panel Properties
+    private bool _isContourModeOn;
+    private bool _isManualSectionMode;
+    private bool _isSectionMasterOn = true; // Default on
+    private bool _isAutoSteerAvailable;
+    private bool _isAutoSteerEngaged;
+
+    public bool IsContourModeOn
+    {
+        get => _isContourModeOn;
+        set => this.RaiseAndSetIfChanged(ref _isContourModeOn, value);
+    }
+
+    public bool IsManualSectionMode
+    {
+        get => _isManualSectionMode;
+        set => this.RaiseAndSetIfChanged(ref _isManualSectionMode, value);
+    }
+
+    public bool IsSectionMasterOn
+    {
+        get => _isSectionMasterOn;
+        set => this.RaiseAndSetIfChanged(ref _isSectionMasterOn, value);
+    }
+
+    public bool IsAutoSteerAvailable
+    {
+        get => _isAutoSteerAvailable;
+        set => this.RaiseAndSetIfChanged(ref _isAutoSteerAvailable, value);
+    }
+
+    public bool IsAutoSteerEngaged
+    {
+        get => _isAutoSteerEngaged;
+        set => this.RaiseAndSetIfChanged(ref _isAutoSteerEngaged, value);
+    }
+
     // Machine Hello and Data properties
     public bool IsMachineHelloOk
     {
@@ -2325,6 +2362,12 @@ public class MainViewModel : ReactiveObject
     public ICommand? PlaceYellowFlagCommand { get; private set; }
     public ICommand? DeleteAllFlagsCommand { get; private set; }
 
+    // Right Navigation Panel Commands
+    public ICommand? ToggleContourModeCommand { get; private set; }
+    public ICommand? ToggleManualModeCommand { get; private set; }
+    public ICommand? ToggleSectionMasterCommand { get; private set; }
+    public ICommand? ToggleAutoSteerCommand { get; private set; }
+
     private void InitializeCommands()
     {
         // Use simple RelayCommand to avoid ReactiveCommand threading issues
@@ -3543,6 +3586,7 @@ public class MainViewModel : ReactiveObject
                 // Activate the selected track
                 SelectedTrack.IsActive = true;
                 HasActiveTrack = true;
+                IsAutoSteerAvailable = true;
                 StatusMessage = $"Activated track: {SelectedTrack.Name}";
                 IsTracksDialogVisible = false;
             }
@@ -3677,6 +3721,8 @@ public class MainViewModel : ReactiveObject
 
                     SavedTracks.Add(newLine);
                     SaveABLinesToFile(); // Persist to disk
+                    HasActiveTrack = true;
+                    IsAutoSteerAvailable = true;
                     StatusMessage = $"Created AB line: {newLine.Name} ({newLine.Heading:F1}°)";
                     System.Console.WriteLine($"[SetABPointCommand] Created AB Line: {newLine.Name}, A=({PendingPointA.Easting:F2},{PendingPointA.Northing:F2}), B=({pointToSet.Easting:F2},{pointToSet.Northing:F2}), Heading={newLine.Heading:F1}°");
 
@@ -3769,6 +3815,36 @@ public class MainViewModel : ReactiveObject
         DeleteAllFlagsCommand = new RelayCommand(() =>
         {
             StatusMessage = "Delete All Flags - not yet implemented";
+        });
+
+        // Right Navigation Panel Commands
+        ToggleContourModeCommand = new RelayCommand(() =>
+        {
+            IsContourModeOn = !IsContourModeOn;
+            StatusMessage = IsContourModeOn ? "Contour mode ON" : "Contour mode OFF";
+        });
+
+        ToggleManualModeCommand = new RelayCommand(() =>
+        {
+            IsManualSectionMode = !IsManualSectionMode;
+            StatusMessage = IsManualSectionMode ? "Manual section mode ON" : "Manual section mode OFF";
+        });
+
+        ToggleSectionMasterCommand = new RelayCommand(() =>
+        {
+            IsSectionMasterOn = !IsSectionMasterOn;
+            StatusMessage = IsSectionMasterOn ? "Section master ON" : "Section master OFF";
+        });
+
+        ToggleAutoSteerCommand = new RelayCommand(() =>
+        {
+            if (!IsAutoSteerAvailable)
+            {
+                StatusMessage = "AutoSteer not available - no active track";
+                return;
+            }
+            IsAutoSteerEngaged = !IsAutoSteerEngaged;
+            StatusMessage = IsAutoSteerEngaged ? "AutoSteer ENGAGED" : "AutoSteer disengaged";
         });
 
         // Field Commands
@@ -5654,6 +5730,7 @@ public class MainViewModel : ReactiveObject
             if (loadedCount > 0)
             {
                 HasActiveTrack = true;
+                IsAutoSteerAvailable = true;
             }
         }
         catch (System.Exception ex)

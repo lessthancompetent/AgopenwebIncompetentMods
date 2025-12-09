@@ -1,0 +1,135 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:AgValoniaGPS.ViewModels"
+             xmlns:converters="using:AgValoniaGPS.Views.Converters"
+             mc:Ignorable="d"
+             x:Class="AgValoniaGPS.Views.Controls.Panels.RightNavigationPanel"
+             x:DataType="vm:MainViewModel"
+             ClipToBounds="False"
+             Background="{x:Null}"
+             IsHitTestVisible="True">
+
+    <UserControl.Resources>
+        <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <!-- Floating Panel Style -->
+        <Style Selector="Border.FloatingPanel">
+            <Setter Property="Background" Value="#DD1E2A38"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="BorderBrush" Value="#444"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <!-- Right Panel Button Style -->
+        <Style Selector="Button.RightPanelButton">
+            <Setter Property="Background" Value="#DD34495E"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Width" Value="64"/>
+            <Setter Property="Height" Value="64"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.RightPanelButton:pointerover">
+            <Setter Property="Background" Value="#DD475A6E"/>
+        </Style>
+        <Style Selector="Button.RightPanelButton:pressed">
+            <Setter Property="Background" Value="#DD3E5872"/>
+        </Style>
+
+        <!-- Active State for toggle buttons -->
+        <Style Selector="Button.RightPanelButton.Active">
+            <Setter Property="Background" Value="#DD2ECC71"/>
+        </Style>
+        <Style Selector="Button.RightPanelButton.Active:pointerover">
+            <Setter Property="Background" Value="#DD27AE60"/>
+        </Style>
+
+        <!-- Right Panel Separator -->
+        <Style Selector="Separator.RightPanelSeparator">
+            <Setter Property="Background" Value="#444"/>
+            <Setter Property="Height" Value="2"/>
+            <Setter Property="Margin" Value="8,4"/>
+        </Style>
+    </UserControl.Styles>
+
+    <!-- Navigation Button Bar -->
+    <Border x:Name="MainPanel" Classes="FloatingPanel">
+        <StackPanel x:Name="ButtonStack" Spacing="6" Orientation="Vertical">
+            <!-- Touch Handle: Tap to rotate, Hold to drag -->
+            <Grid x:Name="DragHandle" Height="40" Margin="0"
+                  Background="#DD2C3E50"
+                  Cursor="Hand"
+                  ToolTip.Tip="Tap to rotate | Hold and drag to move">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                    <TextBlock Text="=" Foreground="#AAA" FontSize="20" FontWeight="Bold" IsHitTestVisible="False"/>
+                    <TextBlock Text="R" Foreground="#AAA" FontSize="18" FontWeight="Bold" IsHitTestVisible="False"/>
+                </StackPanel>
+            </Grid>
+
+            <Separator Classes="RightPanelSeparator" Margin="0,4,0,4"/>
+
+            <!-- 1. Contour/Track Mode Toggle -->
+            <Button Classes="RightPanelButton" ToolTip.Tip="Contour Mode On/Off"
+                    Command="{Binding ToggleContourModeCommand}">
+                <Panel>
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ContourOn.png" Stretch="Uniform"
+                           IsVisible="{Binding IsContourModeOn}"/>
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ContourOff.png" Stretch="Uniform"
+                           IsVisible="{Binding IsContourModeOn, Converter={StaticResource InverseBoolConverter}}"/>
+                </Panel>
+            </Button>
+
+            <!-- 2. Manual Mode Toggle -->
+            <Button Classes="RightPanelButton" ToolTip.Tip="Manual Sections On/Off"
+                    Command="{Binding ToggleManualModeCommand}">
+                <Panel>
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ManualOn.png" Stretch="Uniform"
+                           IsVisible="{Binding IsManualSectionMode}"/>
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ManualOff.png" Stretch="Uniform"
+                           IsVisible="{Binding IsManualSectionMode, Converter={StaticResource InverseBoolConverter}}"/>
+                </Panel>
+            </Button>
+
+            <!-- 3. Section Master Toggle -->
+            <Button Classes="RightPanelButton" ToolTip.Tip="Section Master On/Off"
+                    Command="{Binding ToggleSectionMasterCommand}">
+                <Panel>
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SectionMasterOn.png" Stretch="Uniform"
+                           IsVisible="{Binding IsSectionMasterOn}"/>
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SectionMasterOff.png" Stretch="Uniform"
+                           IsVisible="{Binding IsSectionMasterOn, Converter={StaticResource InverseBoolConverter}}"/>
+                </Panel>
+            </Button>
+
+            <!-- 4. AutoSteer Toggle (3 states: Gray=disabled, Off=ready, On=active) -->
+            <Button Classes="RightPanelButton" ToolTip.Tip="AutoSteer"
+                    Command="{Binding ToggleAutoSteerCommand}"
+                    IsEnabled="{Binding IsAutoSteerAvailable}">
+                <Panel>
+                    <!-- Gray when no track available -->
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/AutoSteerGray.png" Stretch="Uniform"
+                           IsVisible="{Binding IsAutoSteerAvailable, Converter={StaticResource InverseBoolConverter}}"/>
+                    <!-- On when autosteer is engaged -->
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/AutoSteerOn.png" Stretch="Uniform"
+                           IsVisible="{Binding IsAutoSteerEngaged}"/>
+                    <!-- Off when available but not engaged -->
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/AutoSteerOff.png" Stretch="Uniform">
+                        <Image.IsVisible>
+                            <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                <Binding Path="IsAutoSteerAvailable"/>
+                                <Binding Path="IsAutoSteerEngaged" Converter="{StaticResource InverseBoolConverter}"/>
+                            </MultiBinding>
+                        </Image.IsVisible>
+                    </Image>
+                </Panel>
+            </Button>
+
+        </StackPanel>
+    </Border>
+</UserControl>

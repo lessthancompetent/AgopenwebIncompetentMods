@@ -124,43 +124,18 @@
             </StackPanel>
         </Border>
 
-        <!-- TOP-RIGHT PANEL: Quick Actions -->
-        <Border Classes="FloatingPanel"
-                ZIndex="10"
-                Margin="20"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Top"
-                IsHitTestVisible="True">
-            <StackPanel Spacing="8">
-                <!-- GPS Status Button (shows fix quality color) -->
-                <Button Width="48" Height="48"
-                        CornerRadius="8"
-                        Padding="0"
-                        BorderThickness="0"
-                        Background="{Binding FixQuality, Converter={StaticResource FixQualityToColorConverter}}"
-                        ToolTip.Tip="Data I/O Configuration"
-                        Command="{Binding ShowDataIODialogCommand}">
-                    <TextBlock Text="GPS" FontSize="12" FontWeight="Bold" Foreground="Black"/>
-                </Button>
+        <!-- Draggable Navigation Panels (using Canvas for absolute positioning) -->
+        <Canvas ZIndex="10">
+            <!-- LEFT SIDEBAR: Main Navigation Panel (Draggable & Rotatable) -->
+            <panels:LeftNavigationPanel x:Name="LeftNavPanel"
+                                        Canvas.Left="20" Canvas.Top="100"
+                                        DataContext="{Binding}"/>
 
-                <Separator Height="1" Background="#444" Margin="4,4"/>
-                <Button Classes="IconButton" Content="⚙️" ToolTip.Tip="Settings"/>
-                <Button Classes="IconButton" Content="📁" ToolTip.Tip="Fields" Command="{Binding ShowFieldSelectionDialogCommand}"/>
-                <Button Classes="IconButton" Content="🎬" ToolTip.Tip="Toggle 2D/3D View (F3)" Command="{Binding Toggle3DModeCommand}"/>
-                <Separator Height="1" Background="#444" Margin="4,4"/>
-                <Button Classes="IconButton" Content="+" ToolTip.Tip="Zoom In" Command="{Binding ZoomInCommand}"/>
-                <Button Classes="IconButton" Content="-" ToolTip.Tip="Zoom Out" Command="{Binding ZoomOutCommand}"/>
-            </StackPanel>
-        </Border>
-
-        <!-- LEFT SIDEBAR: Main Navigation Panel (Draggable & Rotatable) -->
-        <panels:LeftNavigationPanel x:Name="LeftNavPanel"
-                                    Margin="20,100,0,0"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Top"
-                                    ZIndex="10"
-                                    DataContext="{Binding}"/>
-
+            <!-- RIGHT SIDEBAR: Guidance Control Panel (Draggable & Rotatable) -->
+            <panels:RightNavigationPanel x:Name="RightNavPanel"
+                                         Canvas.Right="20" Canvas.Top="100"
+                                         DataContext="{Binding}"/>
+        </Canvas>
 
         <!-- BOTTOM BAR: AB Line Guidance Panel (positioned from bottom) -->
         <panels:BottomNavigationPanel x:Name="BottomNavPanel"

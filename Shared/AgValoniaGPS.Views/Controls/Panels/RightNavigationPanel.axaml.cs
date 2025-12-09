@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -7,7 +8,7 @@ using Avalonia.Threading;
 
 namespace AgValoniaGPS.Views.Controls.Panels;
 
-public partial class LeftNavigationPanel : UserControl
+public partial class RightNavigationPanel : UserControl
 {
     // Drag state
     private bool _isDragging = false;
@@ -23,7 +24,7 @@ public partial class LeftNavigationPanel : UserControl
     /// </summary>
     public event EventHandler<Point>? DragMoved;
 
-    public LeftNavigationPanel()
+    public RightNavigationPanel()
     {
         InitializeComponent();
 
@@ -42,41 +43,6 @@ public partial class LeftNavigationPanel : UserControl
             Interval = TimeSpan.FromMilliseconds(300)
         };
         _holdTimer.Tick += HoldTimer_Tick;
-
-        // Wire up sub-panel drag events
-        WireUpSubPanelDrag<SimulatorPanel>("SimulatorPanelControl");
-        WireUpSubPanelDrag<ViewSettingsPanel>("ViewSettingsPanelControl");
-        WireUpSubPanelDrag<FileMenuPanel>("FileMenuPanelControl");
-        WireUpSubPanelDrag<ToolsPanel>("ToolsPanelControl");
-        WireUpSubPanelDrag<ConfigurationPanel>("ConfigurationPanelControl");
-        WireUpSubPanelDrag<JobMenuPanel>("JobMenuPanelControl");
-        WireUpSubPanelDrag<FieldToolsPanel>("FieldToolsPanelControl");
-        WireUpSubPanelDrag<BoundaryRecordingPanel>("BoundaryRecordingPanelControl");
-        WireUpSubPanelDrag<BoundaryPlayerPanel>("BoundaryPlayerPanelControl");
-    }
-
-    private void WireUpSubPanelDrag<T>(string controlName) where T : UserControl
-    {
-        var panel = this.FindControl<T>(controlName);
-        if (panel == null) return;
-
-        // Use reflection to check for DragMoved event
-        var dragMovedEvent = typeof(T).GetEvent("DragMoved");
-        if (dragMovedEvent != null)
-        {
-            dragMovedEvent.AddEventHandler(panel, new EventHandler<Vector>((sender, delta) =>
-            {
-                if (sender is Control control)
-                {
-                    var left = Canvas.GetLeft(control);
-                    var top = Canvas.GetTop(control);
-                    if (double.IsNaN(left)) left = 0;
-                    if (double.IsNaN(top)) top = 0;
-                    Canvas.SetLeft(control, left + delta.X);
-                    Canvas.SetTop(control, top + delta.Y);
-                }
-            }));
-        }
     }
 
     private void DragHandle_PointerPressed(object? sender, PointerPressedEventArgs e)
@@ -86,11 +52,26 @@ public partial class LeftNavigationPanel : UserControl
             // Get position relative to parent for smooth dragging
             _dragStartPoint = e.GetPosition(this.Parent as Visual);
 
-            // Get current canvas position
+            // Get current canvas position - handle Canvas.Right case
             _panelStartLeft = Canvas.GetLeft(this);
             _panelStartTop = Canvas.GetTop(this);
 
-            if (double.IsNaN(_panelStartLeft)) _panelStartLeft = 20;
+            // If using Canvas.Right, convert to Left
+            if (double.IsNaN(_panelStartLeft))
+            {
+                var parent = this.Parent as Visual;
+                if (parent is Canvas canvas)
+                {
+                    var parentBounds = canvas.Bounds;
+                    var rightValue = Canvas.GetRight(this);
+                    if (double.IsNaN(rightValue)) rightValue = 20;
+                    _panelStartLeft = parentBounds.Width - this.Bounds.Width - rightValue;
+                }
+                else
+                {
+                    _panelStartLeft = 20;
+                }
+            }
             if (double.IsNaN(_panelStartTop)) _panelStartTop = 100;
 
             _isHolding = false;
@@ -145,11 +126,20 @@ public partial class LeftNavigationPanel : UserControl
     private void RotatePanel()
     {
         var buttonStack = this.FindControl<StackPanel>("ButtonStack");
-        if (buttonStack != null)
+        if (buttonStack == null) return;
+
+        // Toggle orientation
+        bool goingHorizontal = buttonStack.Orientation == Orientation.Vertical;
+        buttonStack.Orientation = goingHorizontal ? Orientation.Horizontal : Orientation.Vertical;
+
+        // Reverse children order for counter-clockwise rotation effect
+        // When vertical: Handle at top, buttons below
+        // When horizontal: Buttons on left, handle on right (counter-clockwise from vertical)
+        var children = buttonStack.Children.ToList();
+        buttonStack.Children.Clear();
+        for (int i = children.Count - 1; i >= 0; i--)
         {
-            buttonStack.Orientation = buttonStack.Orientation == Orientation.Vertical
-                ? Orientation.Horizontal
-                : Orientation.Vertical;
+            buttonStack.Children.Add(children[i]);
         }
     }
 }

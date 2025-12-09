@@ -68,6 +68,12 @@ public partial class MainWindow : Window
             LeftNavPanel.DragMoved += LeftNavPanel_DragMoved;
         }
 
+        // Wire up RightNavigationPanel drag events
+        if (RightNavPanel != null)
+        {
+            RightNavPanel.DragMoved += RightNavPanel_DragMoved;
+        }
+
         // Note: BottomNavigationPanel is now a fixed-position panel without drag support
     }
 
@@ -506,30 +512,43 @@ public partial class MainWindow : Window
     }
 
     // Handler for shared LeftNavigationPanel drag events
-    private void LeftNavPanel_DragMoved(object? sender, Vector delta)
+    private void LeftNavPanel_DragMoved(object? sender, Point newPosition)
     {
         if (LeftNavPanel == null) return;
-
-        // Calculate new position
-        double currentLeft = Canvas.GetLeft(LeftNavPanel);
-        double currentTop = Canvas.GetTop(LeftNavPanel);
-
-        if (double.IsNaN(currentLeft)) currentLeft = 20;
-        if (double.IsNaN(currentTop)) currentTop = 100;
-
-        double newLeft = currentLeft + delta.X;
-        double newTop = currentTop + delta.Y;
 
         // Constrain to window bounds
         double maxLeft = Bounds.Width - LeftNavPanel.Bounds.Width;
         double maxTop = Bounds.Height - LeftNavPanel.Bounds.Height;
 
-        newLeft = Math.Clamp(newLeft, 0, Math.Max(0, maxLeft));
-        newTop = Math.Clamp(newTop, 0, Math.Max(0, maxTop));
+        double newLeft = Math.Clamp(newPosition.X, 0, Math.Max(0, maxLeft));
+        double newTop = Math.Clamp(newPosition.Y, 0, Math.Max(0, maxTop));
 
         // Update position
         Canvas.SetLeft(LeftNavPanel, newLeft);
         Canvas.SetTop(LeftNavPanel, newTop);
+    }
+
+    // Handler for shared RightNavigationPanel drag events
+    private void RightNavPanel_DragMoved(object? sender, Point newPosition)
+    {
+        if (RightNavPanel == null) return;
+
+        // Clear the Right property on first drag since we're switching to Left
+        if (!double.IsNaN(Canvas.GetRight(RightNavPanel)))
+        {
+            RightNavPanel.ClearValue(Canvas.RightProperty);
+        }
+
+        // Constrain to window bounds
+        double maxLeft = Bounds.Width - RightNavPanel.Bounds.Width;
+        double maxTop = Bounds.Height - RightNavPanel.Bounds.Height;
+
+        double newLeft = Math.Clamp(newPosition.X, 0, Math.Max(0, maxLeft));
+        double newTop = Math.Clamp(newPosition.Y, 0, Math.Max(0, maxTop));
+
+        // Update position
+        Canvas.SetLeft(RightNavPanel, newLeft);
+        Canvas.SetTop(RightNavPanel, newTop);
     }
 
     // NOTE: BottomNavigationPanel is now a fixed-position panel with flyout menu

@@ -34,6 +34,13 @@
                                             HorizontalAlignment="Stretch"
                                             VerticalAlignment="Stretch"/>
 
+                <!-- RIGHT SIDEBAR: Guidance Control Panel -->
+                <panels:RightNavigationPanel x:Name="RightNavPanel"
+                                             HorizontalAlignment="Right"
+                                             VerticalAlignment="Top"
+                                             Margin="0,100,0,0"
+                                             DataContext="{Binding}"/>
+
                 <!-- Draggable Section Control -->
                 <Canvas>
                     <panels:SectionControlPanel x:Name="SectionControlPanel"
