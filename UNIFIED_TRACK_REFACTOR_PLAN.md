@@ -444,7 +444,12 @@ Keep `TrackMode` enum for file compatibility, but `Track.Type` determines behavi
 
 > No, as long as all your lines are built out of segments. The quirk with AgOpenGPS is that the distance between the points need to be closer than the distance to the next line. So there is no difference between a curve and line from segmentation point of view.
 
-**Implementation note:** Ensure point spacing is always less than tool width. For AB lines (2 points), interpolate additional points if needed for long lines.
+**Implementation note:** Point spacing should be ~40% of tool width. The algorithm:
+1. Add lots of points (interpolate/fill in the blanks)
+2. Step through by segment distance, eliminating intermediate points
+3. Smooth curves with Catmull-Rom splines
+
+For AB lines (2 points), interpolate additional points if needed for long lines.
 
 **Q2: How does water pivot mode differ?**
 
