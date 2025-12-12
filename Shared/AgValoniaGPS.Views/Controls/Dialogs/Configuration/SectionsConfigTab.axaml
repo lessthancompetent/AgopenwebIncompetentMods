@@ -32,7 +32,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Number of Sections" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding NumSections}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Config.NumSections}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -42,7 +42,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Look Ahead On" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding LookAheadOn, StringFormat='{}{0:F1} s'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Tool.LookAheadOnSetting, StringFormat='{}{0:F1} s'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -50,7 +50,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Look Ahead Off" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding LookAheadOff, StringFormat='{}{0:F1} s'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Tool.LookAheadOffSetting, StringFormat='{}{0:F1} s'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -58,7 +58,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Turn Off Delay" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding TurnOffDelay, StringFormat='{}{0:F1} s'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Tool.TurnOffDelay, StringFormat='{}{0:F1} s'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>

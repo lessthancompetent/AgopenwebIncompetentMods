@@ -32,7 +32,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Turn Radius" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding UTurnRadius, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Guidance.UTurnRadius, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -40,7 +40,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Extension Length" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding UTurnExtension, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Guidance.UTurnExtension, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -48,7 +48,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Distance from Boundary" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding UTurnDistanceFromBoundary, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Guidance.UTurnDistanceFromBoundary, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -56,7 +56,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Skip Width" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding UTurnSkipWidth}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Guidance.UTurnSkipWidth}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -64,7 +64,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Smoothing" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding UTurnSmoothing}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Guidance.UTurnSmoothing}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>

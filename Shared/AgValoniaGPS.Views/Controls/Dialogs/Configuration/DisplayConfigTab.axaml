@@ -23,25 +23,25 @@
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Use Metric Units" Foreground="White" VerticalAlignment="Center"/>
-                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding IsMetric}"/>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.IsMetric}"/>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Show Grid" Foreground="White" VerticalAlignment="Center"/>
-                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding GridVisible}"/>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Display.GridVisible}"/>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Show Compass" Foreground="White" VerticalAlignment="Center"/>
-                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding CompassVisible}"/>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Display.CompassVisible}"/>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Show Speed" Foreground="White" VerticalAlignment="Center"/>
-                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding SpeedVisible}"/>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Display.SpeedVisible}"/>
                 </Grid>
             </Border>
         </StackPanel>

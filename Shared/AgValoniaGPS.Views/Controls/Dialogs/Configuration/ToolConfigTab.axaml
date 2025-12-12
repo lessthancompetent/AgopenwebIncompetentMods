@@ -31,13 +31,13 @@
             <TextBlock Text="Tool Type" FontWeight="SemiBold" Foreground="White" Margin="0,8,0,8"/>
             <WrapPanel>
                 <RadioButton Content="Front Fixed" GroupName="ToolType" Margin="0,0,16,0"
-                             IsChecked="{Binding IsToolFrontFixed}"/>
+                             IsChecked="{Binding Tool.IsToolFrontFixed}"/>
                 <RadioButton Content="Rear Fixed" GroupName="ToolType" Margin="0,0,16,0"
-                             IsChecked="{Binding IsToolRearFixed}"/>
+                             IsChecked="{Binding Tool.IsToolRearFixed}"/>
                 <RadioButton Content="TBT" GroupName="ToolType" Margin="0,0,16,0"
-                             IsChecked="{Binding IsToolTBT}"/>
+                             IsChecked="{Binding Tool.IsToolTBT}"/>
                 <RadioButton Content="Trailing" GroupName="ToolType"
-                             IsChecked="{Binding IsToolTrailing}"/>
+                             IsChecked="{Binding Tool.IsToolTrailing}"/>
             </WrapPanel>
 
             <TextBlock Text="Tool Dimensions" FontWeight="SemiBold" Foreground="White" Margin="0,16,0,8"/>
@@ -45,7 +45,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Tool Width" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding ToolWidth, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Tool.Width, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -53,7 +53,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Tool Overlap" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding ToolOverlap, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Tool.Overlap, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -61,7 +61,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Tool Offset" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding ToolOffset, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Tool.Offset, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -71,7 +71,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Hitch Length" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding HitchLength, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Tool.HitchLength, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
@@ -79,7 +79,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Trailing Hitch Length" Foreground="White" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Classes="ValueBox">
-                        <TextBlock Text="{Binding TrailingHitchLength, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding Tool.TrailingHitchLength, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
                     </Border>
                 </Grid>
             </Border>
