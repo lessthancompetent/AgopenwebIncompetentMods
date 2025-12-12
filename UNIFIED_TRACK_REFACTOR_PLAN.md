@@ -451,6 +451,12 @@ Keep `TrackMode` enum for file compatibility, but `Track.Type` determines behavi
 
 For AB lines (2 points), interpolate additional points if needed for long lines.
 
+**Performance note:** Segments > 1 meter cause noticeable "chunky turns" on tight curves. But too many points slows down point searching. The solution is **local vs global search**:
+- Global search: Find nearest point on entire track (used when acquiring line or after U-turn)
+- Local search: Only search a few points ahead/behind current index (used during normal guidance)
+
+This is already implemented in `CurvePurePursuitGuidanceService` via `CurrentLocationIndex` and `FindGlobalNearestPoint` parameters.
+
 **Q2: How does water pivot mode differ?**
 
 > Water pivot is just a closed loop, however it can be created via 3 points or a single point and radius. Otherwise it is just a looping segmented line.
