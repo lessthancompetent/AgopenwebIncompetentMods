@@ -59,6 +59,9 @@ public static class ServiceCollectionExtensions
         // Vehicle profile service
         services.AddSingleton<IVehicleProfileService, VehicleProfileService>();
 
+        // Configuration service (single source of truth)
+        services.AddSingleton<IConfigurationService, ConfigurationService>();
+
         // Platform-specific services (Desktop implementations)
         services.AddSingleton<DialogService>();
         services.AddSingleton<IDialogService>(sp => sp.GetRequiredService<DialogService>());

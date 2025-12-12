@@ -42,6 +42,7 @@ public class MainViewModel : ReactiveObject
     private readonly YouTurnGuidanceService _youTurnGuidanceService;
     private readonly FieldPlaneFileService _fieldPlaneFileService;
     private readonly IVehicleProfileService _vehicleProfileService;
+    private readonly IConfigurationService _configurationService;
     private readonly DispatcherTimer _simulatorTimer;
     private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
 
@@ -133,7 +134,8 @@ public class MainViewModel : ReactiveObject
         YouTurnGuidanceService youTurnGuidanceService,
         Services.Geometry.IPolygonOffsetService polygonOffsetService,
         Services.Interfaces.ITurnAreaService turnAreaService,
-        IVehicleProfileService vehicleProfileService)
+        IVehicleProfileService vehicleProfileService,
+        IConfigurationService configurationService)
     {
         _udpService = udpService;
         _gpsService = gpsService;
@@ -156,6 +158,7 @@ public class MainViewModel : ReactiveObject
         _polygonOffsetService = polygonOffsetService;
         _turnAreaService = turnAreaService;
         _vehicleProfileService = vehicleProfileService;
+        _configurationService = configurationService;
         _nmeaParser = new NmeaParserService(gpsService);
         _fieldPlaneFileService = new FieldPlaneFileService();
 
@@ -3727,7 +3730,7 @@ public class MainViewModel : ReactiveObject
         // Configuration Dialog Commands
         ShowConfigurationDialogCommand = new RelayCommand(() =>
         {
-            ConfigurationViewModel = new ConfigurationViewModel(_vehicleProfileService, _settingsService);
+            ConfigurationViewModel = new ConfigurationViewModel(_configurationService);
             ConfigurationViewModel.CloseRequested += (s, e) =>
             {
                 ConfigurationViewModel.IsDialogVisible = false;

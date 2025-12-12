@@ -73,27 +73,27 @@
                           HorizontalAlignment="Center" Width="400">
                         <TextBlock Grid.Row="0" Text="Units:" Foreground="#AAA" VerticalAlignment="Center"/>
                         <TextBlock Grid.Row="0" Grid.Column="1"
-                                   Text="{Binding IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='Metric|Imperial'}"
+                                   Text="{Binding Config.IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='Metric|Imperial'}"
                                    Foreground="White" FontWeight="Bold" FontSize="16"/>
 
                         <TextBlock Grid.Row="1" Text="Width:" Foreground="#AAA" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ToolWidth, StringFormat='{}{0:F2} m'}"
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Tool.Width, StringFormat='{}{0:F2} m'}"
                                    Foreground="White" FontWeight="Bold" FontSize="16" Margin="0,8,0,0"/>
 
                         <TextBlock Grid.Row="2" Text="Sections:" Foreground="#AAA" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding NumSections}"
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Config.NumSections}"
                                    Foreground="White" FontWeight="Bold" FontSize="16" Margin="0,8,0,0"/>
 
                         <TextBlock Grid.Row="3" Text="Offset:" Foreground="#AAA" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ToolOffset, StringFormat='{}{0:F2} m'}"
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Tool.Offset, StringFormat='{}{0:F2} m'}"
                                    Foreground="White" FontWeight="Bold" FontSize="16" Margin="0,8,0,0"/>
 
                         <TextBlock Grid.Row="4" Text="Overlap:" Foreground="#AAA" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ToolOverlap, StringFormat='{}{0:F2} m'}"
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Tool.Overlap, StringFormat='{}{0:F2} m'}"
                                    Foreground="White" FontWeight="Bold" FontSize="16" Margin="0,8,0,0"/>
 
                         <TextBlock Grid.Row="5" Text="Look Ahead:" Foreground="#AAA" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding LookAheadOn, StringFormat='{}{0:F1} s'}"
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding Tool.LookAheadOnSetting, StringFormat='{}{0:F1} s'}"
                                    Foreground="White" FontWeight="Bold" FontSize="16" Margin="0,8,0,0"/>
 
                         <TextBlock Grid.Row="6" Text="Nudge:" Foreground="#AAA" VerticalAlignment="Center" Margin="0,8,0,0"/>
@@ -101,11 +101,11 @@
                                    Foreground="White" FontWeight="Bold" FontSize="16" Margin="0,8,0,0"/>
 
                         <TextBlock Grid.Row="7" Text="Tram Width:" Foreground="#AAA" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding TrackWidth, StringFormat='{}{0:F2} m'}"
+                        <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding Vehicle.TrackWidth, StringFormat='{}{0:F2} m'}"
                                    Foreground="White" FontWeight="Bold" FontSize="16" Margin="0,8,0,0"/>
 
                         <TextBlock Grid.Row="8" Text="Wheelbase:" Foreground="#AAA" VerticalAlignment="Center" Margin="0,8,0,0"/>
-                        <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding Wheelbase, StringFormat='{}{0:F2} m'}"
+                        <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding Vehicle.Wheelbase, StringFormat='{}{0:F2} m'}"
                                    Foreground="White" FontWeight="Bold" FontSize="16" Margin="0,8,0,0"/>
                     </Grid>
 
@@ -136,7 +136,7 @@
                         <Button Command="{Binding SetVehicleTypeCommand}" CommandParameter="Harvester"
                                 Width="160" Height="120" Padding="8" CornerRadius="8"
                                 BorderThickness="3"
-                                BorderBrush="{Binding VehicleType, Converter={x:Static conv:EnumToSelectionBrushConverter.Instance}, ConverterParameter=Harvester}">
+                                BorderBrush="{Binding Vehicle.Type, Converter={x:Static conv:EnumToSelectionBrushConverter.Instance}, ConverterParameter=Harvester}">
                             <Button.Styles>
                                 <Style Selector="Button">
                                     <Setter Property="Background" Value="#DD34495E"/>
@@ -157,7 +157,7 @@
                         <Button Command="{Binding SetVehicleTypeCommand}" CommandParameter="Tractor"
                                 Width="160" Height="120" Padding="8" CornerRadius="8"
                                 BorderThickness="3"
-                                BorderBrush="{Binding VehicleType, Converter={x:Static conv:EnumToSelectionBrushConverter.Instance}, ConverterParameter=Tractor}">
+                                BorderBrush="{Binding Vehicle.Type, Converter={x:Static conv:EnumToSelectionBrushConverter.Instance}, ConverterParameter=Tractor}">
                             <Button.Styles>
                                 <Style Selector="Button">
                                     <Setter Property="Background" Value="#DD34495E"/>
@@ -178,7 +178,7 @@
                         <Button Command="{Binding SetVehicleTypeCommand}" CommandParameter="FourWD"
                                 Width="160" Height="120" Padding="8" CornerRadius="8"
                                 BorderThickness="3"
-                                BorderBrush="{Binding VehicleType, Converter={x:Static conv:EnumToSelectionBrushConverter.Instance}, ConverterParameter=FourWD}">
+                                BorderBrush="{Binding Vehicle.Type, Converter={x:Static conv:EnumToSelectionBrushConverter.Instance}, ConverterParameter=FourWD}">
                             <Button.Styles>
                                 <Style Selector="Button">
                                     <Setter Property="Background" Value="#DD34495E"/>
@@ -199,7 +199,7 @@
                     <!-- Selection display -->
                     <Border Background="#4A9A7E" CornerRadius="8" Padding="16,12"
                             HorizontalAlignment="Center" Margin="0,24,0,0">
-                        <TextBlock Text="{Binding VehicleTypeDisplayName, StringFormat='Selected: {0}'}"
+                        <TextBlock Text="{Binding Vehicle.VehicleTypeDisplayName, StringFormat='Selected: {0}'}"
                                    Foreground="White" FontWeight="Bold" FontSize="16"/>
                     </Border>
 
@@ -219,7 +219,7 @@
             </TabItem.Header>
             <Grid RowDefinitions="*,Auto" Margin="16">
                 <Image Grid.Row="0"
-                       Source="{Binding WheelbaseImageSource, Converter={x:Static conv:StringToImageConverter.Instance}}"
+                       Source="{Binding Vehicle.WheelbaseImageSource, Converter={x:Static conv:StringToImageConverter.Instance}}"
                        Stretch="Uniform" MaxHeight="280"
                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
 
@@ -228,8 +228,8 @@
                     <StackPanel Grid.Column="0" HorizontalAlignment="Center">
                         <Border Classes="ValueBox">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="{Binding HitchLength, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
-                                <TextBlock Text="{Binding IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
+                                <TextBlock Text="{Binding Tool.HitchLength, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
+                                <TextBlock Text="{Binding Config.IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
                                            Classes="UnitLabel" Margin="4,0,0,8"/>
                             </StackPanel>
                         </Border>
@@ -240,8 +240,8 @@
                     <StackPanel Grid.Column="1" HorizontalAlignment="Center">
                         <Border Classes="ValueBox">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="{Binding Wheelbase, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
-                                <TextBlock Text="{Binding IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
+                                <TextBlock Text="{Binding Vehicle.Wheelbase, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
+                                <TextBlock Text="{Binding Config.IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
                                            Classes="UnitLabel" Margin="4,0,0,8"/>
                             </StackPanel>
                         </Border>
@@ -252,8 +252,8 @@
                     <StackPanel Grid.Column="2" HorizontalAlignment="Center">
                         <Border Classes="ValueBox">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="{Binding TrackWidth, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
-                                <TextBlock Text="{Binding IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
+                                <TextBlock Text="{Binding Vehicle.TrackWidth, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
+                                <TextBlock Text="{Binding Config.IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
                                            Classes="UnitLabel" Margin="4,0,0,8"/>
                             </StackPanel>
                         </Border>
@@ -274,8 +274,8 @@
                 <StackPanel Grid.Row="0" Grid.Column="0" HorizontalAlignment="Center" Margin="0,0,0,8">
                     <Border Classes="ValueBox">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <TextBlock Text="{Binding AntennaPivot, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
-                            <TextBlock Text="{Binding IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
+                            <TextBlock Text="{Binding Vehicle.AntennaPivot, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
+                            <TextBlock Text="{Binding Config.IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
                                        Classes="UnitLabel" Margin="4,0,0,8"/>
                         </StackPanel>
                     </Border>
@@ -284,7 +284,7 @@
 
                 <!-- Main diagram -->
                 <Image Grid.Row="1" Grid.Column="0"
-                       Source="{Binding AntennaImageSource, Converter={x:Static conv:StringToImageConverter.Instance}}"
+                       Source="{Binding Vehicle.AntennaImageSource, Converter={x:Static conv:StringToImageConverter.Instance}}"
                        Stretch="Uniform" MaxHeight="260"
                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
 
@@ -292,8 +292,8 @@
                 <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Top" Margin="16,20,0,0">
                     <Border Classes="ValueBox">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <TextBlock Text="{Binding AntennaHeight, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
-                            <TextBlock Text="{Binding IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
+                            <TextBlock Text="{Binding Vehicle.AntennaHeight, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
+                            <TextBlock Text="{Binding Config.IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
                                        Classes="UnitLabel" Margin="4,0,0,8"/>
                         </StackPanel>
                     </Border>
@@ -304,8 +304,8 @@
                 <StackPanel Grid.Row="2" Grid.Column="0" HorizontalAlignment="Left" Margin="10,8,0,0">
                     <Border Classes="ValueBox" HorizontalAlignment="Left">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <TextBlock Text="{Binding AntennaOffset, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
-                            <TextBlock Text="{Binding IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
+                            <TextBlock Text="{Binding Vehicle.AntennaOffset, StringFormat='{}{0:F0}'}" Classes="LargeValue"/>
+                            <TextBlock Text="{Binding Config.IsMetric, Converter={x:Static conv:BoolToStringConverter.Instance}, ConverterParameter='cm|in'}"
                                        Classes="UnitLabel" Margin="4,0,0,8"/>
                         </StackPanel>
                     </Border>

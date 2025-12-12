@@ -59,6 +59,9 @@ public static class ServiceCollectionExtensions
         // Vehicle profile service
         services.AddSingleton<IVehicleProfileService, VehicleProfileService>();
 
+        // Configuration service (single source of truth)
+        services.AddSingleton<IConfigurationService, ConfigurationService>();
+
         // iOS-specific services
         services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<IMapService, MapService>();
