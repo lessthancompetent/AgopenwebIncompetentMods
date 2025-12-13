@@ -1,8 +1,13 @@
+using System;
+
 namespace AgValoniaGPS.Models;
 
 /// <summary>
-/// Configuration settings for YouTurn (U-turn) path creation
+/// LEGACY: YouTurn configuration for AgOpenGPS profile compatibility.
+/// New code should use ConfigurationStore.Instance.Guidance.UTurn* properties.
+/// This class is retained only for reading/writing AgOpenGPS vehicle XML files.
 /// </summary>
+[Obsolete("Use ConfigurationStore.Instance.Guidance instead. Retained for AgOpenGPS profile compatibility.")]
 public class YouTurnConfiguration
 {
     /// <summary>

@@ -1,11 +1,14 @@
+using System;
 using AgValoniaGPS.Models.Tool;
 
 namespace AgValoniaGPS.Models;
 
 /// <summary>
-/// Complete vehicle profile containing all configuration settings
-/// Compatible with AgOpenGPS vehicle XML format
+/// LEGACY: Complete vehicle profile DTO for AgOpenGPS vehicle XML format.
+/// Used only for loading/saving AgOpenGPS profile files.
+/// Runtime configuration is stored in ConfigurationStore.Instance.
 /// </summary>
+[Obsolete("Use ConfigurationStore.Instance for runtime configuration. This class is for AgOpenGPS XML I/O only.")]
 public class VehicleProfile
 {
     /// <summary>

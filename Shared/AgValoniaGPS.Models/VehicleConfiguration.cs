@@ -3,9 +3,11 @@ using System;
 namespace AgValoniaGPS.Models;
 
 /// <summary>
-/// Vehicle configuration and steering parameters
-/// Ported from AOG_Dev CVehicle.cs
+/// LEGACY: Vehicle configuration for AgOpenGPS profile compatibility.
+/// New code should use ConfigurationStore.Instance.Vehicle and ConfigurationStore.Instance.Guidance.
+/// This class is retained only for reading/writing AgOpenGPS vehicle XML files.
 /// </summary>
+[Obsolete("Use ConfigurationStore.Instance.Vehicle/Guidance instead. Retained for AgOpenGPS profile compatibility.")]
 public class VehicleConfiguration
 {
     // Vehicle physical dimensions
@@ -49,21 +51,4 @@ public class VehicleConfiguration
     public double HydLiftLookAheadDistanceRight { get; set; } = 1.0; // meters
 }
 
-/// <summary>
-/// Vehicle types supported
-/// </summary>
-public enum VehicleType
-{
-    Tractor = 0,
-    Harvester = 1,
-    FourWD = 2
-}
-
-/// <summary>
-/// Steering algorithm selection
-/// </summary>
-public enum SteeringAlgorithm
-{
-    PurePursuit,
-    Stanley
-}
+// Note: VehicleType and SteeringAlgorithm enums moved to Enums/VehicleEnums.cs
