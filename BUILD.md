@@ -341,6 +341,34 @@ dotnet publish Platforms/AgValoniaGPS.iOS/AgValoniaGPS.iOS.csproj \
 
 ---
 
+## Running Tests
+
+Run the guidance algorithm test suite:
+
+```bash
+dotnet run --project TestRunner/TestRunner.csproj
+```
+
+Expected output:
+```
+=== TrackGuidanceService Tests ===
+
+Test 1 - AB Line Pure Pursuit: PASS
+Test 2 - Curve Pure Pursuit: PASS
+Test 3 - AB Line Stanley: PASS
+Test 4 - Vehicle On Line: PASS
+Test 5 - Track Conversion: PASS
+
+=== Overall: ALL TESTS PASSED ===
+```
+
+Tests verify:
+- Cross-track error (XTE) calculations
+- Steering angle calculations for Pure Pursuit and Stanley algorithms
+- Track model conversion between legacy ABLine and unified Track
+
+---
+
 ## Troubleshooting
 
 ### Common Issues
