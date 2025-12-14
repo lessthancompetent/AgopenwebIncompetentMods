@@ -6,8 +6,8 @@
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.KmlImportDialogPanel"
              x:DataType="vm:MainViewModel"
-             IsVisible="{Binding IsKmlImportDialogVisible}"
-             IsHitTestVisible="{Binding IsKmlImportDialogVisible}">
+             IsVisible="{Binding State.UI.IsKmlImportDialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsKmlImportDialogVisible}">
 
     <UserControl.Styles>
         <Style Selector="TextBlock.Header">

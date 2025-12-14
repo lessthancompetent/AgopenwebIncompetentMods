@@ -66,14 +66,34 @@ public class VehicleState : ReactiveObject
     public int FixQuality
     {
         get => _fixQuality;
-        set => this.RaiseAndSetIfChanged(ref _fixQuality, value);
+        set
+        {
+            var oldValue = _fixQuality;
+            this.RaiseAndSetIfChanged(ref _fixQuality, value);
+            if (oldValue != value)
+            {
+                // Notify computed properties that depend on FixQuality
+                this.RaisePropertyChanged(nameof(FixQualityText));
+                this.RaisePropertyChanged(nameof(HasValidFix));
+                this.RaisePropertyChanged(nameof(HasRtkFix));
+            }
+        }
     }
 
     private int _satelliteCount;
     public int SatelliteCount
     {
         get => _satelliteCount;
-        set => this.RaiseAndSetIfChanged(ref _satelliteCount, value);
+        set
+        {
+            var oldValue = _satelliteCount;
+            this.RaiseAndSetIfChanged(ref _satelliteCount, value);
+            if (oldValue != value)
+            {
+                // Notify computed properties that depend on SatelliteCount
+                this.RaisePropertyChanged(nameof(HasValidFix));
+            }
+        }
     }
 
     private double _hdop;

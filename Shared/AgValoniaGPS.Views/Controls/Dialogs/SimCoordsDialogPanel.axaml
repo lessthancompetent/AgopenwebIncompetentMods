@@ -7,8 +7,8 @@
              mc:Ignorable="d"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.SimCoordsDialogPanel"
              x:DataType="vm:MainViewModel"
-             IsVisible="{Binding IsSimCoordsDialogVisible}"
-             IsHitTestVisible="{Binding IsSimCoordsDialogVisible}">
+             IsVisible="{Binding State.UI.IsSimCoordsDialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsSimCoordsDialogVisible}">
 
     <UserControl.Styles>
         <Style Selector="TextBlock.Label">

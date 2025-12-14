@@ -15,7 +15,7 @@ public partial class QuickABSelectorPanel : UserControl
         // Close dialog when clicking the backdrop
         if (DataContext is AgValoniaGPS.ViewModels.MainViewModel vm)
         {
-            vm.IsQuickABSelectorVisible = false;
+            vm.State.UI.CloseDialog();
         }
     }
 }

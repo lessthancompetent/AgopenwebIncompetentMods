@@ -80,25 +80,12 @@ public partial class HeadlandDialogPanel : UserControl
 
         switch (e.PropertyName)
         {
-            case nameof(MainViewModel.IsHeadlandDialogVisible):
-                if (_viewModel.IsHeadlandDialogVisible)
-                {
-                    Console.WriteLine($"[HeadlandDialogPanel] Dialog opened - syncing map");
-                    // Use Dispatcher to ensure UI is ready
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        SyncMapWithViewModel(_viewModel);
-                        CenterViewOnBoundary(_viewModel);
-                    }, DispatcherPriority.Loaded);
-                }
-                break;
-
             case nameof(MainViewModel.CurrentBoundary):
             case nameof(MainViewModel.CurrentHeadlandLine):
             case nameof(MainViewModel.HeadlandPreviewLine):
             case nameof(MainViewModel.HeadlandSelectedMarkers):
             case nameof(MainViewModel.IsHeadlandCurveMode):
-                if (_viewModel.IsHeadlandDialogVisible)
+                if (_viewModel.State.UI.IsHeadlandDialogVisible)
                 {
                     SyncMapWithViewModel(_viewModel);
                 }

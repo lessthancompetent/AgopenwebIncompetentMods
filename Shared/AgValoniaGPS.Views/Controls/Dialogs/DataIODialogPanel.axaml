@@ -7,8 +7,8 @@
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="900"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.DataIODialogPanel"
              x:DataType="vm:MainViewModel"
-             IsVisible="{Binding IsDataIODialogVisible}"
-             IsHitTestVisible="{Binding IsDataIODialogVisible}">
+             IsVisible="{Binding State.UI.IsDataIODialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsDataIODialogVisible}">
 
     <UserControl.Styles>
         <!-- Modern Panel Style -->

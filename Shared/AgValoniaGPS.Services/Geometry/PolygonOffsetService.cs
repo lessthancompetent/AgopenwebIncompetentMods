@@ -29,40 +29,74 @@ public class PolygonOffsetService : IPolygonOffsetService
         if (offsetDistance <= 0)
             return new List<Vec2>(boundaryPoints);
 
-        // Convert to Clipper2 path (scaled to integers)
-        var path = new Path64(boundaryPoints.Count);
-        foreach (var pt in boundaryPoints)
+        // Use simple perpendicular offset approach (like original AgOpenGPS)
+        // This preserves smooth curves by moving each point perpendicular to its heading
+        System.Diagnostics.Debug.WriteLine($"[PolygonOffset] Using perpendicular offset: {boundaryPoints.Count} points, {offsetDistance}m inward");
+
+        // First, calculate headings for each point
+        var pointsWithHeadings = CalculatePointHeadings(boundaryPoints);
+
+        // Create offset points by moving perpendicular to heading
+        var offsetPoints = new List<Vec2>(pointsWithHeadings.Count);
+        double distSqAway = (offsetDistance * offsetDistance) - 0.01;
+
+        // Optimization: only check nearby boundary points (within a window)
+        // This reduces O(n²) to O(n*k) where k is the window size
+        int windowSize = System.Math.Min(20, boundaryPoints.Count / 4);
+
+        for (int i = 0; i < pointsWithHeadings.Count; i++)
         {
-            path.Add(new Point64((long)(pt.Easting * Scale), (long)(pt.Northing * Scale)));
+            var pt = pointsWithHeadings[i];
+            // Move perpendicular to heading (inward = right side for clockwise boundary)
+            double offsetX = pt.Easting - (System.Math.Sin(pt.Heading + System.Math.PI / 2) * offsetDistance);
+            double offsetY = pt.Northing - (System.Math.Cos(pt.Heading + System.Math.PI / 2) * offsetDistance);
+
+            var newPoint = new Vec2(offsetX, offsetY);
+
+            // Filter out points that would be closer than offset distance to original boundary
+            // Only check nearby boundary points to avoid O(n²) performance
+            bool tooClose = false;
+            int checkStart = System.Math.Max(0, i - windowSize);
+            int checkEnd = System.Math.Min(boundaryPoints.Count, i + windowSize);
+            for (int j = checkStart; j < checkEnd; j++)
+            {
+                double dx = newPoint.Easting - boundaryPoints[j].Easting;
+                double dy = newPoint.Northing - boundaryPoints[j].Northing;
+                if (dx * dx + dy * dy < distSqAway)
+                {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (!tooClose)
+            {
+                // Also filter points too close to previous offset point
+                if (offsetPoints.Count > 0)
+                {
+                    var lastPt = offsetPoints[offsetPoints.Count - 1];
+                    double dx = newPoint.Easting - lastPt.Easting;
+                    double dy = newPoint.Northing - lastPt.Northing;
+                    if (dx * dx + dy * dy > 0.25) // Min 0.5m spacing
+                    {
+                        offsetPoints.Add(newPoint);
+                    }
+                }
+                else
+                {
+                    offsetPoints.Add(newPoint);
+                }
+            }
         }
 
-        // Create offset (negative = inward for clockwise polygon)
-        var clipperOffset = new ClipperOffset();
-
-        JoinType clipperJoinType = joinType switch
+        if (offsetPoints.Count < 3)
         {
-            OffsetJoinType.Miter => JoinType.Miter,
-            OffsetJoinType.Square => JoinType.Square,
-            _ => JoinType.Round
-        };
-
-        clipperOffset.AddPath(path, clipperJoinType, EndType.Polygon);
-
-        var solution = new Paths64();
-        // Negative offset = shrink/inward
-        clipperOffset.Execute(-offsetDistance * Scale, solution);
-
-        if (solution.Count == 0 || solution[0].Count < 3)
+            System.Diagnostics.Debug.WriteLine($"[PolygonOffset] Offset collapsed - only {offsetPoints.Count} points");
             return null;
-
-        // Convert back to Vec2 list
-        var result = new List<Vec2>(solution[0].Count);
-        foreach (var pt in solution[0])
-        {
-            result.Add(new Vec2(pt.X / Scale, pt.Y / Scale));
         }
 
-        return result;
+        System.Diagnostics.Debug.WriteLine($"[PolygonOffset] Final output: {offsetPoints.Count} points");
+        return offsetPoints;
     }
 
     /// <summary>
@@ -88,6 +122,9 @@ public class PolygonOffsetService : IPolygonOffsetService
         }
 
         var clipperOffset = new ClipperOffset();
+
+        // Set arc tolerance for smooth curves (smaller = smoother)
+        clipperOffset.ArcTolerance = 25;
 
         JoinType clipperJoinType = joinType switch
         {
@@ -170,6 +207,9 @@ public class PolygonOffsetService : IPolygonOffsetService
         // Create offset for open path
         var clipperOffset = new ClipperOffset();
 
+        // Set arc tolerance for smooth curves (smaller = smoother)
+        clipperOffset.ArcTolerance = 25;
+
         JoinType clipperJoinType = joinType switch
         {
             OffsetJoinType.Miter => JoinType.Miter,
@@ -196,6 +236,166 @@ public class PolygonOffsetService : IPolygonOffsetService
 
         // For a simple line offset, extract the relevant half of the buffer polygon
         return ExtractOffsetSide(linePoints, result, offsetDistance);
+    }
+
+    /// <summary>
+    /// Apply Chaikin's corner cutting algorithm to smooth a closed polygon.
+    /// This algorithm cuts corners without overshoot, staying within the convex hull.
+    /// </summary>
+    /// <param name="polygon">Input polygon points</param>
+    /// <param name="iterations">Number of smoothing iterations (more = smoother but smaller)</param>
+    /// <returns>Smoothed polygon</returns>
+    private List<Vec2> ChaikinSmooth(List<Vec2> polygon, int iterations)
+    {
+        if (polygon.Count < 3 || iterations < 1)
+            return polygon;
+
+        var current = polygon;
+
+        for (int iter = 0; iter < iterations; iter++)
+        {
+            var next = new List<Vec2>(current.Count * 2);
+
+            for (int i = 0; i < current.Count; i++)
+            {
+                var p0 = current[i];
+                var p1 = current[(i + 1) % current.Count];
+
+                // Chaikin uses 1/4 and 3/4 points along each edge
+                double q0x = 0.75 * p0.Easting + 0.25 * p1.Easting;
+                double q0y = 0.75 * p0.Northing + 0.25 * p1.Northing;
+                double q1x = 0.25 * p0.Easting + 0.75 * p1.Easting;
+                double q1y = 0.25 * p0.Northing + 0.75 * p1.Northing;
+
+                next.Add(new Vec2(q0x, q0y));
+                next.Add(new Vec2(q1x, q1y));
+            }
+
+            current = next;
+        }
+
+        return current;
+    }
+
+    /// <summary>
+    /// Densify a polygon by adding interpolated points where segments are too long.
+    /// This ensures curves are well-approximated with many short segments.
+    /// </summary>
+    /// <param name="polygon">Input polygon points</param>
+    /// <param name="maxSpacing">Maximum allowed distance between consecutive points</param>
+    /// <returns>Densified polygon with additional interpolated points</returns>
+    private List<Vec2> DensifyPolygon(List<Vec2> polygon, double maxSpacing)
+    {
+        if (polygon.Count < 3 || maxSpacing <= 0)
+            return polygon;
+
+        var result = new List<Vec2>();
+
+        for (int i = 0; i < polygon.Count; i++)
+        {
+            var p0 = polygon[i];
+            var p1 = polygon[(i + 1) % polygon.Count];
+
+            // Always add the current point
+            result.Add(p0);
+
+            // Calculate segment length
+            double dx = p1.Easting - p0.Easting;
+            double dy = p1.Northing - p0.Northing;
+            double segmentLength = System.Math.Sqrt(dx * dx + dy * dy);
+
+            // Add interpolated points if segment is too long
+            if (segmentLength > maxSpacing)
+            {
+                int subdivisions = (int)System.Math.Ceiling(segmentLength / maxSpacing);
+                for (int j = 1; j < subdivisions; j++)
+                {
+                    double t = (double)j / subdivisions;
+                    double x = p0.Easting + t * dx;
+                    double y = p0.Northing + t * dy;
+                    result.Add(new Vec2(x, y));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Calculate the perimeter of a closed polygon
+    /// </summary>
+    private double CalculatePolygonPerimeter(List<Vec2> polygon)
+    {
+        double perimeter = 0;
+        for (int i = 0; i < polygon.Count; i++)
+        {
+            var p1 = polygon[i];
+            var p2 = polygon[(i + 1) % polygon.Count];
+            perimeter += System.Math.Sqrt(
+                (p2.Easting - p1.Easting) * (p2.Easting - p1.Easting) +
+                (p2.Northing - p1.Northing) * (p2.Northing - p1.Northing));
+        }
+        return perimeter;
+    }
+
+    /// <summary>
+    /// Resample a closed polygon to have evenly spaced points.
+    /// This smooths out angular artifacts from offset operations.
+    /// </summary>
+    private List<Vec2> ResamplePolygon(List<Vec2> polygon, double targetSpacing)
+    {
+        if (polygon.Count < 3 || targetSpacing <= 0)
+            return polygon;
+
+        // Build cumulative distance array for the closed polygon
+        var cumDist = new double[polygon.Count + 1];
+        cumDist[0] = 0;
+        for (int i = 0; i < polygon.Count; i++)
+        {
+            var p1 = polygon[i];
+            var p2 = polygon[(i + 1) % polygon.Count];
+            double dx = p2.Easting - p1.Easting;
+            double dy = p2.Northing - p1.Northing;
+            cumDist[i + 1] = cumDist[i] + System.Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        double totalLength = cumDist[polygon.Count];
+        int numPoints = System.Math.Max(3, (int)System.Math.Round(totalLength / targetSpacing));
+        double actualSpacing = totalLength / numPoints;
+
+        var result = new List<Vec2>(numPoints);
+
+        for (int i = 0; i < numPoints; i++)
+        {
+            double targetDist = i * actualSpacing;
+
+            // Find which segment this distance falls into
+            int segIdx = 0;
+            for (int j = 1; j <= polygon.Count; j++)
+            {
+                if (cumDist[j] >= targetDist)
+                {
+                    segIdx = j - 1;
+                    break;
+                }
+            }
+
+            // Interpolate within the segment
+            var p1 = polygon[segIdx];
+            var p2 = polygon[(segIdx + 1) % polygon.Count];
+            double segStart = cumDist[segIdx];
+            double segEnd = cumDist[segIdx + 1];
+            double segLength = segEnd - segStart;
+
+            double t = segLength > 1e-10 ? (targetDist - segStart) / segLength : 0;
+            t = System.Math.Clamp(t, 0, 1);
+
+            double x = p1.Easting + t * (p2.Easting - p1.Easting);
+            double y = p1.Northing + t * (p2.Northing - p1.Northing);
+            result.Add(new Vec2(x, y));
+        }
+
+        return result;
     }
 
     /// <summary>

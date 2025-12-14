@@ -2154,14 +2154,7 @@ public class MainViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _isSimulatorPanelVisible, value);
     }
 
-    // Panel-based dialog visibility and data properties
-    private bool _isSimCoordsDialogVisible;
-    public bool IsSimCoordsDialogVisible
-    {
-        get => _isSimCoordsDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isSimCoordsDialogVisible, value);
-    }
-
+    // Panel-based dialog data properties (visibility now managed by State.UI)
     private decimal? _simCoordsDialogLatitude;
     public decimal? SimCoordsDialogLatitude
     {
@@ -2176,14 +2169,7 @@ public class MainViewModel : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _simCoordsDialogLongitude, value);
     }
 
-    // Field Selection Dialog properties
-    private bool _isFieldSelectionDialogVisible;
-    public bool IsFieldSelectionDialogVisible
-    {
-        get => _isFieldSelectionDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isFieldSelectionDialogVisible, value);
-    }
-
+    // Field Selection Dialog properties (visibility managed by State.UI)
     public ObservableCollection<FieldSelectionItem> AvailableFields { get; } = new();
 
     private FieldSelectionItem? _selectedFieldInfo;
@@ -2196,31 +2182,7 @@ public class MainViewModel : ReactiveObject
     private string _fieldSelectionDirectory = string.Empty;
     private bool _fieldsSortedAZ = false;
 
-    // Tracks Dialog properties
-    private bool _isTracksDialogVisible;
-    public bool IsTracksDialogVisible
-    {
-        get => _isTracksDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isTracksDialogVisible, value);
-    }
-
-    // Quick AB Selector properties
-    private bool _isQuickABSelectorVisible;
-    public bool IsQuickABSelectorVisible
-    {
-        get => _isQuickABSelectorVisible;
-        set => this.RaiseAndSetIfChanged(ref _isQuickABSelectorVisible, value);
-    }
-
-    // Draw AB Dialog properties
-    private bool _isDrawABDialogVisible;
-    public bool IsDrawABDialogVisible
-    {
-        get => _isDrawABDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isDrawABDialogVisible, value);
-    }
-
-    // AB Line Creation Mode state
+    // AB Line Creation Mode state (dialog visibility managed by State.UI)
     private ABCreationMode _currentABCreationMode = ABCreationMode.None;
     public ABCreationMode CurrentABCreationMode
     {
@@ -2303,14 +2265,7 @@ public class MainViewModel : ReactiveObject
     public ICommand? SwapABPointsCommand { get; private set; }
     public ICommand? SelectTrackAsActiveCommand { get; private set; }
 
-    // New Field Dialog properties
-    private bool _isNewFieldDialogVisible;
-    public bool IsNewFieldDialogVisible
-    {
-        get => _isNewFieldDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isNewFieldDialogVisible, value);
-    }
-
+    // New Field Dialog properties (visibility managed by State.UI)
     private string _newFieldName = string.Empty;
     public string NewFieldName
     {
@@ -2335,14 +2290,7 @@ public class MainViewModel : ReactiveObject
     public ICommand? CancelNewFieldDialogCommand { get; private set; }
     public ICommand? ConfirmNewFieldDialogCommand { get; private set; }
 
-    // From Existing Field Dialog properties
-    private bool _isFromExistingFieldDialogVisible;
-    public bool IsFromExistingFieldDialogVisible
-    {
-        get => _isFromExistingFieldDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isFromExistingFieldDialogVisible, value);
-    }
-
+    // From Existing Field Dialog properties (visibility managed by State.UI)
     private string _fromExistingFieldName = string.Empty;
     public string FromExistingFieldName
     {
@@ -2405,14 +2353,7 @@ public class MainViewModel : ReactiveObject
     public ICommand? ToggleCopyHeadlandCommand { get; private set; }
     public ICommand? ToggleCopyLinesCommand { get; private set; }
 
-    // KML Import Dialog properties
-    private bool _isKmlImportDialogVisible;
-    public bool IsKmlImportDialogVisible
-    {
-        get => _isKmlImportDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isKmlImportDialogVisible, value);
-    }
-
+    // KML Import Dialog properties (visibility managed by State.UI)
     public ObservableCollection<KmlFileItem> AvailableKmlFiles { get; } = new();
 
     private KmlFileItem? _selectedKmlFile;
@@ -2466,14 +2407,7 @@ public class MainViewModel : ReactiveObject
     public ICommand? KmlAppendTimeCommand { get; private set; }
     public ICommand? KmlBackspaceFieldNameCommand { get; private set; }
 
-    // ISO-XML Import Dialog properties
-    private bool _isIsoXmlImportDialogVisible;
-    public bool IsIsoXmlImportDialogVisible
-    {
-        get => _isIsoXmlImportDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isIsoXmlImportDialogVisible, value);
-    }
-
+    // ISO-XML Import Dialog properties (visibility managed by State.UI)
     public ObservableCollection<IsoXmlFileItem> AvailableIsoXmlFiles { get; } = new();
 
     private IsoXmlFileItem? _selectedIsoXmlFile;
@@ -2503,14 +2437,7 @@ public class MainViewModel : ReactiveObject
     public ICommand? IsoXmlAppendTimeCommand { get; private set; }
     public ICommand? IsoXmlBackspaceFieldNameCommand { get; private set; }
 
-    // Boundary Map Dialog properties (for drawing boundaries on satellite map)
-    private bool _isBoundaryMapDialogVisible;
-    public bool IsBoundaryMapDialogVisible
-    {
-        get => _isBoundaryMapDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isBoundaryMapDialogVisible, value);
-    }
-
+    // Boundary Map Dialog properties (visibility managed by State.UI)
     private double _boundaryMapCenterLatitude;
     public double BoundaryMapCenterLatitude
     {
@@ -2565,14 +2492,7 @@ public class MainViewModel : ReactiveObject
     public ICommand? CancelBoundaryMapDialogCommand { get; private set; }
     public ICommand? ConfirmBoundaryMapDialogCommand { get; private set; }
 
-    // Numeric Input Dialog properties
-    private bool _isNumericInputDialogVisible;
-    public bool IsNumericInputDialogVisible
-    {
-        get => _isNumericInputDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isNumericInputDialogVisible, value);
-    }
-
+    // Numeric Input Dialog properties (visibility managed by State.UI)
     private string _numericInputDialogTitle = string.Empty;
     public string NumericInputDialogTitle
     {
@@ -2614,14 +2534,7 @@ public class MainViewModel : ReactiveObject
     public ICommand? CancelNumericInputDialogCommand { get; private set; }
     public ICommand? ConfirmNumericInputDialogCommand { get; private set; }
 
-    // AgShare Settings Dialog properties
-    private bool _isAgShareSettingsDialogVisible;
-    public bool IsAgShareSettingsDialogVisible
-    {
-        get => _isAgShareSettingsDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isAgShareSettingsDialogVisible, value);
-    }
-
+    // AgShare Settings Dialog properties (visibility managed by State.UI)
     private string _agShareSettingsServerUrl = "https://agshare.agopengps.com";
     public string AgShareSettingsServerUrl
     {
@@ -2646,32 +2559,13 @@ public class MainViewModel : ReactiveObject
     public ICommand? CancelAgShareSettingsDialogCommand { get; private set; }
     public ICommand? ConfirmAgShareSettingsDialogCommand { get; private set; }
 
-    // AgShare Upload Dialog properties
-    private bool _isAgShareUploadDialogVisible;
-    public bool IsAgShareUploadDialogVisible
-    {
-        get => _isAgShareUploadDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isAgShareUploadDialogVisible, value);
-    }
+    // AgShare Upload Dialog (visibility managed by State.UI)
     public ICommand? CancelAgShareUploadDialogCommand { get; private set; }
 
-    // AgShare Download Dialog properties
-    private bool _isAgShareDownloadDialogVisible;
-    public bool IsAgShareDownloadDialogVisible
-    {
-        get => _isAgShareDownloadDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isAgShareDownloadDialogVisible, value);
-    }
+    // AgShare Download Dialog (visibility managed by State.UI)
     public ICommand? CancelAgShareDownloadDialogCommand { get; private set; }
 
-    // Data I/O Dialog properties
-    private bool _isDataIODialogVisible;
-    public bool IsDataIODialogVisible
-    {
-        get => _isDataIODialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isDataIODialogVisible, value);
-    }
-
+    // Data I/O Dialog properties (visibility managed by State.UI)
     private bool _isDataIOKeyboardVisible;
     public bool IsDataIOKeyboardVisible
     {
@@ -2761,7 +2655,7 @@ public class MainViewModel : ReactiveObject
     private void CloseDataIODialog()
     {
         IsDataIOKeyboardVisible = false;
-        IsDataIODialogVisible = false;
+        State.UI.CloseDialog();
     }
 
     private void SaveNtripSettings()
@@ -2958,13 +2852,7 @@ public class MainViewModel : ReactiveObject
     }
 
     // Configuration Dialog properties
-    private bool _isConfigurationDialogVisible;
-    public bool IsConfigurationDialogVisible
-    {
-        get => _isConfigurationDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isConfigurationDialogVisible, value);
-    }
-
+    // Configuration Dialog (visibility managed by State.UI)
     private ConfigurationViewModel? _configurationViewModel;
     public ConfigurationViewModel? ConfigurationViewModel
     {
@@ -2975,14 +2863,7 @@ public class MainViewModel : ReactiveObject
     public ICommand? ShowConfigurationDialogCommand { get; private set; }
     public ICommand? CancelConfigurationDialogCommand { get; private set; }
 
-    // Headland Builder properties
-    private bool _isHeadlandBuilderDialogVisible;
-    public bool IsHeadlandBuilderDialogVisible
-    {
-        get => _isHeadlandBuilderDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isHeadlandBuilderDialogVisible, value);
-    }
-
+    // Headland Builder properties (visibility managed by State.UI)
     private bool _isHeadlandOn;
     public bool IsHeadlandOn
     {
@@ -3112,14 +2993,7 @@ public class MainViewModel : ReactiveObject
         private set => this.RaiseAndSetIfChanged(ref _currentBoundary, value);
     }
 
-    // Headland Dialog (FormHeadLine) properties
-    private bool _isHeadlandDialogVisible;
-    public bool IsHeadlandDialogVisible
-    {
-        get => _isHeadlandDialogVisible;
-        set => this.RaiseAndSetIfChanged(ref _isHeadlandDialogVisible, value);
-    }
-
+    // Headland Dialog properties (visibility managed by State.UI)
     private bool _isHeadlandCurveMode = true;
     public bool IsHeadlandCurveMode
     {
@@ -3131,7 +3005,7 @@ public class MainViewModel : ReactiveObject
             {
                 this.RaisePropertyChanged(nameof(IsHeadlandLineMode));
                 // Update preview when track type changes
-                if (IsHeadlandDialogVisible || IsHeadlandBuilderDialogVisible)
+                if (State.UI.IsHeadlandDialogVisible || State.UI.IsHeadlandBuilderDialogVisible)
                 {
                     UpdateHeadlandPreview();
                 }
@@ -3218,6 +3092,10 @@ public class MainViewModel : ReactiveObject
     private int _headlandCurvePoint2Index = -1;
     private double _headlandCurvePoint2T = 0;
 
+    // Cached clip path (to avoid recalculating on every access)
+    private List<Models.Base.Vec2>? _cachedClipPath;
+    private bool _clipPathDirty = true;
+
     // Visual markers for selected points (world coordinates)
     private List<Models.Base.Vec2>? _headlandSelectedMarkers;
     public List<Models.Base.Vec2>? HeadlandSelectedMarkers
@@ -3242,7 +3120,7 @@ public class MainViewModel : ReactiveObject
         }
     }
 
-    // Clip path for headland clipping (follows the headland curve) - used in CURVE mode
+    // Clip path for headland clipping (follows the headland curve) - used in CURVE MODE
     // This shows the section that will be REMOVED (the shorter path)
     public List<Models.Base.Vec2>? HeadlandClipPath
     {
@@ -3250,11 +3128,21 @@ public class MainViewModel : ReactiveObject
         {
             // Only return clip path when in curve mode and both points selected on headland
             if (!IsHeadlandCurveMode || _headlandCurvePoint1Index < 0 || _headlandCurvePoint2Index < 0)
+            {
+                _cachedClipPath = null;
                 return null;
+            }
+
+            // Return cached path if available and not dirty
+            if (!_clipPathDirty && _cachedClipPath != null)
+                return _cachedClipPath;
 
             var headland = CurrentHeadlandLine ?? ConvertPreviewToVec3(HeadlandPreviewLine);
             if (headland == null || headland.Count < 3)
+            {
+                _cachedClipPath = null;
                 return null;
+            }
 
             // Build both paths along the headland between the two selected points
             var forwardPath = BuildCurveModePath(headland, _headlandCurvePoint1Index, _headlandCurvePoint1T,
@@ -3264,8 +3152,16 @@ public class MainViewModel : ReactiveObject
 
             // Return the LONGER path - this is what will be REMOVED (shown in red)
             // Curve mode keeps the shorter section (between the two points), so the red line shows what's being cut away
-            return forwardPath.Count > backwardPath.Count ? forwardPath : backwardPath;
+            _cachedClipPath = forwardPath.Count > backwardPath.Count ? forwardPath : backwardPath;
+            _clipPathDirty = false;
+            return _cachedClipPath;
         }
+    }
+
+    private void InvalidateClipPathCache()
+    {
+        _clipPathDirty = true;
+        _cachedClipPath = null;
     }
 
     // Helper to build clip path for curve mode visualization
@@ -3847,7 +3743,7 @@ public class MainViewModel : ReactiveObject
         // Dialog Commands
         ShowDataIODialogCommand = new RelayCommand(() =>
         {
-            IsDataIODialogVisible = true;
+            State.UI.ShowDialog(DialogType.DataIO);
         });
 
         CloseDataIODialogCommand = new RelayCommand(CloseDataIODialog);
@@ -3887,12 +3783,12 @@ public class MainViewModel : ReactiveObject
             SimCoordsDialogLatitude = Math.Round((decimal)currentPos.Latitude, 7);
             SimCoordsDialogLongitude = Math.Round((decimal)currentPos.Longitude, 7);
             // Show the panel-based dialog
-            IsSimCoordsDialogVisible = true;
+            State.UI.ShowDialog(DialogType.SimCoords);
         });
 
         CancelSimCoordsDialogCommand = new RelayCommand(() =>
         {
-            IsSimCoordsDialogVisible = false;
+            State.UI.CloseDialog();
         });
 
         ConfirmSimCoordsDialogCommand = new RelayCommand(() =>
@@ -3901,7 +3797,7 @@ public class MainViewModel : ReactiveObject
             double lat = (double)(SimCoordsDialogLatitude ?? 0m);
             double lon = (double)(SimCoordsDialogLongitude ?? 0m);
             SetSimulatorCoordinates(lat, lon);
-            IsSimCoordsDialogVisible = false;
+            State.UI.CloseDialog();
         });
 
         ShowFieldSelectionDialogCommand = new RelayCommand(() =>
@@ -3924,12 +3820,12 @@ public class MainViewModel : ReactiveObject
             System.Diagnostics.Debug.WriteLine($"[FieldSelection] Found {AvailableFields.Count} fields");
 
             // Show the panel-based dialog
-            IsFieldSelectionDialogVisible = true;
+            State.UI.ShowDialog(DialogType.FieldSelection);
         });
 
         CancelFieldSelectionDialogCommand = new RelayCommand(() =>
         {
-            IsFieldSelectionDialogVisible = false;
+            State.UI.CloseDialog();
             SelectedFieldInfo = null;
         });
 
@@ -3981,7 +3877,7 @@ public class MainViewModel : ReactiveObject
             };
             _fieldService.SetActiveField(field);
 
-            IsFieldSelectionDialogVisible = false;
+            State.UI.CloseDialog();
             IsJobMenuPanelVisible = false;
             StatusMessage = $"Opened field: {SelectedFieldInfo.Name}";
             SelectedFieldInfo = null;
@@ -4027,12 +3923,12 @@ public class MainViewModel : ReactiveObject
             NewFieldLatitude = Latitude != 0 ? Latitude : 40.7128;
             NewFieldLongitude = Longitude != 0 ? Longitude : -74.0060;
             NewFieldName = string.Empty;
-            IsNewFieldDialogVisible = true;
+            State.UI.ShowDialog(DialogType.NewField);
         });
 
         CancelNewFieldDialogCommand = new RelayCommand(() =>
         {
-            IsNewFieldDialogVisible = false;
+            State.UI.CloseDialog();
             NewFieldName = string.Empty;
         });
 
@@ -4094,7 +3990,7 @@ public class MainViewModel : ReactiveObject
                 _settingsService.Settings.LastOpenedField = NewFieldName;
                 _settingsService.Save();
 
-                IsNewFieldDialogVisible = false;
+                State.UI.CloseDialog();
                 IsJobMenuPanelVisible = false;
                 StatusMessage = $"Created field: {NewFieldName}";
             }
@@ -4131,12 +4027,12 @@ public class MainViewModel : ReactiveObject
                 FromExistingSelectedField = AvailableFields[0];
             }
 
-            IsFromExistingFieldDialogVisible = true;
+            State.UI.ShowDialog(DialogType.FromExistingField);
         });
 
         CancelFromExistingFieldDialogCommand = new RelayCommand(() =>
         {
-            IsFromExistingFieldDialogVisible = false;
+            State.UI.CloseDialog();
             FromExistingSelectedField = null;
             FromExistingFieldName = string.Empty;
         });
@@ -4248,7 +4144,7 @@ public class MainViewModel : ReactiveObject
                 _settingsService.Settings.LastOpenedField = newFieldName;
                 _settingsService.Save();
 
-                IsFromExistingFieldDialogVisible = false;
+                State.UI.CloseDialog();
                 IsJobMenuPanelVisible = false;
                 StatusMessage = $"Created field from existing: {newFieldName}";
             }
@@ -4309,12 +4205,12 @@ public class MainViewModel : ReactiveObject
                 SelectedKmlFile = AvailableKmlFiles[0];
             }
 
-            IsKmlImportDialogVisible = true;
+            State.UI.ShowDialog(DialogType.KmlImport);
         });
 
         CancelKmlImportDialogCommand = new RelayCommand(() =>
         {
-            IsKmlImportDialogVisible = false;
+            State.UI.CloseDialog();
             SelectedKmlFile = null;
             KmlImportFieldName = string.Empty;
         });
@@ -4387,7 +4283,7 @@ public class MainViewModel : ReactiveObject
                 _settingsService.Settings.LastOpenedField = newFieldName;
                 _settingsService.Save();
 
-                IsKmlImportDialogVisible = false;
+                State.UI.CloseDialog();
                 IsJobMenuPanelVisible = false;
                 StatusMessage = $"Imported KML: {newFieldName}";
             }
@@ -4429,12 +4325,12 @@ public class MainViewModel : ReactiveObject
                 SelectedIsoXmlFile = AvailableIsoXmlFiles[0];
             }
 
-            IsIsoXmlImportDialogVisible = true;
+            State.UI.ShowDialog(DialogType.IsoXmlImport);
         });
 
         CancelIsoXmlImportDialogCommand = new RelayCommand(() =>
         {
-            IsIsoXmlImportDialogVisible = false;
+            State.UI.CloseDialog();
             SelectedIsoXmlFile = null;
             IsoXmlImportFieldName = string.Empty;
         });
@@ -4482,7 +4378,7 @@ public class MainViewModel : ReactiveObject
                 _settingsService.Settings.LastOpenedField = newFieldName;
                 _settingsService.Save();
 
-                IsIsoXmlImportDialogVisible = false;
+                State.UI.CloseDialog();
                 IsJobMenuPanelVisible = false;
                 StatusMessage = $"Imported ISO-XML: {newFieldName}";
             }
@@ -4534,12 +4430,12 @@ public class MainViewModel : ReactiveObject
             BoundaryMapCanSave = false;
             BoundaryMapCoordinateText = string.Empty;
             BoundaryMapResultPoints.Clear();
-            IsBoundaryMapDialogVisible = true;
+            State.UI.ShowDialog(DialogType.BoundaryMap);
         });
 
         CancelBoundaryMapDialogCommand = new RelayCommand(() =>
         {
-            IsBoundaryMapDialogVisible = false;
+            State.UI.CloseDialog();
             BoundaryMapResultPoints.Clear();
         });
 
@@ -4655,29 +4551,29 @@ public class MainViewModel : ReactiveObject
                 }
             }
 
-            IsBoundaryMapDialogVisible = false;
+            State.UI.CloseDialog();
             IsBoundaryPanelVisible = false;
             BoundaryMapResultPoints.Clear();
         });
 
         ShowAgShareDownloadDialogCommand = new RelayCommand(() =>
         {
-            IsAgShareDownloadDialogVisible = true;
+            State.UI.ShowDialog(DialogType.AgShareDownload);
         });
 
         CancelAgShareDownloadDialogCommand = new RelayCommand(() =>
         {
-            IsAgShareDownloadDialogVisible = false;
+            State.UI.CloseDialog();
         });
 
         ShowAgShareUploadDialogCommand = new RelayCommand(() =>
         {
-            IsAgShareUploadDialogVisible = true;
+            State.UI.ShowDialog(DialogType.AgShareUpload);
         });
 
         CancelAgShareUploadDialogCommand = new RelayCommand(() =>
         {
-            IsAgShareUploadDialogVisible = false;
+            State.UI.CloseDialog();
         });
 
         ShowAgShareSettingsDialogCommand = new RelayCommand(() =>
@@ -4686,12 +4582,12 @@ public class MainViewModel : ReactiveObject
             AgShareSettingsServerUrl = _settingsService.Settings.AgShareServer;
             AgShareSettingsApiKey = _settingsService.Settings.AgShareApiKey;
             AgShareSettingsEnabled = _settingsService.Settings.AgShareEnabled;
-            IsAgShareSettingsDialogVisible = true;
+            State.UI.ShowDialog(DialogType.AgShareSettings);
         });
 
         CancelAgShareSettingsDialogCommand = new RelayCommand(() =>
         {
-            IsAgShareSettingsDialogVisible = false;
+            State.UI.CloseDialog();
         });
 
         ConfirmAgShareSettingsDialogCommand = new RelayCommand(() =>
@@ -4702,7 +4598,7 @@ public class MainViewModel : ReactiveObject
             _settingsService.Settings.AgShareEnabled = AgShareSettingsEnabled;
             _settingsService.Save();
 
-            IsAgShareSettingsDialogVisible = false;
+            State.UI.CloseDialog();
             StatusMessage = "AgShare settings saved";
         });
 
@@ -4721,7 +4617,7 @@ public class MainViewModel : ReactiveObject
                 StatusMessage = "Open a field first";
                 return;
             }
-            IsHeadlandBuilderDialogVisible = true;
+            State.UI.ShowDialog(DialogType.HeadlandBuilder);
             // Trigger initial preview
             UpdateHeadlandPreview();
         });
@@ -4765,7 +4661,7 @@ public class MainViewModel : ReactiveObject
         CloseHeadlandBuilderCommand = new RelayCommand(() =>
         {
             HeadlandPreviewLine = null;
-            IsHeadlandBuilderDialogVisible = false;
+            State.UI.CloseDialog();
         });
 
         SetHeadlandToToolWidthCommand = new RelayCommand(() =>
@@ -4808,13 +4704,13 @@ public class MainViewModel : ReactiveObject
         // Headland Dialog (FormHeadLine) commands
         ShowHeadlandDialogCommand = new RelayCommand(() =>
         {
-            IsHeadlandDialogVisible = true;
+            State.UI.ShowDialog(DialogType.Headland);
             UpdateHeadlandPreview();
         });
 
         CloseHeadlandDialogCommand = new RelayCommand(() =>
         {
-            IsHeadlandDialogVisible = false;
+            State.UI.CloseDialog();
             HeadlandPreviewLine = null;
         });
 
@@ -4907,12 +4803,12 @@ public class MainViewModel : ReactiveObject
         // AB Line Guidance Commands - Flyout Menu
         ShowTracksDialogCommand = new RelayCommand(() =>
         {
-            IsTracksDialogVisible = true;
+            State.UI.ShowDialog(DialogType.Tracks);
         });
 
         CloseTracksDialogCommand = new RelayCommand(() =>
         {
-            IsTracksDialogVisible = false;
+            State.UI.CloseDialog();
         });
 
         // Track management commands
@@ -4951,28 +4847,28 @@ public class MainViewModel : ReactiveObject
                 HasActiveTrack = true;
                 IsAutoSteerAvailable = true;
                 StatusMessage = $"Activated track: {SelectedTrack.Name}";
-                IsTracksDialogVisible = false;
+                State.UI.CloseDialog();
             }
         });
 
         ShowQuickABSelectorCommand = new RelayCommand(() =>
         {
-            IsQuickABSelectorVisible = true;
+            State.UI.ShowDialog(DialogType.QuickABSelector);
         });
 
         CloseQuickABSelectorCommand = new RelayCommand(() =>
         {
-            IsQuickABSelectorVisible = false;
+            State.UI.CloseDialog();
         });
 
         ShowDrawABDialogCommand = new RelayCommand(() =>
         {
-            IsDrawABDialogVisible = true;
+            State.UI.ShowDialog(DialogType.DrawAB);
         });
 
         CloseDrawABDialogCommand = new RelayCommand(() =>
         {
-            IsDrawABDialogVisible = false;
+            State.UI.CloseDialog();
         });
 
         StartNewABLineCommand = new RelayCommand(() =>
@@ -4988,14 +4884,14 @@ public class MainViewModel : ReactiveObject
         // Quick AB Mode Commands
         StartAPlusLineCommand = new RelayCommand(() =>
         {
-            IsQuickABSelectorVisible = false;
+            State.UI.CloseDialog();
             StatusMessage = "A+ Line mode: Line created from current position and heading";
             // TODO: Create AB line from current position using current heading
         });
 
         StartDriveABCommand = new RelayCommand(() =>
         {
-            IsQuickABSelectorVisible = false;
+            State.UI.CloseDialog();
             CurrentABCreationMode = ABCreationMode.DriveAB;
             CurrentABPointStep = ABPointStep.SettingPointA;
             PendingPointA = null;
@@ -5004,14 +4900,14 @@ public class MainViewModel : ReactiveObject
 
         StartCurveRecordingCommand = new RelayCommand(() =>
         {
-            IsQuickABSelectorVisible = false;
+            State.UI.CloseDialog();
             StatusMessage = "Curve mode: Start driving to record curve path";
             // TODO: Start curve recording mode
         });
 
         StartDrawABModeCommand = new RelayCommand(() =>
         {
-            IsDrawABDialogVisible = false;
+            State.UI.CloseDialog();
             CurrentABCreationMode = ABCreationMode.DrawAB;
             CurrentABPointStep = ABPointStep.SettingPointA;
             PendingPointA = null;
@@ -5420,12 +5316,12 @@ public class MainViewModel : ReactiveObject
                 BoundaryOffset = value;
                 StatusMessage = $"Boundary offset set to {BoundaryOffset:F0} cm";
             };
-            IsNumericInputDialogVisible = true;
+            State.UI.ShowDialog(DialogType.NumericInput);
         });
 
         CancelNumericInputDialogCommand = new RelayCommand(() =>
         {
-            IsNumericInputDialogVisible = false;
+            State.UI.CloseDialog();
             _numericInputDialogCallback = null;
         });
 
@@ -5435,7 +5331,7 @@ public class MainViewModel : ReactiveObject
             {
                 _numericInputDialogCallback((double)NumericInputDialogValue.Value);
             }
-            IsNumericInputDialogVisible = false;
+            State.UI.CloseDialog();
             _numericInputDialogCallback = null;
         });
 
@@ -6088,6 +5984,8 @@ public class MainViewModel : ReactiveObject
             IncludeInnerBoundaries = true
         };
 
+        System.Diagnostics.Debug.WriteLine($"[Headland] Boundary points: {boundary.OuterBoundary.Points.Count}, JoinType: {options.JoinType}");
+
         var result = _headlandBuilderService.BuildHeadland(boundary, options);
 
         if (!result.Success)
@@ -6096,13 +5994,15 @@ public class MainViewModel : ReactiveObject
             return;
         }
 
+        System.Diagnostics.Debug.WriteLine($"[Headland] Result points: {result.OuterHeadlandLine?.Count ?? 0}");
+
         CurrentHeadlandLine = result.OuterHeadlandLine;
         HeadlandPreviewLine = null;
         HasHeadland = true;
         IsHeadlandOn = true;
-        IsHeadlandBuilderDialogVisible = false;
+        State.UI.CloseDialog();
 
-        StatusMessage = $"Headland built at {HeadlandDistance:F1}m";
+        StatusMessage = $"Headland built at {HeadlandDistance:F1}m ({result.OuterHeadlandLine?.Count ?? 0} pts from {boundary.OuterBoundary.Points.Count} boundary pts)";
     }
 
     /// <summary>
@@ -6273,6 +6173,7 @@ public class MainViewModel : ReactiveObject
             {
                 _headlandCurvePoint1Index = headlandSegmentIndex;
                 _headlandCurvePoint1T = headlandT;
+                InvalidateClipPathCache();
             }
             StatusMessage = $"Point 1 selected. Click again to select Point 2.";
         }
@@ -6296,6 +6197,7 @@ public class MainViewModel : ReactiveObject
             {
                 _headlandCurvePoint2Index = headlandSegmentIndex;
                 _headlandCurvePoint2T = headlandT;
+                InvalidateClipPathCache();
             }
             StatusMessage = $"Point 2 selected. Click Clip to create headland line.";
         }
@@ -6314,6 +6216,7 @@ public class MainViewModel : ReactiveObject
                 _headlandCurvePoint1T = headlandT;
                 _headlandCurvePoint2Index = -1;
                 _headlandCurvePoint2T = 0;
+                InvalidateClipPathCache();
             }
             StatusMessage = $"Point 1 re-selected. Click again to select Point 2.";
         }
@@ -6362,6 +6265,7 @@ public class MainViewModel : ReactiveObject
         _headlandCurvePoint1T = 0;
         _headlandCurvePoint2Index = -1;
         _headlandCurvePoint2T = 0;
+        InvalidateClipPathCache();
     }
 
     /// <summary>

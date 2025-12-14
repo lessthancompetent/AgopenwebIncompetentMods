@@ -14,7 +14,7 @@ public class BoundaryRecordingService : IBoundaryRecordingService
     private readonly List<BoundaryPoint> _recordedPoints = new();
     private BoundaryRecordingState _state = BoundaryRecordingState.Idle;
     private BoundaryType _currentBoundaryType = BoundaryType.Outer;
-    private double _minPointSpacing = 5.0; // Default 5 meters between points (more appropriate for field boundaries)
+    private double _minPointSpacing = 1.0; // Default 1 meter between points (matches AgOpenGPS)
     private BoundaryPoint? _lastPoint;
 
     /// <inheritdoc/>

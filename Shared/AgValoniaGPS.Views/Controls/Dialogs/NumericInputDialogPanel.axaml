@@ -7,8 +7,8 @@
              mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="400"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.NumericInputDialogPanel"
              x:DataType="vm:MainViewModel"
-             IsVisible="{Binding IsNumericInputDialogVisible}"
-             IsHitTestVisible="{Binding IsNumericInputDialogVisible}">
+             IsVisible="{Binding State.UI.IsNumericInputDialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsNumericInputDialogVisible}">
 
     <!-- Full screen overlay with backdrop -->
     <Grid>

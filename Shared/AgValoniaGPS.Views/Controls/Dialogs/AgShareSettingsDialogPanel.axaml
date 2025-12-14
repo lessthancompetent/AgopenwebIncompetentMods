@@ -7,8 +7,8 @@
              mc:Ignorable="d"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.AgShareSettingsDialogPanel"
              x:DataType="vm:MainViewModel"
-             IsVisible="{Binding IsAgShareSettingsDialogVisible}"
-             IsHitTestVisible="{Binding IsAgShareSettingsDialogVisible}">
+             IsVisible="{Binding State.UI.IsAgShareSettingsDialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsAgShareSettingsDialogVisible}">
 
     <UserControl.Styles>
         <Style Selector="TextBlock.Label">

@@ -3,8 +3,8 @@
              xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.AgShareDownloadDialogPanel"
              x:DataType="vm:MainViewModel"
-             IsVisible="{Binding IsAgShareDownloadDialogVisible}"
-             IsHitTestVisible="{Binding IsAgShareDownloadDialogVisible}">
+             IsVisible="{Binding State.UI.IsAgShareDownloadDialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsAgShareDownloadDialogVisible}">
 
     <UserControl.Styles>
         <Style Selector="Button.DialogButton">

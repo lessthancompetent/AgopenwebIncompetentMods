@@ -6,8 +6,8 @@
              mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="250"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.DrawABDialogPanel"
              x:DataType="vm:MainViewModel"
-             IsVisible="{Binding IsDrawABDialogVisible}"
-             IsHitTestVisible="{Binding IsDrawABDialogVisible}">
+             IsVisible="{Binding State.UI.IsDrawABDialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsDrawABDialogVisible}">
 
     <UserControl.Styles>
         <Style Selector="Button.ModeButton">

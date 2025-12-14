@@ -22,7 +22,18 @@ public class VehicleConfig : ReactiveObject
     public VehicleType Type
     {
         get => _type;
-        set => this.RaiseAndSetIfChanged(ref _type, value);
+        set
+        {
+            var oldValue = _type;
+            this.RaiseAndSetIfChanged(ref _type, value);
+            if (oldValue != value)
+            {
+                // Notify computed properties that depend on Type
+                this.RaisePropertyChanged(nameof(WheelbaseImageSource));
+                this.RaisePropertyChanged(nameof(AntennaImageSource));
+                this.RaisePropertyChanged(nameof(VehicleTypeDisplayName));
+            }
+        }
     }
 
     // Physical dimensions
@@ -30,7 +41,15 @@ public class VehicleConfig : ReactiveObject
     public double Wheelbase
     {
         get => _wheelbase;
-        set => this.RaiseAndSetIfChanged(ref _wheelbase, value);
+        set
+        {
+            var oldValue = _wheelbase;
+            this.RaiseAndSetIfChanged(ref _wheelbase, value);
+            if (oldValue != value)
+            {
+                this.RaisePropertyChanged(nameof(MinTurningRadius));
+            }
+        }
     }
 
     private double _trackWidth = 1.8;
@@ -67,7 +86,15 @@ public class VehicleConfig : ReactiveObject
     public double MaxSteerAngle
     {
         get => _maxSteerAngle;
-        set => this.RaiseAndSetIfChanged(ref _maxSteerAngle, value);
+        set
+        {
+            var oldValue = _maxSteerAngle;
+            this.RaiseAndSetIfChanged(ref _maxSteerAngle, value);
+            if (oldValue != value)
+            {
+                this.RaisePropertyChanged(nameof(MinTurningRadius));
+            }
+        }
     }
 
     private double _maxAngularVelocity = 35.0;

@@ -8,8 +8,8 @@
              mc:Ignorable="d" d:DesignWidth="500" d:DesignHeight="400"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.TracksDialogPanel"
              x:DataType="vm:MainViewModel"
-             IsVisible="{Binding IsTracksDialogVisible}"
-             IsHitTestVisible="{Binding IsTracksDialogVisible}">
+             IsVisible="{Binding State.UI.IsTracksDialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsTracksDialogVisible}">
 
     <UserControl.Styles>
         <Style Selector="TextBlock.Header">

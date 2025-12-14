@@ -7,8 +7,8 @@
              mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.HeadlandDialogPanel"
              x:DataType="vm:MainViewModel"
-             IsVisible="{Binding IsHeadlandDialogVisible}"
-             IsHitTestVisible="{Binding IsHeadlandDialogVisible}">
+             IsVisible="{Binding State.UI.IsHeadlandDialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsHeadlandDialogVisible}">
 
     <UserControl.Styles>
         <Style Selector="Button.ToolButton">

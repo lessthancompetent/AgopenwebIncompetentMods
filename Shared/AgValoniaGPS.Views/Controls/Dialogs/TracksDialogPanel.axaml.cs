@@ -15,7 +15,7 @@ public partial class TracksDialogPanel : UserControl
         // Close dialog when clicking the backdrop
         if (DataContext is AgValoniaGPS.ViewModels.MainViewModel vm)
         {
-            vm.IsTracksDialogVisible = false;
+            vm.State.UI.CloseDialog();
         }
     }
 }
