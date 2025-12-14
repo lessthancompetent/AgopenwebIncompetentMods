@@ -124,25 +124,25 @@
                                     <!-- AutoSteer -->
                                     <TextBlock Classes="Label" Text="AutoSteer:" VerticalAlignment="Center"/>
                                     <Ellipse Grid.Column="1" Width="12" Height="12" Margin="0,0,10,0"
-                                             Fill="{Binding IsAutoSteerDataOk, Converter={StaticResource BoolToColorConverter}}"/>
+                                             Fill="{Binding State.Connections.IsAutoSteerDataOk, Converter={StaticResource BoolToColorConverter}}"/>
                                     <TextBlock Grid.Column="2"
-                                               Text="{Binding IsAutoSteerDataOk, Converter={StaticResource BoolToStatusConverter}}"
+                                               Text="{Binding State.Connections.IsAutoSteerDataOk, Converter={StaticResource BoolToStatusConverter}}"
                                                Foreground="White" VerticalAlignment="Center"/>
 
                                     <!-- Machine -->
                                     <TextBlock Grid.Row="1" Classes="Label" Text="Machine:" VerticalAlignment="Center" Margin="0,8,0,0"/>
                                     <Ellipse Grid.Row="1" Grid.Column="1" Width="12" Height="12" Margin="0,8,10,0"
-                                             Fill="{Binding IsMachineDataOk, Converter={StaticResource BoolToColorConverter}}"/>
+                                             Fill="{Binding State.Connections.IsMachineDataOk, Converter={StaticResource BoolToColorConverter}}"/>
                                     <TextBlock Grid.Row="1" Grid.Column="2" Margin="0,8,0,0"
-                                               Text="{Binding IsMachineDataOk, Converter={StaticResource BoolToStatusConverter}}"
+                                               Text="{Binding State.Connections.IsMachineDataOk, Converter={StaticResource BoolToStatusConverter}}"
                                                Foreground="White" VerticalAlignment="Center"/>
 
                                     <!-- IMU -->
                                     <TextBlock Grid.Row="2" Classes="Label" Text="IMU:" VerticalAlignment="Center" Margin="0,8,0,0"/>
                                     <Ellipse Grid.Row="2" Grid.Column="1" Width="12" Height="12" Margin="0,8,10,0"
-                                             Fill="{Binding IsImuDataOk, Converter={StaticResource BoolToColorConverter}}"/>
+                                             Fill="{Binding State.Connections.IsImuDataOk, Converter={StaticResource BoolToColorConverter}}"/>
                                     <TextBlock Grid.Row="2" Grid.Column="2" Margin="0,8,0,0"
-                                               Text="{Binding IsImuDataOk, Converter={StaticResource BoolToStatusConverter}}"
+                                               Text="{Binding State.Connections.IsImuDataOk, Converter={StaticResource BoolToStatusConverter}}"
                                                Foreground="White" VerticalAlignment="Center"/>
                                 </Grid>
                             </StackPanel>
@@ -218,13 +218,13 @@
                                 <Grid ColumnDefinitions="Auto,Auto,*">
                                     <TextBlock Classes="Label" Text="Status:" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                     <Ellipse Grid.Column="1" Width="12" Height="12" Margin="0,0,8,0"
-                                             Fill="{Binding IsNtripConnected, Converter={StaticResource BoolToColorConverter}}"/>
-                                    <TextBlock Grid.Column="2" Text="{Binding NtripStatus}" Foreground="White" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                             Fill="{Binding State.Connections.IsNtripConnected, Converter={StaticResource BoolToColorConverter}}"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding State.Connections.NtripStatus}" Foreground="White" VerticalAlignment="Center" TextWrapping="Wrap"/>
                                 </Grid>
 
                                 <Grid ColumnDefinitions="Auto,*">
                                     <TextBlock Classes="Label" Text="RTCM Received:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding NtripBytesReceived}" Foreground="White" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding State.Connections.NtripBytesReceived}" Foreground="White" VerticalAlignment="Center"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -239,19 +239,19 @@
                                     <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" Foreground="White"/>
 
                                     <TextBlock Grid.Row="1" Classes="Label" Text="Fix Quality:" Margin="0,6,0,0"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding FixQuality}" Foreground="White" Margin="0,6,0,0"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding State.Vehicle.FixQualityText}" Foreground="White" Margin="0,6,0,0"/>
 
                                     <TextBlock Grid.Row="2" Classes="Label" Text="Satellites:" Margin="0,6,0,0"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SatelliteCount}" Foreground="White" Margin="0,6,0,0"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding State.Vehicle.SatelliteCount}" Foreground="White" Margin="0,6,0,0"/>
 
                                     <TextBlock Grid.Row="3" Classes="Label" Text="Latitude:" Margin="0,6,0,0"/>
-                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Latitude, StringFormat='{}{0:F6}°'}" Foreground="White" Margin="0,6,0,0"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding State.Vehicle.Latitude, StringFormat='{}{0:F6}°'}" Foreground="White" Margin="0,6,0,0"/>
 
                                     <TextBlock Grid.Row="4" Classes="Label" Text="Longitude:" Margin="0,6,0,0"/>
-                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Longitude, StringFormat='{}{0:F6}°'}" Foreground="White" Margin="0,6,0,0"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding State.Vehicle.Longitude, StringFormat='{}{0:F6}°'}" Foreground="White" Margin="0,6,0,0"/>
 
                                     <TextBlock Grid.Row="5" Classes="Label" Text="Speed:" Margin="0,6,0,0"/>
-                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding Speed, StringFormat='{}{0:F2} m/s'}" Foreground="White" Margin="0,6,0,0"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding State.Vehicle.Speed, StringFormat='{}{0:F2} m/s'}" Foreground="White" Margin="0,6,0,0"/>
                                 </Grid>
                             </StackPanel>
                         </Border>

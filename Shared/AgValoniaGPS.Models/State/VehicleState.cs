@@ -116,9 +116,9 @@ public class VehicleState : ReactiveObject
     public string FixQualityText => FixQuality switch
     {
         0 => "No Fix",
-        1 => "GPS",
+        1 => "GPS Fix",
         2 => "DGPS",
-        4 => "RTK Fix",
+        4 => "RTK Fixed",
         5 => "RTK Float",
         _ => $"Unknown ({FixQuality})"
     };

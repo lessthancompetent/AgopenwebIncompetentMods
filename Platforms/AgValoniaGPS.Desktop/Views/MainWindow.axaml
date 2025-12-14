@@ -37,8 +37,8 @@
             <StackPanel Orientation="Horizontal" Spacing="10">
                 <TextBlock Text="RTK Status" Foreground="#3498DB" FontSize="14" FontWeight="Bold"/>
                 <Ellipse Width="12" Height="12"
-                         Fill="{Binding FixQuality, Converter={StaticResource FixQualityToColorConverter}}"/>
-                <TextBlock Text="{Binding FixQuality}" Foreground="White" FontSize="14" FontWeight="Bold"/>
+                         Fill="{Binding State.Vehicle.FixQualityText, Converter={StaticResource FixQualityToColorConverter}}"/>
+                <TextBlock Text="{Binding State.Vehicle.FixQualityText}" Foreground="White" FontSize="14" FontWeight="Bold"/>
             </StackPanel>
         </Border>
 

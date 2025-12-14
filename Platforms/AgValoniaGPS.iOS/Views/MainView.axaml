@@ -21,7 +21,7 @@
                 <StackPanel Orientation="Horizontal" Spacing="20">
                     <TextBlock Text="{Binding StatusMessage}" Foreground="#2ECC71" FontSize="16"
                                TextTrimming="CharacterEllipsis" MaxWidth="600"/>
-                    <TextBlock Text="{Binding FixQuality}" Foreground="#3498DB" FontSize="14"/>
+                    <TextBlock Text="{Binding State.Vehicle.FixQualityText}" Foreground="#3498DB" FontSize="14"/>
                 </StackPanel>
             </Border>
 
