@@ -1,6 +1,7 @@
 using AgValoniaGPS.Models.Base;
 using AgValoniaGPS.Models.YouTurn;
 using System;
+using static AgValoniaGPS.Models.Base.GeometryMath;
 
 namespace AgValoniaGPS.Services.YouTurn
 {
@@ -10,8 +11,6 @@ namespace AgValoniaGPS.Services.YouTurn
     /// </summary>
     public class YouTurnGuidanceService
     {
-        private const double TWO_PI = Math.PI * 2.0;
-        private const double PI_BY_2 = Math.PI / 2.0;
 
         /// <summary>
         /// Calculate steering guidance for following a U-turn path.
@@ -128,8 +127,8 @@ namespace AgValoniaGPS.Services.YouTurn
             // Fix the circular error - get it from -Pi/2 to Pi/2
             if (abFixHeadingDelta > Math.PI) abFixHeadingDelta -= Math.PI;
             else if (abFixHeadingDelta < Math.PI) abFixHeadingDelta += Math.PI;
-            if (abFixHeadingDelta > PI_BY_2) abFixHeadingDelta -= Math.PI;
-            else if (abFixHeadingDelta < -PI_BY_2) abFixHeadingDelta += Math.PI;
+            if (abFixHeadingDelta > PIBy2) abFixHeadingDelta -= Math.PI;
+            else if (abFixHeadingDelta < -PIBy2) abFixHeadingDelta += Math.PI;
 
             if (input.IsReverse) abFixHeadingDelta *= -1;
 
@@ -274,7 +273,7 @@ namespace AgValoniaGPS.Services.YouTurn
             double goalPointDistanceSquared = DistanceSquared(goalPoint.Northing, goalPoint.Easting, pivot.Northing, pivot.Easting);
 
             // Calculate the delta x in local coordinates and steering angle degrees based on wheelbase
-            double localHeading = TWO_PI - input.FixHeading;
+            double localHeading = twoPI - input.FixHeading;
             double ppRadius = goalPointDistanceSquared / (2 * (((goalPoint.Easting - pivot.Easting) * Math.Cos(localHeading)) + ((goalPoint.Northing - pivot.Northing) * Math.Sin(localHeading))));
 
             double steerAngle = ToDegrees(Math.Atan(2 * (((goalPoint.Easting - pivot.Easting) * Math.Cos(localHeading))
@@ -313,25 +312,6 @@ namespace AgValoniaGPS.Services.YouTurn
             output.GuidanceLineDistanceOff = (short)Math.Round(distanceFromCurrentLine * 1000.0, MidpointRounding.AwayFromZero);
             output.GuidanceLineSteerAngle = (short)(steerAngle * 100);
             output.PathCount = ptCount - B;
-        }
-
-        private static double Distance(Vec3 a, Vec3 b)
-        {
-            double dx = a.Easting - b.Easting;
-            double dz = a.Northing - b.Northing;
-            return Math.Sqrt((dx * dx) + (dz * dz));
-        }
-
-        private static double DistanceSquared(double aN, double aE, double bN, double bE)
-        {
-            double dx = aE - bE;
-            double dz = aN - bN;
-            return (dx * dx) + (dz * dz);
-        }
-
-        private static double ToDegrees(double radians)
-        {
-            return radians * (180.0 / Math.PI);
         }
     }
 }

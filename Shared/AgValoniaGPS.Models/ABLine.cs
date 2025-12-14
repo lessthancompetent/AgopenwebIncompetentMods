@@ -43,6 +43,7 @@ public enum ABPointStep
 /// Represents an AB guidance line for field operations.
 /// Compatible with AgOpenGPS TrackLines.txt format.
 /// </summary>
+[System.Obsolete("Use AgValoniaGPS.Models.Track.Track instead. ABLine is retained for file I/O compatibility only.")]
 public class ABLine
 {
     public string Name { get; set; } = string.Empty;

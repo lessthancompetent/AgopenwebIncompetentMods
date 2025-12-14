@@ -3,7 +3,6 @@ using AgValoniaGPS.Services;
 using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Services.Geometry;
 using AgValoniaGPS.Services.Headland;
-using AgValoniaGPS.Services.Guidance;
 using AgValoniaGPS.Services.Track;
 using AgValoniaGPS.Services.YouTurn;
 using AgValoniaGPS.ViewModels;
@@ -31,7 +30,6 @@ public static class ServiceCollectionExtensions
 
         // Other services
         services.AddSingleton<IFieldService, FieldService>();
-        services.AddSingleton<IGuidanceService, GuidanceService>();
         services.AddSingleton<INtripClientService, NtripClientService>();
         services.AddSingleton<ISettingsService, SettingsService>();
 
@@ -48,7 +46,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITurnAreaService, TurnAreaService>();
 
         // Guidance algorithm services
-        services.AddSingleton<IPurePursuitGuidanceService, PurePursuitGuidanceService>();
         services.AddSingleton<ITrackGuidanceService, TrackGuidanceService>();
 
         // YouTurn services

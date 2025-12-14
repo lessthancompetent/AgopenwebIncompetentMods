@@ -363,14 +363,14 @@ public class TrackNudgingService : ITrackNudgingService
 - [x] `CurvePurePursuitGuidanceService.cs` (476 lines)
 - [x] `ContourPurePursuitGuidanceService.cs` (262 lines)
 - [x] `StanleyGuidanceService.cs` (459 lines)
-- [ ] `YouTurnGuidanceService.cs` - Keep, but simplify to use shared utilities
+- [x] `YouTurnGuidanceService.cs` - Simplified to use GeometryMath shared utilities
 
 ### Interfaces (5 files, 144 lines)
 - [x] `IPurePursuitGuidanceService.cs`
 - [x] `ICurvePurePursuitGuidanceService.cs`
 - [x] `IContourPurePursuitGuidanceService.cs`
 - [x] `IStanleyGuidanceService.cs`
-- [ ] `IGuidanceService.cs` - Merge into `ITrackGuidanceService`
+- [x] `IGuidanceService.cs` - Removed (was unused)
 
 ### Models (10 files, ~400 lines)
 - [x] `PurePursuitGuidanceInput.cs`

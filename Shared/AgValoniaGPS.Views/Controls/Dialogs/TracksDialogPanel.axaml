@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
              xmlns:models="clr-namespace:AgValoniaGPS.Models;assembly=AgValoniaGPS.Models"
+             xmlns:track="clr-namespace:AgValoniaGPS.Models.Track;assembly=AgValoniaGPS.Models"
              mc:Ignorable="d" d:DesignWidth="500" d:DesignHeight="400"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.TracksDialogPanel"
              x:DataType="vm:MainViewModel"
@@ -139,7 +140,7 @@
                          ItemsSource="{Binding SavedTracks}"
                          SelectedItem="{Binding SelectedTrack}">
                     <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="models:ABLine">
+                        <DataTemplate x:DataType="track:Track">
                             <Grid ColumnDefinitions="*,80,60">
                                 <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="White" FontSize="14"
                                            VerticalAlignment="Center"/>

@@ -9,6 +9,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using AgValoniaGPS.Models;
+using AgValoniaGPS.Models.Track;
 
 // For loading embedded resources
 using AssetLoader = Avalonia.Platform.AssetLoader;
@@ -60,10 +61,10 @@ public interface ISharedMapControl
     // YouTurn path visualization
     void SetYouTurnPath(IReadOnlyList<(double Easting, double Northing)>? turnPath);
 
-    // AB Line visualization for U-turns
-    void SetNextABLine(AgValoniaGPS.Models.ABLine? abLine);
+    // Track visualization for U-turns
+    void SetNextTrack(AgValoniaGPS.Models.Track.Track? track);
     void SetIsInYouTurn(bool isInTurn);
-    void SetActiveABLine(AgValoniaGPS.Models.ABLine? abLine);
+    void SetActiveTrack(AgValoniaGPS.Models.Track.Track? track);
 
     // Grid visibility property
     bool IsGridVisible { get; set; }
@@ -158,9 +159,9 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     // YouTurn path
     private IReadOnlyList<(double Easting, double Northing)>? _youTurnPath;
 
-    // AB Line data
-    private AgValoniaGPS.Models.ABLine? _activeABLine;
-    private AgValoniaGPS.Models.ABLine? _nextABLine; // Next line to follow after U-turn
+    // Track data
+    private AgValoniaGPS.Models.Track.Track? _activeTrack;
+    private AgValoniaGPS.Models.Track.Track? _nextTrack; // Next track to follow after U-turn
     private bool _isInYouTurn; // When true, current line is dotted, next line is solid
     private AgValoniaGPS.Models.Position? _pendingPointA; // Point A while waiting for Point B
 
@@ -305,10 +306,10 @@ public class DrawingContextMapControl : Control, ISharedMapControl
                 DrawClipLine(context);
             }
 
-            // Draw AB Line (active line and pending Point A)
-            if (_activeABLine != null || _pendingPointA != null)
+            // Draw Track (active track and pending Point A)
+            if (_activeTrack != null || _pendingPointA != null)
             {
-                DrawABLine(context);
+                DrawTrack(context);
             }
 
             // Draw YouTurn path
@@ -732,7 +733,7 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         context.DrawLine(_clipLinePen, start, end);
     }
 
-    private void DrawABLine(DrawingContext context)
+    private void DrawTrack(DrawingContext context)
     {
         // Calculate scale factor: convert from desired screen size to world units
         // At zoom=1, viewHeight=200m maps to screen height
@@ -747,13 +748,13 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         double labelOffset = 8 * worldPerPixel;   // Offset for A/B labels
 
         // Create scaled pens - solid and dotted versions
-        var abLinePenSolid = new Pen(new SolidColorBrush(Color.FromRgb(255, 165, 0)), lineThickness);
-        var abLinePenDotted = new Pen(new SolidColorBrush(Color.FromRgb(255, 165, 0)), lineThickness)
+        var trackPenSolid = new Pen(new SolidColorBrush(Color.FromRgb(255, 165, 0)), lineThickness);
+        var trackPenDotted = new Pen(new SolidColorBrush(Color.FromRgb(255, 165, 0)), lineThickness)
         {
             DashStyle = new DashStyle(new double[] { 4, 4 }, 0)
         };
-        var abLineExtendPenScaled = new Pen(new SolidColorBrush(Color.FromArgb(128, 255, 165, 0)), lineThickness * 0.5);
-        var abLineExtendPenDotted = new Pen(new SolidColorBrush(Color.FromArgb(128, 255, 165, 0)), lineThickness * 0.5)
+        var trackExtendPenScaled = new Pen(new SolidColorBrush(Color.FromArgb(128, 255, 165, 0)), lineThickness * 0.5);
+        var trackExtendPenDotted = new Pen(new SolidColorBrush(Color.FromArgb(128, 255, 165, 0)), lineThickness * 0.5)
         {
             DashStyle = new DashStyle(new double[] { 4, 4 }, 0)
         };
@@ -773,31 +774,37 @@ public class DrawingContextMapControl : Control, ISharedMapControl
             DrawLabel(context, "A", pointA.X + labelOffset, pointA.Y, worldPerPixel, Brushes.LimeGreen);
         }
 
-        // Draw next AB line first (so current line renders on top)
-        if (_isInYouTurn && _nextABLine != null)
+        // Draw next track first (so current track renders on top)
+        if (_isInYouTurn && _nextTrack != null)
         {
-            DrawSingleABLine(context, _nextABLine, nextLinePenSolid, nextLineExtendPen, pointOutlinePen,
+            DrawSingleTrack(context, _nextTrack, nextLinePenSolid, nextLineExtendPen, pointOutlinePen,
                 pointRadius, labelOffset, worldPerPixel, "Next");
         }
 
-        // Draw active AB line
-        if (_activeABLine != null)
+        // Draw active track
+        if (_activeTrack != null)
         {
             // When in U-turn, draw current line as dotted; otherwise solid
-            var mainPen = _isInYouTurn ? abLinePenDotted : abLinePenSolid;
-            var extendPen = _isInYouTurn ? abLineExtendPenDotted : abLineExtendPenScaled;
+            var mainPen = _isInYouTurn ? trackPenDotted : trackPenSolid;
+            var extendPen = _isInYouTurn ? trackExtendPenDotted : trackExtendPenScaled;
 
-            DrawSingleABLine(context, _activeABLine, mainPen, extendPen, pointOutlinePen,
+            DrawSingleTrack(context, _activeTrack, mainPen, extendPen, pointOutlinePen,
                 pointRadius, labelOffset, worldPerPixel, "Current");
         }
     }
 
-    private void DrawSingleABLine(DrawingContext context, AgValoniaGPS.Models.ABLine abLine,
+    private void DrawSingleTrack(DrawingContext context, AgValoniaGPS.Models.Track.Track track,
         Pen mainPen, Pen extendPen, Pen pointOutlinePen,
         double pointRadius, double labelOffset, double worldPerPixel, string lineType)
     {
-        var pointA = new Point(abLine.PointA.Easting, abLine.PointA.Northing);
-        var pointB = new Point(abLine.PointB.Easting, abLine.PointB.Northing);
+        if (track.Points.Count < 2)
+            return;
+
+        var trackPointA = track.Points[0];
+        var trackPointB = track.Points[track.Points.Count - 1];
+
+        var pointA = new Point(trackPointA.Easting, trackPointA.Northing);
+        var pointB = new Point(trackPointB.Easting, trackPointB.Northing);
 
         // Calculate heading and extend the line in both directions
         double dx = pointB.X - pointA.X;
@@ -819,7 +826,7 @@ public class DrawingContextMapControl : Control, ISharedMapControl
             context.DrawLine(extendPen, extendA, extendB);
         }
 
-        // Draw main AB line
+        // Draw main track line
         context.DrawLine(mainPen, pointA, pointB);
 
         // Draw Point A marker (green)
@@ -1139,15 +1146,15 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         _clipPath = path;
     }
 
-    // AB Line visualization
-    public void SetActiveABLine(AgValoniaGPS.Models.ABLine? abLine)
+    // Track visualization
+    public void SetActiveTrack(AgValoniaGPS.Models.Track.Track? track)
     {
-        _activeABLine = abLine;
+        _activeTrack = track;
     }
 
-    public void SetNextABLine(AgValoniaGPS.Models.ABLine? abLine)
+    public void SetNextTrack(AgValoniaGPS.Models.Track.Track? track)
     {
-        _nextABLine = abLine;
+        _nextTrack = track;
     }
 
     public void SetIsInYouTurn(bool isInTurn)

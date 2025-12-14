@@ -24,7 +24,6 @@ public class MainViewModel : ReactiveObject
     private readonly IUdpCommunicationService _udpService;
     private readonly AgValoniaGPS.Services.Interfaces.IGpsService _gpsService;
     private readonly IFieldService _fieldService;
-    private readonly IGuidanceService _guidanceService;
     private readonly INtripClientService _ntripService;
     private readonly AgValoniaGPS.Services.Interfaces.IDisplaySettingsService _displaySettings;
     private readonly AgValoniaGPS.Services.Interfaces.IFieldStatisticsService _fieldStatistics;
@@ -36,7 +35,6 @@ public class MainViewModel : ReactiveObject
     private readonly BoundaryFileService _boundaryFileService;
     private readonly NmeaParserService _nmeaParser;
     private readonly Services.Headland.IHeadlandBuilderService _headlandBuilderService;
-    private readonly IPurePursuitGuidanceService _purePursuitService;
     private readonly ITrackGuidanceService _trackGuidanceService;
     private readonly YouTurnCreationService _youTurnCreationService;
     private readonly Services.Geometry.IPolygonOffsetService _polygonOffsetService;
@@ -72,7 +70,7 @@ public class MainViewModel : ReactiveObject
     private bool _wasHeadingSameWayAtTurnStart; // Heading direction when turn was created (for offset calc)
     private bool _lastTurnWasLeft; // Track last turn direction to alternate
     private bool _hasCompletedFirstTurn; // Track if we've done at least one turn
-    private ABLine? _nextABLine; // The next AB line to switch to after U-turn completes
+    private Track? _nextTrack; // The next track to switch to after U-turn completes
     private int _howManyPathsAway; // Which parallel offset line we're on (like AgOpenGPS)
     private Vec2? _lastTurnCompletionPosition; // Position where last U-turn completed - used to prevent immediate re-triggering
 
@@ -122,7 +120,6 @@ public class MainViewModel : ReactiveObject
         IUdpCommunicationService udpService,
         AgValoniaGPS.Services.Interfaces.IGpsService gpsService,
         IFieldService fieldService,
-        IGuidanceService guidanceService,
         INtripClientService ntripService,
         AgValoniaGPS.Services.Interfaces.IDisplaySettingsService displaySettings,
         AgValoniaGPS.Services.Interfaces.IFieldStatisticsService fieldStatistics,
@@ -133,7 +130,6 @@ public class MainViewModel : ReactiveObject
         IBoundaryRecordingService boundaryRecordingService,
         BoundaryFileService boundaryFileService,
         Services.Headland.IHeadlandBuilderService headlandBuilderService,
-        IPurePursuitGuidanceService purePursuitService,
         ITrackGuidanceService trackGuidanceService,
         YouTurnCreationService youTurnCreationService,
         YouTurnGuidanceService youTurnGuidanceService,
@@ -145,7 +141,6 @@ public class MainViewModel : ReactiveObject
         _udpService = udpService;
         _gpsService = gpsService;
         _fieldService = fieldService;
-        _guidanceService = guidanceService;
         _ntripService = ntripService;
         _displaySettings = displaySettings;
         _fieldStatistics = fieldStatistics;
@@ -156,7 +151,6 @@ public class MainViewModel : ReactiveObject
         _boundaryRecordingService = boundaryRecordingService;
         _boundaryFileService = boundaryFileService;
         _headlandBuilderService = headlandBuilderService;
-        _purePursuitService = purePursuitService;
         _trackGuidanceService = trackGuidanceService;
         _youTurnCreationService = youTurnCreationService;
         _youTurnGuidanceService = youTurnGuidanceService;
@@ -899,14 +893,13 @@ public class MainViewModel : ReactiveObject
     /// </summary>
     private void UpdateActiveLineVisualization(double ptAEasting, double ptANorthing, double ptBEasting, double ptBNorthing)
     {
-        // Create a temporary ABLine for visualization that represents the current offset line
-        var currentGuidanceLine = new ABLine
-        {
-            PointA = new Position { Easting = ptAEasting, Northing = ptANorthing },
-            PointB = new Position { Easting = ptBEasting, Northing = ptBNorthing },
-            IsActive = true
-        };
-        _mapService.SetActiveABLine(currentGuidanceLine);
+        // Create a temporary Track for visualization that represents the current offset line
+        var currentGuidanceTrack = Track.FromABLine(
+            "CurrentGuidance",
+            new Vec3(ptAEasting, ptANorthing, 0),
+            new Vec3(ptBEasting, ptBNorthing, 0));
+        currentGuidanceTrack.IsActive = true;
+        _mapService.SetActiveTrack(currentGuidanceTrack);
     }
 
     /// <summary>
@@ -915,13 +908,16 @@ public class MainViewModel : ReactiveObject
     private void ProcessYouTurn(AgValoniaGPS.Models.Position currentPosition)
     {
         var track = SelectedTrack;
-        if (track == null || _currentHeadlandLine == null) return;
+        if (track == null || track.Points.Count < 2 || _currentHeadlandLine == null) return;
+
+        var trackPointA = track.Points[0];
+        var trackPointB = track.Points[track.Points.Count - 1];
 
         double headingRadians = currentPosition.Heading * Math.PI / 180.0;
 
-        // Calculate AB line heading to determine direction
-        double abDx = track.PointB.Easting - track.PointA.Easting;
-        double abDy = track.PointB.Northing - track.PointA.Northing;
+        // Calculate track heading to determine direction
+        double abDx = trackPointB.Easting - trackPointA.Easting;
+        double abDy = trackPointB.Northing - trackPointA.Northing;
         double abHeading = Math.Atan2(abDx, abDy);
 
         // Determine if vehicle is heading the same way as the AB line
@@ -943,7 +939,16 @@ public class MainViewModel : ReactiveObject
         // This prevents creating turns while mid-turn when heading changes rapidly
         if (isAlignedWithABLine)
         {
-            _distanceToHeadland = CalculateDistanceToHeadland(currentPosition, headingRadians);
+            // IMPORTANT: Calculate distance using the travel heading (AB heading adjusted for direction),
+            // not the vehicle heading. This ensures the raycast direction matches the path construction
+            // direction, preventing arc positioning errors when vehicle heading differs from AB heading.
+            double travelHeading = abHeading;
+            if (!_isHeadingSameWay)
+            {
+                travelHeading += Math.PI;
+                if (travelHeading >= Math.PI * 2) travelHeading -= Math.PI * 2;
+            }
+            _distanceToHeadland = CalculateDistanceToHeadland(currentPosition, travelHeading);
         }
         else
         {
@@ -997,8 +1002,8 @@ public class MainViewModel : ReactiveObject
                 StatusMessage = "YouTurn triggered!";
                 Console.WriteLine($"[YouTurn] Triggered at distance {distToTurnStart:F2}m from turn start");
 
-                // Compute the next AB line (offset by row skip width)
-                ComputeNextABLine(track, abHeading);
+                // Compute the next track (offset by row skip width)
+                ComputeNextTrack(track, abHeading);
             }
         }
 
@@ -1019,12 +1024,18 @@ public class MainViewModel : ReactiveObject
     }
 
     /// <summary>
-    /// Check if the next AB line (after a U-turn) would be inside the field boundary.
+    /// Check if the next track (after a U-turn) would be inside the field boundary.
     /// </summary>
-    private bool WouldNextLineBeInsideBoundary(ABLine currentLine, double abHeading)
+    private bool WouldNextLineBeInsideBoundary(Track currentTrack, double abHeading)
     {
         if (_currentBoundary?.OuterBoundary == null || !_currentBoundary.OuterBoundary.IsValid)
             return true; // No boundary, assume OK
+
+        if (currentTrack.Points.Count < 2)
+            return true; // Invalid track, assume OK
+
+        var pointA = currentTrack.Points[0];
+        var pointB = currentTrack.Points[currentTrack.Points.Count - 1];
 
         // Calculate where the next line would be
         int rowSkipWidth = UTurnSkipRows + 1;
@@ -1036,8 +1047,8 @@ public class MainViewModel : ReactiveObject
         double offsetNorthing = Math.Cos(perpAngle) * offsetDistance;
 
         // Check if midpoint of next line would be inside boundary
-        double midEasting = (currentLine.PointA.Easting + currentLine.PointB.Easting) / 2 + offsetEasting;
-        double midNorthing = (currentLine.PointA.Northing + currentLine.PointB.Northing) / 2 + offsetNorthing;
+        double midEasting = (pointA.Easting + pointB.Easting) / 2 + offsetEasting;
+        double midNorthing = (pointA.Northing + pointB.Northing) / 2 + offsetNorthing;
 
         return IsPointInsideBoundary(midEasting, midNorthing);
     }
@@ -1070,10 +1081,16 @@ public class MainViewModel : ReactiveObject
     }
 
     /// <summary>
-    /// Compute the next AB line offset perpendicular to the current line.
+    /// Compute the next track offset perpendicular to the current line.
     /// </summary>
-    private void ComputeNextABLine(ABLine referenceABLine, double abHeading)
+    private void ComputeNextTrack(Track referenceTrack, double abHeading)
     {
+        if (referenceTrack.Points.Count < 2)
+            return;
+
+        var refPointA = referenceTrack.Points[0];
+        var refPointB = referenceTrack.Points[referenceTrack.Points.Count - 1];
+
         // Following AgOpenGPS approach exactly:
         // howManyPathsAway += (isTurnLeft ^ isHeadingSameWay) ? rowSkipsWidth : -rowSkipsWidth
         // XOR truth table:
@@ -1098,34 +1115,18 @@ public class MainViewModel : ReactiveObject
         double offsetEasting = Math.Sin(perpAngle) * nextDistAway;
         double offsetNorthing = Math.Cos(perpAngle) * nextDistAway;
 
-        // Create the next AB line for visualization (relative to reference AB line)
-        _nextABLine = new ABLine
-        {
-            Name = $"Path {nextPathsAway}",
-            PointA = new Position
-            {
-                Easting = referenceABLine.PointA.Easting + offsetEasting,
-                Northing = referenceABLine.PointA.Northing + offsetNorthing,
-                Latitude = referenceABLine.PointA.Latitude,
-                Longitude = referenceABLine.PointA.Longitude
-            },
-            PointB = new Position
-            {
-                Easting = referenceABLine.PointB.Easting + offsetEasting,
-                Northing = referenceABLine.PointB.Northing + offsetNorthing,
-                Latitude = referenceABLine.PointB.Latitude,
-                Longitude = referenceABLine.PointB.Longitude
-            },
-            Heading = referenceABLine.Heading,
-            Mode = referenceABLine.Mode,
-            IsActive = false
-        };
+        // Create the next track for visualization (relative to reference track)
+        _nextTrack = Track.FromABLine(
+            $"Path {nextPathsAway}",
+            new Vec3(refPointA.Easting + offsetEasting, refPointA.Northing + offsetNorthing, abHeading),
+            new Vec3(refPointB.Easting + offsetEasting, refPointB.Northing + offsetNorthing, abHeading));
+        _nextTrack.IsActive = false;
 
         Console.WriteLine($"[YouTurn] Turn {(_isTurnLeft ? "LEFT" : "RIGHT")}, heading {(_isHeadingSameWay ? "SAME" : "OPPOSITE")} way");
         Console.WriteLine($"[YouTurn] Offset {(positiveOffset ? "positive" : "negative")}: path {_howManyPathsAway} -> {nextPathsAway} ({nextDistAway:F1}m)");
 
         // Update map visualization
-        _mapService.SetNextABLine(_nextABLine);
+        _mapService.SetNextTrack(_nextTrack);
         _mapService.SetIsInYouTurn(true);
     }
 
@@ -1164,13 +1165,13 @@ public class MainViewModel : ReactiveObject
         _isYouTurnTriggered = false;
         _isInYouTurn = false;
         _youTurnPath = null;
-        _nextABLine = null;
+        _nextTrack = null;
         _youTurnCounter = 10; // Keep high so next U-turn path is created when conditions are met
 
         // Update map visualization - clear the old turn path and next line
         // The active line will be updated by UpdateActiveLineVisualization in CalculateAutoSteerGuidance
         _mapService.SetYouTurnPath(null);
-        _mapService.SetNextABLine(null);
+        _mapService.SetNextTrack(null);
         _mapService.SetIsInYouTurn(false);
 
         StatusMessage = $"Following path {_howManyPathsAway} ({Vehicle.TrackWidth * Math.Abs(_howManyPathsAway):F1}m offset)";
@@ -1453,11 +1454,14 @@ public class MainViewModel : ReactiveObject
     /// Calculate a reference point on the current track (offset from the original AB line).
     /// The track number is determined by _howManyPathsAway.
     /// </summary>
-    private Vec2 CalculateCurrentTrackReferencePoint(ABLine track, double toolWidth, double abHeading)
+    private Vec2 CalculateCurrentTrackReferencePoint(Track track, double toolWidth, double abHeading)
     {
-        // Start with PointA on the original AB line
-        double baseEasting = track.PointA.Easting;
-        double baseNorthing = track.PointA.Northing;
+        if (track.Points.Count == 0)
+            return new Vec2(0, 0);
+
+        // Start with the first point on the original track
+        double baseEasting = track.Points[0].Easting;
+        double baseNorthing = track.Points[0].Northing;
 
         // Calculate perpendicular offset to get to the current track
         // The perpendicular direction is 90° from the AB heading
@@ -1521,11 +1525,20 @@ public class MainViewModel : ReactiveObject
         double headlandBoundaryNorthing = currentPosition.Northing + Math.Cos(travelHeading) * distToHeadland;
 
         // Leg lengths
-        double fieldLegLength = Math.Max(HeadlandDistance * 0.5, turnRadius); // How far path extends into field
-        double headlandLegLength = Math.Max(HeadlandDistance * 1.0, turnRadius * 1.5); // How deep into headland for turn
+        // The arc extends turnRadius beyond the arc start (toward the outer boundary)
+        // So: arc_top_position = headlandLegLength + turnRadius
+        // We want arc_top to be at HeadlandDistance (at the outer boundary)
+        // Therefore: headlandLegLength = HeadlandDistance - turnRadius
+        // But ensure arc start is at least a small margin past the headland boundary
+        double minArcStartMargin = 2.0; // meters past headland boundary
+        double headlandLegLength = Math.Max(HeadlandDistance - turnRadius, minArcStartMargin);
+
+        // How far path extends into cultivated area (entry/exit legs)
+        double fieldLegLength = Math.Max(HeadlandDistance * 0.5, turnRadius);
 
         Console.WriteLine($"[YouTurn] HeadlandBoundary: E={headlandBoundaryEasting:F1}, N={headlandBoundaryNorthing:F1}");
-        Console.WriteLine($"[YouTurn] fieldLegLength={fieldLegLength:F1}m, headlandLegLength={headlandLegLength:F1}m, turnRadius={turnRadius:F1}m, turnOffset={turnOffset:F1}m");
+        Console.WriteLine($"[YouTurn] HeadlandDistance={HeadlandDistance:F1}m, headlandLegLength={headlandLegLength:F1}m, turnRadius={turnRadius:F1}m, turnOffset={turnOffset:F1}m");
+        Console.WriteLine($"[YouTurn] Arc will extend to {headlandLegLength + turnRadius:F1}m past headland boundary (headland zone is {HeadlandDistance:F1}m)");
 
         // ============================================
         // CALCULATE KEY WAYPOINTS IN ABSOLUTE COORDINATES
@@ -1604,9 +1617,14 @@ public class MainViewModel : ReactiveObject
             // Start angle: direction from center to arcStart
             double startAngle = Math.Atan2(arcStartE - arcCenterE, arcStartN - arcCenterN);
 
-            // Sweep direction: for left turn, sweep counter-clockwise (positive angle)
-            // for right turn, sweep clockwise (negative angle)
-            double sweepAngle = turnLeft ? (Math.PI * t) : (-Math.PI * t);
+            // Sweep direction in Easting/Northing coordinate system where:
+            //   Easting = sin(angle), Northing = cos(angle)
+            //   angle=0 is north, angle=π/2 is east, angle=π is south, angle=3π/2 is west
+            // For left turn: arc center is to the left of travel direction
+            //   We want to sweep AWAY from field (into headland), which means DECREASING angle
+            // For right turn: arc center is to the right of travel direction
+            //   We want to sweep AWAY from field (into headland), which means INCREASING angle
+            double sweepAngle = turnLeft ? (-Math.PI * t) : (Math.PI * t);
             double currentAngle = startAngle + sweepAngle;
 
             // Point on arc
@@ -1614,7 +1632,9 @@ public class MainViewModel : ReactiveObject
             double ptN = arcCenterN + Math.Cos(currentAngle) * turnRadius;
 
             // Heading is tangent to circle (perpendicular to radius)
-            double tangentHeading = currentAngle + (turnLeft ? Math.PI / 2 : -Math.PI / 2);
+            // For left turn (decreasing angle/clockwise), tangent is +90° from radius
+            // For right turn (increasing angle/counter-clockwise), tangent is -90° from radius
+            double tangentHeading = currentAngle + (turnLeft ? -Math.PI / 2 : Math.PI / 2);
             if (tangentHeading < 0) tangentHeading += Math.PI * 2;
             if (tangentHeading >= Math.PI * 2) tangentHeading -= Math.PI * 2;
 
@@ -1939,7 +1959,7 @@ public class MainViewModel : ReactiveObject
         LoadHeadlandFromField(field);
 
         // Load AB lines from field directory if available
-        LoadABLinesFromField(field);
+        LoadTracksFromField(field);
     }
 
     /// <summary>
@@ -2166,10 +2186,10 @@ public class MainViewModel : ReactiveObject
     }
 
     // Tracks Dialog data properties
-    public ObservableCollection<ABLine> SavedTracks { get; } = new();
+    public ObservableCollection<Track> SavedTracks { get; } = new();
 
-    private ABLine? _selectedTrack;
-    public ABLine? SelectedTrack
+    private Track? _selectedTrack;
+    public Track? SelectedTrack
     {
         get => _selectedTrack;
         set
@@ -2177,8 +2197,12 @@ public class MainViewModel : ReactiveObject
             var oldValue = _selectedTrack;
             if (this.RaiseAndSetIfChanged(ref _selectedTrack, value) != oldValue)
             {
-                Console.WriteLine($"[SelectedTrack] Changed from A({oldValue?.PointA.Easting:F1},{oldValue?.PointA.Northing:F1}) B({oldValue?.PointB.Easting:F1},{oldValue?.PointB.Northing:F1})");
-                Console.WriteLine($"[SelectedTrack]       to A({value?.PointA.Easting:F1},{value?.PointA.Northing:F1}) B({value?.PointB.Easting:F1},{value?.PointB.Northing:F1})");
+                var oldA = oldValue?.Points.FirstOrDefault();
+                var oldB = oldValue?.Points.LastOrDefault();
+                var newA = value?.Points.FirstOrDefault();
+                var newB = value?.Points.LastOrDefault();
+                Console.WriteLine($"[SelectedTrack] Changed from A({oldA?.Easting:F1},{oldA?.Northing:F1}) B({oldB?.Easting:F1},{oldB?.Northing:F1})");
+                Console.WriteLine($"[SelectedTrack]       to A({newA?.Easting:F1},{newA?.Northing:F1}) B({newB?.Easting:F1},{newB?.Northing:F1})");
                 Console.WriteLine($"[SelectedTrack] Stack trace: {Environment.StackTrace}");
             }
         }
@@ -4800,21 +4824,17 @@ public class MainViewModel : ReactiveObject
             {
                 SavedTracks.Remove(SelectedTrack);
                 SelectedTrack = null;
-                SaveABLinesToFile(); // Persist deletion to disk
+                SaveTracksToFile(); // Persist deletion to disk
                 StatusMessage = "Track deleted";
             }
         });
 
         SwapABPointsCommand = new RelayCommand(() =>
         {
-            if (SelectedTrack != null)
+            if (SelectedTrack != null && SelectedTrack.Points.Count >= 2)
             {
-                // Swap A and B points
-                var temp = SelectedTrack.PointA;
-                SelectedTrack.PointA = SelectedTrack.PointB;
-                SelectedTrack.PointB = temp;
-                // Reverse heading by 180 degrees
-                SelectedTrack.Heading = (SelectedTrack.Heading + 180) % 360;
+                // Reverse the points list to swap A and B
+                SelectedTrack.Points.Reverse();
                 StatusMessage = $"Swapped A/B points for {SelectedTrack.Name}";
             }
         });
@@ -4954,22 +4974,19 @@ public class MainViewModel : ReactiveObject
                 if (PendingPointA != null)
                 {
                     var heading = CalculateHeading(PendingPointA, pointToSet);
-                    var newLine = new ABLine
-                    {
-                        Name = $"AB_{heading:F1}° {DateTime.Now:HH:mm:ss}",
-                        PointA = PendingPointA,
-                        PointB = pointToSet,
-                        Heading = heading,
-                        Mode = Models.TrackMode.AB,
-                        IsActive = true
-                    };
+                    var headingRadians = heading * Math.PI / 180.0;
+                    var newTrack = Track.FromABLine(
+                        $"AB_{heading:F1}° {DateTime.Now:HH:mm:ss}",
+                        new Vec3(PendingPointA.Easting, PendingPointA.Northing, headingRadians),
+                        new Vec3(pointToSet.Easting, pointToSet.Northing, headingRadians));
+                    newTrack.IsActive = true;
 
-                    SavedTracks.Add(newLine);
-                    SaveABLinesToFile(); // Persist to disk
+                    SavedTracks.Add(newTrack);
+                    SaveTracksToFile(); // Persist to disk
                     HasActiveTrack = true;
                     IsAutoSteerAvailable = true;
-                    StatusMessage = $"Created AB line: {newLine.Name} ({newLine.Heading:F1}°)";
-                    System.Console.WriteLine($"[SetABPointCommand] Created AB Line: {newLine.Name}, A=({PendingPointA.Easting:F2},{PendingPointA.Northing:F2}), B=({pointToSet.Easting:F2},{pointToSet.Northing:F2}), Heading={newLine.Heading:F1}°");
+                    StatusMessage = $"Created AB line: {newTrack.Name} ({heading:F1}°)";
+                    System.Console.WriteLine($"[SetABPointCommand] Created AB Line: {newTrack.Name}, A=({PendingPointA.Easting:F2},{PendingPointA.Northing:F2}), B=({pointToSet.Easting:F2},{pointToSet.Northing:F2}), Heading={heading:F1}°");
 
                     // Reset state
                     CurrentABCreationMode = ABCreationMode.None;
@@ -6868,7 +6885,7 @@ public class MainViewModel : ReactiveObject
     /// Save tracks to TrackLines.txt in the active field directory.
     /// Uses WinForms-compatible format via TrackFilesService.
     /// </summary>
-    private void SaveABLinesToFile()
+    private void SaveTracksToFile()
     {
         var activeField = _fieldService.ActiveField;
         if (activeField == null || string.IsNullOrEmpty(activeField.DirectoryPath))
@@ -6878,7 +6895,7 @@ public class MainViewModel : ReactiveObject
 
         try
         {
-            Services.TrackFilesService.Save(activeField.DirectoryPath, SavedTracks.ToList());
+            Services.TrackFilesService.SaveTracks(activeField.DirectoryPath, SavedTracks.ToList());
             Console.WriteLine($"[TrackFiles] Saved {SavedTracks.Count} tracks to TrackLines.txt");
         }
         catch (System.Exception ex)
@@ -6891,7 +6908,7 @@ public class MainViewModel : ReactiveObject
     /// Load tracks from field directory.
     /// Supports WinForms TrackLines.txt format (primary) and legacy ABLines.txt format (fallback).
     /// </summary>
-    private void LoadABLinesFromField(Field? field)
+    private void LoadTracksFromField(Field? field)
     {
         // Clear existing tracks
         SavedTracks.Clear();
@@ -6907,7 +6924,7 @@ public class MainViewModel : ReactiveObject
             // Try TrackLines.txt first (WinForms format)
             if (Services.TrackFilesService.Exists(field.DirectoryPath))
             {
-                var tracks = Services.TrackFilesService.Load(field.DirectoryPath);
+                var tracks = Services.TrackFilesService.LoadTracks(field.DirectoryPath);
                 int loadedCount = 0;
 
                 foreach (var track in tracks)
@@ -6970,17 +6987,14 @@ public class MainViewModel : ReactiveObject
                                 northingB = northingA + Math.Cos(headingRad) * lineLength;
                             }
 
-                            var abLine = new ABLine
-                            {
-                                Name = name,
-                                PointA = new Position { Easting = eastingA, Northing = northingA },
-                                PointB = new Position { Easting = eastingB, Northing = northingB },
-                                Heading = heading,
-                                Mode = Models.TrackMode.AB,
-                                IsActive = loadedCount == 0
-                            };
+                            var headingRadians = heading * Math.PI / 180.0;
+                            var track = Track.FromABLine(
+                                name,
+                                new Vec3(eastingA, northingA, headingRadians),
+                                new Vec3(eastingB, northingB, headingRadians));
+                            track.IsActive = loadedCount == 0;
 
-                            SavedTracks.Add(abLine);
+                            SavedTracks.Add(track);
                             loadedCount++;
                         }
                     }

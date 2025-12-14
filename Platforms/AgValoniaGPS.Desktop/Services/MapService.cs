@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Models.Base;
+using AgValoniaGPS.Models.Track;
 using AgValoniaGPS.Views.Controls;
 
 namespace AgValoniaGPS.Desktop.Services;
@@ -111,14 +112,14 @@ public class MapService : IMapService
     public void SetYouTurnPath(IReadOnlyList<(double Easting, double Northing)>? turnPath) =>
         GetMapControl().SetYouTurnPath(turnPath);
 
-    // AB Line visualization for U-turns
-    public void SetNextABLine(ABLine? abLine) =>
-        GetMapControl().SetNextABLine(abLine);
+    // Track visualization for U-turns
+    public void SetNextTrack(AgValoniaGPS.Models.Track.Track? track) =>
+        GetMapControl().SetNextTrack(track);
 
     public void SetIsInYouTurn(bool isInTurn) =>
         GetMapControl().SetIsInYouTurn(isInTurn);
 
-    // Active AB Line for guidance
-    public void SetActiveABLine(ABLine? abLine) =>
-        GetMapControl().SetActiveABLine(abLine);
+    // Active Track for guidance
+    public void SetActiveTrack(AgValoniaGPS.Models.Track.Track? track) =>
+        GetMapControl().SetActiveTrack(track);
 }

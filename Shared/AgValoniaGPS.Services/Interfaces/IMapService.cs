@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Models.Base;
+using AgValoniaGPS.Models.Track;
 
 namespace AgValoniaGPS.Services.Interfaces;
 
@@ -62,10 +63,10 @@ public interface IMapService
     // YouTurn path visualization
     void SetYouTurnPath(IReadOnlyList<(double Easting, double Northing)>? turnPath);
 
-    // AB Line visualization for U-turns
-    void SetNextABLine(ABLine? abLine);
+    // Track visualization for U-turns
+    void SetNextTrack(AgValoniaGPS.Models.Track.Track? track);
     void SetIsInYouTurn(bool isInTurn);
 
-    // Active AB Line for guidance
-    void SetActiveABLine(ABLine? abLine);
+    // Active Track for guidance
+    void SetActiveTrack(AgValoniaGPS.Models.Track.Track? track);
 }

@@ -404,17 +404,17 @@ public partial class MainWindow : Window
     private void SavedTracks_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         // When a new track is added, show the most recently active one
-        UpdateActiveABLine();
+        UpdateActiveTrack();
     }
 
-    private void UpdateActiveABLine()
+    private void UpdateActiveTrack()
     {
         if (MapControl is DrawingContextMapControl dcMapControl && ViewModel != null)
         {
-            // Find the active AB line (or the most recently added one)
-            var activeLine = ViewModel.SavedTracks.FirstOrDefault(t => t.IsActive)
+            // Find the active track (or the most recently added one)
+            var activeTrack = ViewModel.SavedTracks.FirstOrDefault(t => t.IsActive)
                           ?? ViewModel.SavedTracks.LastOrDefault();
-            dcMapControl.SetActiveABLine(activeLine);
+            dcMapControl.SetActiveTrack(activeTrack);
         }
     }
 
