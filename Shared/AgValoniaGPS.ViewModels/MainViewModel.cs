@@ -15,6 +15,7 @@ using AgValoniaGPS.Services.Interfaces;
 using AgValoniaGPS.Models.GPS;
 using AgValoniaGPS.Models.Configuration;
 using AgValoniaGPS.Models.Track;
+using AgValoniaGPS.Models.State;
 using Avalonia.Threading;
 
 namespace AgValoniaGPS.ViewModels;
@@ -43,8 +44,15 @@ public class MainViewModel : ReactiveObject
     private readonly FieldPlaneFileService _fieldPlaneFileService;
     private readonly IVehicleProfileService _vehicleProfileService;
     private readonly IConfigurationService _configurationService;
+    private readonly ApplicationState _appState;
     private readonly DispatcherTimer _simulatorTimer;
     private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
+
+    /// <summary>
+    /// Centralized application state - single source of truth for all runtime state.
+    /// Use this for new code. Existing properties will gradually migrate to use State.
+    /// </summary>
+    public ApplicationState State => _appState;
 
     // Convenience accessors for ConfigurationStore (replaces _vehicleConfig usage)
     private static ConfigurationStore ConfigStore => ConfigurationStore.Instance;
@@ -136,7 +144,8 @@ public class MainViewModel : ReactiveObject
         Services.Geometry.IPolygonOffsetService polygonOffsetService,
         Services.Interfaces.ITurnAreaService turnAreaService,
         IVehicleProfileService vehicleProfileService,
-        IConfigurationService configurationService)
+        IConfigurationService configurationService,
+        ApplicationState appState)
     {
         _udpService = udpService;
         _gpsService = gpsService;
@@ -158,6 +167,7 @@ public class MainViewModel : ReactiveObject
         _turnAreaService = turnAreaService;
         _vehicleProfileService = vehicleProfileService;
         _configurationService = configurationService;
+        _appState = appState;
         _nmeaParser = new NmeaParserService(gpsService);
         _fieldPlaneFileService = new FieldPlaneFileService();
 
@@ -358,7 +368,13 @@ public class MainViewModel : ReactiveObject
             var imuOk = _udpService.IsModuleHelloOk(ModuleType.IMU);
             var gpsOk = _gpsService.IsGpsDataOk();
 
-            // Update UI properties
+            // Update centralized state (single source of truth)
+            State.Connections.IsAutoSteerDataOk = steerOk;
+            State.Connections.IsMachineDataOk = machineOk;
+            State.Connections.IsImuDataOk = imuOk;
+            State.Connections.IsGpsDataOk = gpsOk;
+
+            // Legacy property updates (for existing bindings - will be removed in Phase 5)
             IsAutoSteerDataOk = steerOk;
             IsMachineDataOk = machineOk;
             IsImuDataOk = imuOk;
@@ -676,6 +692,15 @@ public class MainViewModel : ReactiveObject
 
     private void UpdateGpsProperties(AgValoniaGPS.Models.GpsData data)
     {
+        // Update centralized state (single source of truth)
+        State.Vehicle.UpdateFromGps(
+            data.CurrentPosition,
+            data.FixQuality,
+            data.SatellitesInUse,
+            data.Hdop,
+            data.DifferentialAge);
+
+        // Legacy property updates (for existing bindings - will be removed in Phase 5)
         Latitude = data.CurrentPosition.Latitude;
         Longitude = data.CurrentPosition.Longitude;
         Speed = data.CurrentPosition.Speed;
@@ -878,10 +903,13 @@ public class MainViewModel : ReactiveObject
         // Store state for next iteration
         _trackGuidanceState = output.State;
 
+        // Update centralized guidance state
+        State.Guidance.UpdateFromGuidance(output);
+
         // Apply calculated steering to simulator
         SimulatorSteerAngle = output.SteerAngle;
 
-        // Update cross-track error for display (convert from meters to cm)
+        // Update cross-track error for display (convert from meters to cm) - legacy property
         CrossTrackError = output.CrossTrackError * 100;
 
         // Update the map to show the current guidance line
@@ -1742,6 +1770,12 @@ public class MainViewModel : ReactiveObject
         {
             // Apply steering from YouTurn guidance with compensation
             SimulatorSteerAngle = output.SteerAngle * Guidance.UTurnCompensation;
+
+            // Update centralized guidance state
+            State.Guidance.CrossTrackError = output.DistanceFromCurrentLine;
+            State.Guidance.SteerAngle = output.SteerAngle;
+
+            // Legacy property (for existing bindings - display in cm)
             CrossTrackError = output.DistanceFromCurrentLine * 100;
         }
     }
@@ -1846,6 +1880,11 @@ public class MainViewModel : ReactiveObject
 
     private void UpdateNtripConnectionProperties(NtripConnectionEventArgs e)
     {
+        // Update centralized state
+        State.Connections.IsNtripConnected = e.IsConnected;
+        State.Connections.NtripStatus = e.Message ?? (e.IsConnected ? "Connected" : "Not Connected");
+
+        // Legacy property updates
         IsNtripConnected = e.IsConnected;
         NtripStatus = e.Message ?? (e.IsConnected ? "Connected" : "Not Connected");
     }
@@ -1865,6 +1904,10 @@ public class MainViewModel : ReactiveObject
 
     private void UpdateNtripDataProperties()
     {
+        // Update centralized state
+        State.Connections.NtripBytesReceived = _ntripService.TotalBytesReceived;
+
+        // Legacy property updates
         _ntripBytesReceived = _ntripService.TotalBytesReceived;
         this.RaisePropertyChanged(nameof(NtripBytesReceived));
     }

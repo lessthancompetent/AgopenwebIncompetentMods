@@ -7,6 +7,7 @@ using AgValoniaGPS.Services.Track;
 using AgValoniaGPS.Services.YouTurn;
 using AgValoniaGPS.ViewModels;
 using AgValoniaGPS.Models;
+using AgValoniaGPS.Models.State;
 using AgValoniaGPS.iOS.Services;
 
 namespace AgValoniaGPS.iOS.DependencyInjection;
@@ -15,6 +16,9 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddAgValoniaServices(this IServiceCollection services)
     {
+        // Centralized application state (single source of truth)
+        services.AddSingleton<ApplicationState>();
+
         // Register ViewModels
         services.AddTransient<MainViewModel>();
         services.AddTransient<ConfigurationViewModel>();
