@@ -55,9 +55,9 @@ public partial class SimCoordsDialogPanel : UserControl
     {
         if (value.HasValue)
         {
-            return value.Value.ToString("F7", CultureInfo.InvariantCulture);
+            return value.Value.ToString("F8", CultureInfo.InvariantCulture);
         }
-        return "0.0000000";
+        return "0.00000000";
     }
 
     private void KeyboardPanel_PropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)

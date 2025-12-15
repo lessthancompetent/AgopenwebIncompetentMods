@@ -3257,9 +3257,15 @@ public class MainViewModel : ReactiveObject
                 // Start or stop simulator timer based on enabled state
                 if (value)
                 {
+                    // Initialize simulator with saved coordinates
+                    var settings = _settingsService.Settings;
+                    _simulatorService.Initialize(new AgValoniaGPS.Models.Wgs84(
+                        settings.SimulatorLatitude,
+                        settings.SimulatorLongitude));
+
                     State.Simulator.IsRunning = true;
                     _simulatorTimer.Start();
-                    StatusMessage = "Simulator ON";
+                    StatusMessage = $"Simulator ON at {settings.SimulatorLatitude:F8}, {settings.SimulatorLongitude:F8}";
                 }
                 else
                 {
@@ -3345,8 +3351,8 @@ public class MainViewModel : ReactiveObject
         Longitude = longitude;
 
         StatusMessage = saved
-            ? $"Simulator reset to {latitude:F7}, {longitude:F7}"
-            : $"Reset to {latitude:F7}, {longitude:F7} (save failed: {_settingsService.GetSettingsFilePath()})";
+            ? $"Simulator reset to {latitude:F8}, {longitude:F8}"
+            : $"Reset to {latitude:F8}, {longitude:F8} (save failed: {_settingsService.GetSettingsFilePath()})";
     }
 
     /// <summary>
@@ -4455,9 +4461,26 @@ public class MainViewModel : ReactiveObject
                     // Load existing boundary or create new one
                     var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
 
-                    // Calculate center from boundary points for LocalPlane
-                    double centerLat = BoundaryMapResultPoints.Average(p => p.Latitude);
-                    double centerLon = BoundaryMapResultPoints.Average(p => p.Longitude);
+                    // Calculate origin for LocalPlane
+                    // IMPORTANT: If we have a background image, use its center as the origin
+                    // This ensures the boundary aligns with landmarks in the image
+                    // The user drew the boundary on specific landmarks in the viewport,
+                    // so we need to use the same reference point for both
+                    double centerLat, centerLon;
+                    if (!string.IsNullOrEmpty(BoundaryMapResultBackgroundPath))
+                    {
+                        // Use image (viewport) center as origin - this is where the user was looking when drawing
+                        centerLat = (BoundaryMapResultNwLat + BoundaryMapResultSeLat) / 2;
+                        centerLon = (BoundaryMapResultNwLon + BoundaryMapResultSeLon) / 2;
+                        Console.WriteLine($"[BoundaryMap] Using image center as origin: ({centerLat:F8}, {centerLon:F8})");
+                    }
+                    else
+                    {
+                        // No background image - use boundary center as origin
+                        centerLat = BoundaryMapResultPoints.Average(p => p.Latitude);
+                        centerLon = BoundaryMapResultPoints.Average(p => p.Longitude);
+                        Console.WriteLine($"[BoundaryMap] Using boundary center as origin: ({centerLat:F8}, {centerLon:F8})");
+                    }
 
                     // Convert WGS84 boundary points to local coordinates
                     var origin = new Wgs84(centerLat, centerLon);
@@ -4466,17 +4489,35 @@ public class MainViewModel : ReactiveObject
 
                     var outerPolygon = new BoundaryPolygon();
 
+                    Console.WriteLine($"[BoundaryMap] Converting boundary points with origin ({centerLat:F8}, {centerLon:F8})");
                     foreach (var (lat, lon) in BoundaryMapResultPoints)
                     {
                         var wgs84 = new Wgs84(lat, lon);
                         var geoCoord = localPlane.ConvertWgs84ToGeoCoord(wgs84);
                         outerPolygon.Points.Add(new BoundaryPoint(geoCoord.Easting, geoCoord.Northing, 0));
+                        Console.WriteLine($"[BoundaryMap]   WGS84 ({lat:F8}, {lon:F8}) -> Local E={geoCoord.Easting:F1}, N={geoCoord.Northing:F1}");
                     }
 
                     boundary.OuterBoundary = outerPolygon;
 
                     // Save boundary
                     _boundaryFileService.SaveBoundary(boundary, fieldPath);
+
+                    // Update Field.txt with the origin used for this boundary
+                    // This ensures background images load with the same coordinate system
+                    _fieldOriginLatitude = centerLat;
+                    _fieldOriginLongitude = centerLon;
+                    try
+                    {
+                        var fieldInfo = _fieldPlaneFileService.LoadField(fieldPath);
+                        fieldInfo.Origin = new Position { Latitude = centerLat, Longitude = centerLon };
+                        _fieldPlaneFileService.SaveField(fieldInfo, fieldPath);
+                        Console.WriteLine($"[BoundaryMap] Updated Field.txt origin to ({centerLat:F8}, {centerLon:F8})");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[BoundaryMap] Could not update Field.txt: {ex.Message}");
+                    }
 
                     // Update map
                     SetCurrentBoundary(boundary);
@@ -4520,24 +4561,9 @@ public class MainViewModel : ReactiveObject
                     // Handle background image if captured
                     if (!string.IsNullOrEmpty(BoundaryMapResultBackgroundPath))
                     {
-                        var destPath = Path.Combine(fieldPath, "BackPic.png");
-                        File.Copy(BoundaryMapResultBackgroundPath, destPath, true);
-
-                        // Save geo-reference (WGS84 format for file)
-                        var geoContent = $"$BackPic\ntrue\n{BoundaryMapResultNwLat}\n{BoundaryMapResultNwLon}\n{BoundaryMapResultSeLat}\n{BoundaryMapResultSeLon}";
-                        var geoPath = Path.Combine(fieldPath, "BackPic.txt");
-                        File.WriteAllText(geoPath, geoContent);
-
-                        // Convert WGS84 image bounds to local coordinates for display
-                        var nwWgs = new Wgs84(BoundaryMapResultNwLat, BoundaryMapResultNwLon);
-                        var seWgs = new Wgs84(BoundaryMapResultSeLat, BoundaryMapResultSeLon);
-                        var nwLocal = localPlane.ConvertWgs84ToGeoCoord(nwWgs);
-                        var seLocal = localPlane.ConvertWgs84ToGeoCoord(seWgs);
-
-                        // SetBackgroundImage expects: minX (west), maxY (north), maxX (east), minY (south)
-                        _mapService.SetBackgroundImage(destPath, nwLocal.Easting, nwLocal.Northing, seLocal.Easting, seLocal.Northing);
-                        Console.WriteLine($"[BoundaryMap] Background image saved and loaded");
-                        Console.WriteLine($"[BoundaryMap] Image bounds (local): NW({nwLocal.Easting:F1}, {nwLocal.Northing:F1}), SE({seLocal.Easting:F1}, {seLocal.Northing:F1})");
+                        SaveBackgroundImage(BoundaryMapResultBackgroundPath, fieldPath,
+                            BoundaryMapResultNwLat, BoundaryMapResultNwLon,
+                            BoundaryMapResultSeLat, BoundaryMapResultSeLon);
                     }
 
                     // Refresh the boundary list
@@ -5159,12 +5185,38 @@ public class MainViewModel : ReactiveObject
                 CurrentFieldName = lastField;
                 IsFieldOpen = true;
 
+                // Load field origin from Field.txt (for coordinate conversions)
+                try
+                {
+                    var fieldInfo = _fieldPlaneFileService.LoadField(fieldPath);
+                    if (fieldInfo.Origin != null)
+                    {
+                        _fieldOriginLatitude = fieldInfo.Origin.Latitude;
+                        _fieldOriginLongitude = fieldInfo.Origin.Longitude;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Field] Could not load Field.txt origin: {ex.Message}");
+                }
+
                 // Load boundary from field (same pattern as ConfirmFieldSelectionDialogCommand)
                 var boundary = _boundaryFileService.LoadBoundary(fieldPath);
                 if (boundary != null)
                 {
                     SetCurrentBoundary(boundary);
                     CenterMapOnBoundary(boundary);
+
+                    // Debug: show boundary extents
+                    if (boundary.OuterBoundary?.Points.Count > 0)
+                    {
+                        var pts = boundary.OuterBoundary.Points;
+                        double minE = pts.Min(p => p.Easting);
+                        double maxE = pts.Max(p => p.Easting);
+                        double minN = pts.Min(p => p.Northing);
+                        double maxN = pts.Max(p => p.Northing);
+                        Console.WriteLine($"[Boundary] Extents (local): E({minE:F1} to {maxE:F1}), N({minN:F1} to {maxN:F1})");
+                    }
                 }
 
                 // Load background image from field
@@ -5467,6 +5519,23 @@ public class MainViewModel : ReactiveObject
                         // Save boundary
                         _boundaryFileService.SaveBoundary(boundary, fieldPath);
 
+                        // Update Field.txt with the origin used for this boundary
+                        double originLat = localPlane.Origin.Latitude;
+                        double originLon = localPlane.Origin.Longitude;
+                        _fieldOriginLatitude = originLat;
+                        _fieldOriginLongitude = originLon;
+                        try
+                        {
+                            var fieldInfo = _fieldPlaneFileService.LoadField(fieldPath);
+                            fieldInfo.Origin = new Position { Latitude = originLat, Longitude = originLon };
+                            _fieldPlaneFileService.SaveField(fieldInfo, fieldPath);
+                            Console.WriteLine($"[MapBoundary] Updated Field.txt origin to ({originLat:F8}, {originLon:F8})");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[MapBoundary] Could not update Field.txt: {ex.Message}");
+                        }
+
                         // Update map
                         SetCurrentBoundary(boundary);
                         CenterMapOnBoundary(boundary);
@@ -5476,33 +5545,11 @@ public class MainViewModel : ReactiveObject
                     }
 
                     // Process background image if present
-                    if (result.HasBackgroundImage && !string.IsNullOrEmpty(result.BackgroundImagePath) && localPlane != null)
+                    if (result.HasBackgroundImage && !string.IsNullOrEmpty(result.BackgroundImagePath))
                     {
-                        // Convert WGS84 corners to local coordinates
-                        var nwWgs84 = new Wgs84(result.NorthWestLat, result.NorthWestLon);
-                        var seWgs84 = new Wgs84(result.SouthEastLat, result.SouthEastLon);
-
-                        var nwLocal = localPlane.ConvertWgs84ToGeoCoord(nwWgs84);
-                        var seLocal = localPlane.ConvertWgs84ToGeoCoord(seWgs84);
-
-                        // Copy background image to field directory
-                        var destPngPath = Path.Combine(fieldPath, "BackPic.png");
-                        File.Copy(result.BackgroundImagePath, destPngPath, overwrite: true);
-
-                        // Save geo-reference file
-                        var geoFilePath = Path.Combine(fieldPath, "BackPic.txt");
-                        using (var writer = new StreamWriter(geoFilePath))
-                        {
-                            writer.WriteLine("$BackPic");
-                            writer.WriteLine("true");
-                            writer.WriteLine(seLocal.Easting.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                            writer.WriteLine(nwLocal.Easting.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                            writer.WriteLine(nwLocal.Northing.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                            writer.WriteLine(seLocal.Northing.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                        }
-
-                        // Set the background image in the map
-                        _mapService.SetBackgroundImage(destPngPath, nwLocal.Easting, nwLocal.Northing, seLocal.Easting, seLocal.Northing);
+                        SaveBackgroundImage(result.BackgroundImagePath, fieldPath,
+                            result.NorthWestLat, result.NorthWestLon,
+                            result.SouthEastLat, result.SouthEastLon);
                     }
 
                     // Build status message
@@ -5563,6 +5610,24 @@ public class MainViewModel : ReactiveObject
         _mapService.PanTo(centerE, centerN);
     }
 
+    /// <summary>
+    /// Save background image and geo-reference file to field directory, then load it.
+    /// </summary>
+    private void SaveBackgroundImage(string sourcePath, string fieldPath, double nwLat, double nwLon, double seLat, double seLon)
+    {
+        // Copy image to field directory
+        var destPath = Path.Combine(fieldPath, "BackPic.png");
+        File.Copy(sourcePath, destPath, overwrite: true);
+
+        // Save geo-reference file (WGS84 format)
+        var geoContent = $"$BackPic\ntrue\n{nwLat.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n{nwLon.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n{seLat.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n{seLon.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        var geoPath = Path.Combine(fieldPath, "BackPic.txt");
+        File.WriteAllText(geoPath, geoContent);
+
+        // Load through single method (applies Mapsui offset correction)
+        LoadBackgroundImage(fieldPath, null);
+    }
+
     private void LoadBackgroundImage(string fieldPath, Boundary? boundary)
     {
         try
@@ -5590,11 +5655,10 @@ public class MainViewModel : ReactiveObject
                 !double.TryParse(lines[5], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double seLon))
                 return;
 
-            // Create LocalPlane using center of image bounds as origin
-            double centerLat = (nwLat + seLat) / 2.0;
-            double centerLon = (nwLon + seLon) / 2.0;
-            var origin = new Wgs84(centerLat, centerLon);
-            var sharedProps = new SharedFieldProperties(); // Default properties (no drift compensation)
+            // Use field origin for LocalPlane (same origin used for boundary coordinates)
+            // This ensures the background image aligns with the boundary
+            var origin = new Wgs84(_fieldOriginLatitude, _fieldOriginLongitude);
+            var sharedProps = new SharedFieldProperties();
             var localPlane = new LocalPlane(origin, sharedProps);
 
             // Convert WGS84 to local coordinates
@@ -5603,10 +5667,14 @@ public class MainViewModel : ReactiveObject
             var nwLocal = localPlane.ConvertWgs84ToGeoCoord(nwWgs);
             var seLocal = localPlane.ConvertWgs84ToGeoCoord(seWgs);
 
+            // CORRECTION: Mapsui's viewport-to-world coordinate conversion has a ~150m northward offset
+            // from actual tile rendering position. Shift image bounds 150m north to compensate.
+            const double NorthingCorrectionMeters = 150.0;
+            double correctedNwNorthing = nwLocal.Northing + NorthingCorrectionMeters;
+            double correctedSeNorthing = seLocal.Northing + NorthingCorrectionMeters;
+
             // SetBackgroundImage expects: minX (west), maxY (north), maxX (east), minY (south)
-            _mapService.SetBackgroundImage(backPicPath, nwLocal.Easting, nwLocal.Northing, seLocal.Easting, seLocal.Northing);
-            Console.WriteLine($"[LoadBackgroundImage] Loaded background from {backPicPath}");
-            Console.WriteLine($"[LoadBackgroundImage] Bounds (local): NW({nwLocal.Easting:F1}, {nwLocal.Northing:F1}), SE({seLocal.Easting:F1}, {seLocal.Northing:F1})");
+            _mapService.SetBackgroundImage(backPicPath, nwLocal.Easting, correctedNwNorthing, seLocal.Easting, correctedSeNorthing);
         }
         catch (Exception ex)
         {

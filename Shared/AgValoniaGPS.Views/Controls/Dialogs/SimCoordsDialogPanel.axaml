@@ -91,7 +91,7 @@
                                    FontWeight="Bold"
                                    Foreground="White"
                                    VerticalAlignment="Center"
-                                   Text="0.0000000"/>
+                                   Text="0.00000000"/>
                     </Border>
                 </StackPanel>
 
@@ -105,14 +105,14 @@
                                    FontWeight="Bold"
                                    Foreground="White"
                                    VerticalAlignment="Center"
-                                   Text="0.0000000"/>
+                                   Text="0.00000000"/>
                     </Border>
                 </StackPanel>
 
                 <!-- Numeric Keyboard -->
                 <controls:NumericKeyboardPanel x:Name="KeyboardPanel"
                                                Grid.Row="3"
-                                               MaxDecimalPlaces="7"
+                                               MaxDecimalPlaces="8"
                                                AllowNegative="True"
                                                Height="220"
                                                Margin="0,0,0,12"/>

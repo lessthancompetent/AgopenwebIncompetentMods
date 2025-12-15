@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -52,13 +53,33 @@ public partial class BoundaryMapDialogPanel : UserControl
     {
         var map = new Mapsui.Map();
 
-        // Add Esri World Imagery (satellite) as base layer - free, no API key required
-        var esriSatelliteUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-        var esriTileSource = new HttpTileSource(
-            new GlobalSphericalMercator(),
-            esriSatelliteUrl,
-            name: "Esri World Imagery");
-        map.Layers.Add(new TileLayer(esriTileSource) { Name = "Satellite" });
+        // Use ESRI World Imagery (Google may block requests)
+        // Note: We previously tested Google and ESRI - both showed same 150m offset,
+        // confirming the issue is NOT with tile provider georeferencing
+        var useGoogle = false; // ESRI is more reliable for tile loading
+
+        if (useGoogle)
+        {
+            // Google Satellite tiles (lyrs=s for satellite, y for hybrid with labels)
+            var googleSatelliteUrl = "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}";
+            var googleTileSource = new HttpTileSource(
+                new GlobalSphericalMercator(),
+                googleSatelliteUrl,
+                name: "Google Satellite");
+            map.Layers.Add(new TileLayer(googleTileSource) { Name = "Satellite" });
+            Console.WriteLine("[BoundaryMap] Using Google Satellite tiles");
+        }
+        else
+        {
+            // ESRI World Imagery (may have georeferencing offsets)
+            var esriSatelliteUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+            var esriTileSource = new HttpTileSource(
+                new GlobalSphericalMercator(),
+                esriSatelliteUrl,
+                name: "Esri World Imagery");
+            map.Layers.Add(new TileLayer(esriTileSource) { Name = "Satellite" });
+            Console.WriteLine("[BoundaryMap] Using ESRI World Imagery tiles");
+        }
 
         // Create layer for polygon (drawn below points)
         _polygonLayer = new WritableLayer
@@ -125,6 +146,11 @@ public partial class BoundaryMapDialogPanel : UserControl
             var viewport = MapControl.Map.Navigator.Viewport;
             var worldPos = viewport.ScreenToWorldXY(point.Position.X, point.Position.Y);
 
+            // DEBUG: Log click position vs viewport bounds
+            Console.WriteLine($"[Click] Screen: ({point.Position.X:F1}, {point.Position.Y:F1}), Viewport: {viewport.Width:F1}x{viewport.Height:F1}");
+            Console.WriteLine($"[Click] Screen Y as fraction of height: {point.Position.Y / viewport.Height:F3}");
+            Console.WriteLine($"[Click] World pos: ({worldPos.worldX:F2}, {worldPos.worldY:F2})");
+
             // Convert from SphericalMercator to WGS84
             var lonLat = SphericalMercator.ToLonLat(worldPos.worldX, worldPos.worldY);
 
@@ -152,6 +178,7 @@ public partial class BoundaryMapDialogPanel : UserControl
     private void AddBoundaryPoint(double lat, double lon)
     {
         _boundaryPoints.Add((lat, lon));
+        Console.WriteLine($"[BoundaryPoint] Added point #{_boundaryPoints.Count}: ({lat:F8}, {lon:F8})");
 
         // Add point marker
         var mercator = SphericalMercator.FromLonLat(lon, lat);
@@ -225,13 +252,58 @@ public partial class BoundaryMapDialogPanel : UserControl
             BtnDraw.Classes.Add("active");
             BtnDrawText.Text = "Stop";
             MapControl.Cursor = new Cursor(StandardCursorType.Cross);
+
+            // Add a crosshair marker at the exact viewport center for testing
+            AddCenterMarker();
         }
         else
         {
             BtnDraw.Classes.Remove("active");
             BtnDrawText.Text = "Draw";
             MapControl.Cursor = Cursor.Default;
+
+            // Remove center marker
+            RemoveCenterMarker();
         }
+    }
+
+    private WritableLayer? _centerMarkerLayer;
+
+    private void AddCenterMarker()
+    {
+        var viewport = MapControl.Map.Navigator.Viewport;
+        var centerWorld = viewport.ScreenToWorldXY(viewport.Width / 2, viewport.Height / 2);
+        var centerLatLon = SphericalMercator.ToLonLat(centerWorld.worldX, centerWorld.worldY);
+
+        Console.WriteLine($"[CenterMarker] Added at screen center -> World({centerWorld.worldX:F2}, {centerWorld.worldY:F2}) -> LatLon({centerLatLon.lat:F8}, {centerLatLon.lon:F8})");
+
+        // Create marker layer if needed
+        if (_centerMarkerLayer == null)
+        {
+            _centerMarkerLayer = new WritableLayer
+            {
+                Name = "CenterMarker",
+                Style = new SymbolStyle
+                {
+                    Fill = new Mapsui.Styles.Brush(new Mapsui.Styles.Color(0, 255, 255, 255)), // Cyan
+                    Outline = new Mapsui.Styles.Pen(new Mapsui.Styles.Color(0, 0, 0, 255), 3),
+                    SymbolScale = 0.8
+                }
+            };
+            MapControl.Map.Layers.Add(_centerMarkerLayer);
+        }
+
+        _centerMarkerLayer.Clear();
+        var mercator = SphericalMercator.FromLonLat(centerLatLon.lon, centerLatLon.lat);
+        var point = new GeometryFeature(new NtsPoint(mercator.x, mercator.y));
+        _centerMarkerLayer.Add(point);
+        MapControl.Refresh();
+    }
+
+    private void RemoveCenterMarker()
+    {
+        _centerMarkerLayer?.Clear();
+        MapControl.Refresh();
     }
 
     private void BtnUndo_Click(object? sender, RoutedEventArgs e)
@@ -323,7 +395,7 @@ public partial class BoundaryMapDialogPanel : UserControl
     {
         try
         {
-            // Get current viewport bounds
+            // Get current viewport bounds - capture exactly what the user is seeing
             var viewport = MapControl.Map.Navigator.Viewport;
 
             // Get the extent from viewport
@@ -344,23 +416,40 @@ public partial class BoundaryMapDialogPanel : UserControl
             if (_polygonLayer != null) _polygonLayer.Enabled = false;
             MapControl.Refresh();
 
-            // Small delay to ensure the map redraws without the layers
-            await Task.Delay(100);
+            // Wait for tile layer to finish loading
+            var tileLayer = MapControl.Map.Layers.FirstOrDefault(l => l.Name == "Satellite") as TileLayer;
+            if (tileLayer != null)
+            {
+                // Wait for tiles to load (max 10 seconds)
+                int waitCount = 0;
+                while (tileLayer.Busy && waitCount < 100)
+                {
+                    await Task.Delay(100);
+                    waitCount++;
+                }
+            }
+
+            // Small additional delay for rendering to complete
+            await Task.Delay(200);
 
             // Get the size of the MapControl
             var bounds = MapControl.Bounds;
-            var pixelSize = new PixelSize((int)bounds.Width, (int)bounds.Height);
+
+            // Get the actual pixel size accounting for DPI scaling
+            var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+            var pixelWidth = (int)(bounds.Width * scaling);
+            var pixelHeight = (int)(bounds.Height * scaling);
+            var pixelSize = new PixelSize(pixelWidth, pixelHeight);
 
             if (pixelSize.Width > 0 && pixelSize.Height > 0)
             {
-                // Create a RenderTargetBitmap to capture the control
-                var renderTarget = new RenderTargetBitmap(pixelSize);
+                // Create a RenderTargetBitmap to capture the control at the correct DPI
+                var dpi = new Vector(96 * scaling, 96 * scaling);
+                var renderTarget = new RenderTargetBitmap(pixelSize, dpi);
                 renderTarget.Render(MapControl);
 
                 // Save the bitmap to a file
                 renderTarget.Save(savedBackgroundPath);
-
-                Console.WriteLine($"Background image saved to: {savedBackgroundPath}");
             }
 
             // Re-enable drawing layers

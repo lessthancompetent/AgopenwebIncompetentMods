@@ -418,13 +418,19 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         double width = _bgMaxX - _bgMinX;
         double height = _bgMaxY - _bgMinY;
 
-        // Create destination rectangle in world coordinates
-        // Note: In world coordinates, Y increases upward, but the image's origin is top-left
-        // So we use minY (south) as the bottom and maxY (north) as the top
-        var destRect = new Rect(_bgMinX, _bgMinY, width, height);
+        // Calculate image center for proper Y-flip
+        double centerX = (_bgMinX + _bgMaxX) / 2;
+        double centerY = (_bgMinY + _bgMaxY) / 2;
 
-        // Draw the image
-        context.DrawImage(_backgroundImage, destRect);
+        // Draw image with Y-flip around image center
+        // The image needs to be flipped vertically because we're in a Y-up coordinate system
+        // but image pixels have Y increasing downward
+        using (context.PushTransform(Matrix.CreateTranslation(centerX, centerY)))
+        using (context.PushTransform(Matrix.CreateScale(1, -1)))
+        {
+            var destRect = new Rect(-width / 2, -height / 2, width, height);
+            context.DrawImage(_backgroundImage, destRect);
+        }
     }
 
     private void DrawBoundary(DrawingContext context)
