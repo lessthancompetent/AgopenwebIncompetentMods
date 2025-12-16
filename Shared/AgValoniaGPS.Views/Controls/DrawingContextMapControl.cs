@@ -68,6 +68,9 @@ public interface ISharedMapControl
 
     // Grid visibility property
     bool IsGridVisible { get; set; }
+
+    // Auto-pan: keeps vehicle visible by panning map when vehicle nears edge
+    bool AutoPanEnabled { get; set; }
 }
 
 /// <summary>
@@ -120,6 +123,11 @@ public class DrawingContextMapControl : Control, ISharedMapControl
     private double _cameraPitch = 0.0;
     private double _cameraDistance = 100.0;
     private bool _is3DMode = false;
+
+    // Auto-pan settings
+    private bool _autoPanEnabled = true;
+    private const double AutoPanSafeZone = 0.65; // Vehicle must stay within inner 65% of screen
+    private const double AutoPanSmoothing = 0.15; // How fast to pan (0.1 = slow, 0.3 = fast)
 
     // Vehicle state
     private double _vehicleX = 0.0;
@@ -1047,6 +1055,73 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         _vehicleX = x;
         _vehicleY = y;
         _vehicleHeading = heading;
+
+        // Auto-pan to keep vehicle visible
+        if (_autoPanEnabled && Bounds.Width > 0 && Bounds.Height > 0)
+        {
+            ApplyAutoPan();
+        }
+    }
+
+    /// <summary>
+    /// Auto-pan the camera to keep the vehicle within the safe zone.
+    /// Uses smooth interpolation to avoid jarring camera movements.
+    /// </summary>
+    private void ApplyAutoPan()
+    {
+        // Calculate current view dimensions
+        double aspect = Bounds.Width / Bounds.Height;
+        double viewWidth = 200.0 * aspect / _zoom;
+        double viewHeight = 200.0 / _zoom;
+
+        // Calculate safe zone boundaries (in world coordinates relative to camera)
+        double safeHalfWidth = (viewWidth / 2) * AutoPanSafeZone;
+        double safeHalfHeight = (viewHeight / 2) * AutoPanSafeZone;
+
+        // Calculate vehicle position relative to camera (accounting for rotation)
+        double relX = _vehicleX - _cameraX;
+        double relY = _vehicleY - _cameraY;
+
+        // Apply rotation to get screen-aligned relative position
+        double cos = Math.Cos(-_rotation);
+        double sin = Math.Sin(-_rotation);
+        double screenRelX = relX * cos - relY * sin;
+        double screenRelY = relX * sin + relY * cos;
+
+        // Check if vehicle is outside safe zone and calculate needed pan
+        double panX = 0;
+        double panY = 0;
+
+        if (screenRelX > safeHalfWidth)
+            panX = screenRelX - safeHalfWidth;
+        else if (screenRelX < -safeHalfWidth)
+            panX = screenRelX + safeHalfWidth;
+
+        if (screenRelY > safeHalfHeight)
+            panY = screenRelY - safeHalfHeight;
+        else if (screenRelY < -safeHalfHeight)
+            panY = screenRelY + safeHalfHeight;
+
+        // If pan is needed, apply it with smoothing
+        if (Math.Abs(panX) > 0.01 || Math.Abs(panY) > 0.01)
+        {
+            // Convert pan back from screen-aligned to world coordinates
+            double worldPanX = panX * Math.Cos(_rotation) - panY * Math.Sin(_rotation);
+            double worldPanY = panX * Math.Sin(_rotation) + panY * Math.Cos(_rotation);
+
+            // Apply smooth interpolation
+            _cameraX += worldPanX * AutoPanSmoothing;
+            _cameraY += worldPanY * AutoPanSmoothing;
+        }
+    }
+
+    /// <summary>
+    /// Enable or disable auto-pan feature
+    /// </summary>
+    public bool AutoPanEnabled
+    {
+        get => _autoPanEnabled;
+        set => _autoPanEnabled = value;
     }
 
     public void SetBoundary(Boundary? boundary)
