@@ -16,7 +16,8 @@ public class PolygonOffsetService : IPolygonOffsetService
 
     /// <summary>
     /// Create an inward offset polygon from a boundary.
-    /// Offsets ALL points inward to preserve curve shape, then cleans up with Clipper.
+    /// For straight-edge boundaries (map/KML): uses Clipper with miter corners.
+    /// For curved boundaries (GPS-recorded): uses point-by-point offset to preserve curves.
     /// </summary>
     /// <param name="boundaryPoints">Outer boundary points</param>
     /// <param name="offsetDistance">Inward offset distance in meters (positive = inward/shrink)</param>
@@ -30,6 +31,73 @@ public class PolygonOffsetService : IPolygonOffsetService
         if (offsetDistance <= 0)
             return new List<Vec2>(boundaryPoints);
 
+        // For straight-edge boundaries, use simple Clipper offset with miter corners
+        if (IsStraightEdgeBoundary(boundaryPoints))
+        {
+            return CreateClipperInwardOffset(boundaryPoints, offsetDistance, JoinType.Miter);
+        }
+
+        // For curved boundaries, use point-by-point offset to preserve curve shape
+        return CreateCurvedInwardOffset(boundaryPoints, offsetDistance);
+    }
+
+    /// <summary>
+    /// Create inward offset using Clipper library directly.
+    /// Best for straight-edge boundaries where we want clean, sharp corners.
+    /// </summary>
+    private List<Vec2>? CreateClipperInwardOffset(List<Vec2> boundaryPoints, double offsetDistance, JoinType clipperJoinType)
+    {
+        // Convert to Clipper path
+        var path = new Path64(boundaryPoints.Count);
+        foreach (var pt in boundaryPoints)
+        {
+            path.Add(new Point64((long)(pt.Easting * Scale), (long)(pt.Northing * Scale)));
+        }
+
+        var clipperOffset = new ClipperOffset();
+        clipperOffset.MiterLimit = 3.0; // Limit miter extension for very sharp corners
+
+        clipperOffset.AddPath(path, clipperJoinType, EndType.Polygon);
+
+        var solution = new Paths64();
+        // Negative offset = shrink/inward
+        clipperOffset.Execute(-offsetDistance * Scale, solution);
+
+        if (solution.Count == 0 || solution[0].Count < 3)
+            return null;
+
+        // Find the largest polygon (in case of multiple results)
+        Path64 largest = solution[0];
+        double largestArea = System.Math.Abs(Clipper.Area(solution[0]));
+        for (int i = 1; i < solution.Count; i++)
+        {
+            double a = System.Math.Abs(Clipper.Area(solution[i]));
+            if (a > largestArea)
+            {
+                largestArea = a;
+                largest = solution[i];
+            }
+        }
+
+        // Convert back to Vec2
+        var result = new List<Vec2>(largest.Count);
+        foreach (var pt in largest)
+        {
+            result.Add(new Vec2(pt.X / Scale, pt.Y / Scale));
+        }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[PolygonOffset] Clipper offset: {boundaryPoints.Count} input points -> {result.Count} output points");
+
+        return result;
+    }
+
+    /// <summary>
+    /// Create inward offset using point-by-point perpendicular movement.
+    /// Best for curved (GPS-recorded) boundaries to preserve curve shape.
+    /// </summary>
+    private List<Vec2>? CreateCurvedInwardOffset(List<Vec2> boundaryPoints, double offsetDistance)
+    {
         int n = boundaryPoints.Count;
 
         // Determine winding direction
@@ -95,13 +163,70 @@ public class PolygonOffsetService : IPolygonOffsetService
         if (cleaned == null || cleaned.Count < 3)
             return offsetPoints;
 
-        // Step 3: Round sharp corners that resulted from the cleanup
+        // Step 3: Round sharp corners for curved boundaries
         var rounded = RoundSharpCorners(cleaned, offsetDistance * 0.8);
 
         // Step 4: Ensure polygon is properly closed (no gaps)
         var closed = EnsurePolygonClosed(rounded);
 
         return closed;
+    }
+
+    /// <summary>
+    /// Detect if a boundary is a "straight-edge" polygon (from map or KML import)
+    /// versus a "curved" polygon (from GPS recording).
+    ///
+    /// Straight-edge boundaries have:
+    /// - Few points (typically less than 20)
+    /// - Long average edge lengths (>10m, as they represent designed corners not GPS samples)
+    ///
+    /// Curved boundaries have:
+    /// - Many points (100+ from GPS sampling)
+    /// - Short average edge lengths (2-5m from GPS sampling rate)
+    /// </summary>
+    private bool IsStraightEdgeBoundary(List<Vec2> boundaryPoints)
+    {
+        if (boundaryPoints == null || boundaryPoints.Count < 3)
+            return false;
+
+        // Calculate average edge length
+        double totalLength = 0;
+        int n = boundaryPoints.Count;
+
+        for (int i = 0; i < n; i++)
+        {
+            var curr = boundaryPoints[i];
+            var next = boundaryPoints[(i + 1) % n];
+            double dx = next.Easting - curr.Easting;
+            double dy = next.Northing - curr.Northing;
+            totalLength += System.Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        double avgEdgeLength = totalLength / n;
+
+        // Straight-edge boundaries have few points with long edges
+        // GPS-recorded curves have many points with short edges
+        // Thresholds: <30 points AND >8m average edge length = straight-edge
+        const int maxPointsForStraightEdge = 30;
+        const double minAvgEdgeLengthForStraightEdge = 8.0;
+
+        bool isStraightEdge = boundaryPoints.Count < maxPointsForStraightEdge &&
+                               avgEdgeLength > minAvgEdgeLengthForStraightEdge;
+
+        if (isStraightEdge)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[PolygonOffset] Detected STRAIGHT-EDGE boundary: {boundaryPoints.Count} points, " +
+                $"avg edge {avgEdgeLength:F1}m - skipping corner rounding");
+        }
+        else
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[PolygonOffset] Detected CURVED boundary: {boundaryPoints.Count} points, " +
+                $"avg edge {avgEdgeLength:F1}m - applying corner rounding");
+        }
+
+        return isStraightEdge;
     }
 
     /// <summary>
