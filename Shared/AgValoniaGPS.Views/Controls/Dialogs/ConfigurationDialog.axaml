@@ -116,6 +116,109 @@
                     </TabItem>
                 </TabControl>
 
+                <!-- Numeric Input Overlay -->
+                <Border Grid.Row="1" Background="#CC000000"
+                        IsVisible="{Binding IsNumericInputVisible}"
+                        ZIndex="100">
+                    <Border Background="#DD1E2A38" CornerRadius="12" Padding="20"
+                            Width="360" Height="440"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            BorderBrush="#555" BorderThickness="1">
+                        <Grid RowDefinitions="Auto,Auto,*,Auto">
+                            <!-- Title -->
+                            <TextBlock Grid.Row="0" Text="{Binding NumericInputTitle}"
+                                       FontSize="20" FontWeight="Bold" Foreground="White"
+                                       HorizontalAlignment="Center" Margin="0,0,0,12"/>
+
+                            <!-- Value Display -->
+                            <Border Grid.Row="1" Background="#DD2C3E50" CornerRadius="6"
+                                    Padding="20,16" Margin="0,0,0,16" MinWidth="280">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                                    <TextBlock Text="{Binding NumericInputDisplayText}"
+                                               FontSize="42" FontWeight="Bold" Foreground="White"
+                                               MinWidth="120" TextAlignment="Right"/>
+                                    <TextBlock Text="{Binding NumericInputUnit}"
+                                               FontSize="24" Foreground="#AAA" VerticalAlignment="Bottom" Margin="0,0,0,6"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Keypad Grid -->
+                            <Grid Grid.Row="2" ColumnDefinitions="*,*,*" RowDefinitions="*,*,*,*" Margin="0,0,0,16">
+                                <Grid.Styles>
+                                    <Style Selector="Button.KeypadButton">
+                                        <Setter Property="Background" Value="#DD34495E"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="FontSize" Value="24"/>
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                        <Setter Property="CornerRadius" Value="8"/>
+                                        <Setter Property="Margin" Value="4"/>
+                                        <Setter Property="Cursor" Value="Hand"/>
+                                    </Style>
+                                    <Style Selector="Button.KeypadButton:pointerover">
+                                        <Setter Property="Background" Value="#DD475A6E"/>
+                                    </Style>
+                                </Grid.Styles>
+
+                                <!-- Row 0: 7 8 9 -->
+                                <Button Grid.Row="0" Grid.Column="0" Classes="KeypadButton" Content="7"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="7"/>
+                                <Button Grid.Row="0" Grid.Column="1" Classes="KeypadButton" Content="8"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="8"/>
+                                <Button Grid.Row="0" Grid.Column="2" Classes="KeypadButton" Content="9"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="9"/>
+
+                                <!-- Row 1: 4 5 6 -->
+                                <Button Grid.Row="1" Grid.Column="0" Classes="KeypadButton" Content="4"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="4"/>
+                                <Button Grid.Row="1" Grid.Column="1" Classes="KeypadButton" Content="5"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="5"/>
+                                <Button Grid.Row="1" Grid.Column="2" Classes="KeypadButton" Content="6"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="6"/>
+
+                                <!-- Row 2: 1 2 3 -->
+                                <Button Grid.Row="2" Grid.Column="0" Classes="KeypadButton" Content="1"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="1"/>
+                                <Button Grid.Row="2" Grid.Column="1" Classes="KeypadButton" Content="2"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="2"/>
+                                <Button Grid.Row="2" Grid.Column="2" Classes="KeypadButton" Content="3"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="3"/>
+
+                                <!-- Row 3: +/- 0 . -->
+                                <Button Grid.Row="3" Grid.Column="0" Classes="KeypadButton" Content="±"
+                                        Command="{Binding NumericInputNegateCommand}"
+                                        IsVisible="{Binding NumericInputAllowNegative}"/>
+                                <Button Grid.Row="3" Grid.Column="0" Classes="KeypadButton" Content="C"
+                                        Command="{Binding NumericInputClearCommand}"
+                                        IsVisible="{Binding !NumericInputAllowNegative}"/>
+                                <Button Grid.Row="3" Grid.Column="1" Classes="KeypadButton" Content="0"
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="0"/>
+                                <Button Grid.Row="3" Grid.Column="2" Classes="KeypadButton" Content="."
+                                        Command="{Binding NumericInputDigitCommand}" CommandParameter="."
+                                        IsVisible="{Binding !NumericInputIntegerOnly}"/>
+                                <Button Grid.Row="3" Grid.Column="2" Classes="KeypadButton" Content="⌫"
+                                        Command="{Binding NumericInputBackspaceCommand}"
+                                        IsVisible="{Binding NumericInputIntegerOnly}"/>
+                            </Grid>
+
+                            <!-- Action Buttons -->
+                            <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="8">
+                                <Button Grid.Column="0" Background="#E74C3C" Foreground="White"
+                                        FontSize="16" FontWeight="Bold" CornerRadius="8" Height="48"
+                                        Command="{Binding CancelNumericInputCommand}"
+                                        HorizontalContentAlignment="Center">
+                                    <TextBlock Text="Cancel"/>
+                                </Button>
+                                <Button Grid.Column="1" Background="#4A9A7E" Foreground="White"
+                                        FontSize="16" FontWeight="Bold" CornerRadius="8" Height="48"
+                                        Command="{Binding ConfirmNumericInputCommand}"
+                                        HorizontalContentAlignment="Center">
+                                    <TextBlock Text="OK"/>
+                                </Button>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Border>
+
                 <!-- Footer with profile info and action buttons -->
                 <Border Grid.Row="2" Background="#DD2C3E50" Padding="16,12">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">

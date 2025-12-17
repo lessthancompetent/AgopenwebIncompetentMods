@@ -22,6 +22,19 @@
             <Setter Property="Padding" Value="12,8"/>
             <Setter Property="MinWidth" Value="80"/>
         </Style>
+        <Style Selector="Button.TappableValue">
+            <Setter Property="Background" Value="#DD1E2A38"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="MinWidth" Value="120"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.TappableValue:pointerover">
+            <Setter Property="Background" Value="#DD2A3A4A"/>
+            <Setter Property="BorderBrush" Value="#4A9A7E"/>
+        </Style>
     </UserControl.Styles>
 
     <ScrollViewer>
@@ -44,25 +57,25 @@
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Tool Width" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditToolWidthCommand}">
                         <TextBlock Text="{Binding Tool.Width, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Tool Overlap" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditToolOverlapCommand}">
                         <TextBlock Text="{Binding Tool.Overlap, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Tool Offset" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditToolOffsetCommand}">
                         <TextBlock Text="{Binding Tool.Offset, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
 
@@ -70,17 +83,17 @@
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Hitch Length" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditToolHitchLengthCommand}">
                         <TextBlock Text="{Binding Tool.HitchLength, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Trailing Hitch Length" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditTrailingHitchLengthCommand}">
                         <TextBlock Text="{Binding Tool.TrailingHitchLength, StringFormat='{}{0:F2} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
         </StackPanel>

@@ -253,7 +253,7 @@ public class MainViewModel : ReactiveObject
     {
         try
         {
-            var profiles = _vehicleProfileService.GetAvailableProfiles();
+            var profiles = _configurationService.GetAvailableProfiles();
             if (profiles.Count == 0)
             {
                 Console.WriteLine("No vehicle profiles found in Vehicles directory");
@@ -276,24 +276,19 @@ public class MainViewModel : ReactiveObject
                 Console.WriteLine($"Loading first available vehicle profile: {profileToLoad}");
             }
 
-            if (_vehicleProfileService.SetActiveProfile(profileToLoad))
+            // Use ConfigurationService to load - this sets ConfigurationStore.ActiveProfileName
+            if (_configurationService.LoadProfile(profileToLoad))
             {
-                var profile = _vehicleProfileService.ActiveProfile;
-                if (profile != null)
-                {
-                    Console.WriteLine($"Loaded vehicle profile: {profile.Name}");
-                    Console.WriteLine($"  Tool width: {profile.Tool.Width}m");
-                    Console.WriteLine($"  YouTurn radius: {profile.YouTurn.TurnRadius}m");
-                    Console.WriteLine($"  Wheelbase: {profile.Vehicle.Wheelbase}m");
-                    Console.WriteLine($"  Sections: {profile.NumSections}");
+                var store = _configurationService.Store;
+                Console.WriteLine($"Loaded vehicle profile: {store.ActiveProfileName}");
+                Console.WriteLine($"  Tool width: {store.Tool.Width}m");
+                Console.WriteLine($"  YouTurn radius: {store.Guidance.UTurnRadius}m");
+                Console.WriteLine($"  Wheelbase: {store.Vehicle.Wheelbase}m");
+                Console.WriteLine($"  Sections: {store.NumSections}");
 
-                    // Save as last used profile
-                    _settingsService.Settings.LastUsedVehicleProfile = profileToLoad;
-                    _settingsService.Save();
-
-                    // Profile is now active and available via _vehicleProfileService.ActiveProfile
-                    // Services can access it through dependency injection
-                }
+                // Save as last used profile
+                _settingsService.Settings.LastUsedVehicleProfile = profileToLoad;
+                _settingsService.Save();
             }
         }
         catch (Exception ex)
@@ -2862,6 +2857,34 @@ public class MainViewModel : ReactiveObject
 
     public ICommand? ShowConfigurationDialogCommand { get; private set; }
     public ICommand? CancelConfigurationDialogCommand { get; private set; }
+    public ICommand? ShowLoadProfileDialogCommand { get; private set; }
+    public ICommand? ShowNewProfileDialogCommand { get; private set; }
+    public ICommand? LoadSelectedProfileCommand { get; private set; }
+    public ICommand? CancelProfileSelectionCommand { get; private set; }
+
+    // Profile selection dialog
+    private bool _isProfileSelectionVisible;
+    public bool IsProfileSelectionVisible
+    {
+        get => _isProfileSelectionVisible;
+        set => this.RaiseAndSetIfChanged(ref _isProfileSelectionVisible, value);
+    }
+
+    private System.Collections.ObjectModel.ObservableCollection<string> _availableProfiles = new();
+    public System.Collections.ObjectModel.ObservableCollection<string> AvailableProfiles
+    {
+        get => _availableProfiles;
+        set => this.RaiseAndSetIfChanged(ref _availableProfiles, value);
+    }
+
+    private string? _selectedProfile;
+    public string? SelectedProfile
+    {
+        get => _selectedProfile;
+        set => this.RaiseAndSetIfChanged(ref _selectedProfile, value);
+    }
+
+    public string CurrentProfileName => _configurationService.Store.ActiveProfileName;
 
     // Headland Builder properties (visibility managed by State.UI)
     private bool _isHeadlandOn;
@@ -3773,6 +3796,53 @@ public class MainViewModel : ReactiveObject
         {
             if (ConfigurationViewModel != null)
                 ConfigurationViewModel.IsDialogVisible = false;
+        });
+
+        ShowLoadProfileDialogCommand = new RelayCommand(() =>
+        {
+            // Refresh available profiles
+            AvailableProfiles.Clear();
+            foreach (var profile in _configurationService.GetAvailableProfiles())
+            {
+                AvailableProfiles.Add(profile);
+            }
+            SelectedProfile = _configurationService.Store.ActiveProfileName;
+            IsProfileSelectionVisible = true;
+        });
+
+        LoadSelectedProfileCommand = new RelayCommand(() =>
+        {
+            if (!string.IsNullOrEmpty(SelectedProfile))
+            {
+                _configurationService.LoadProfile(SelectedProfile);
+                _settingsService.Settings.LastUsedVehicleProfile = SelectedProfile;
+                _settingsService.Save();
+                this.RaisePropertyChanged(nameof(CurrentProfileName));
+            }
+            IsProfileSelectionVisible = false;
+        });
+
+        CancelProfileSelectionCommand = new RelayCommand(() =>
+        {
+            IsProfileSelectionVisible = false;
+        });
+
+        ShowNewProfileDialogCommand = new RelayCommand(() =>
+        {
+            // Generate a unique profile name
+            var baseName = "New Profile";
+            var profileName = baseName;
+            var counter = 1;
+            var existingProfiles = _configurationService.GetAvailableProfiles();
+            while (existingProfiles.Contains(profileName))
+            {
+                profileName = $"{baseName} {counter++}";
+            }
+
+            _configurationService.CreateProfile(profileName);
+            _settingsService.Settings.LastUsedVehicleProfile = profileName;
+            _settingsService.Save();
+            this.RaisePropertyChanged(nameof(CurrentProfileName));
         });
 
         ShowSimCoordsDialogCommand = new RelayCommand(() =>

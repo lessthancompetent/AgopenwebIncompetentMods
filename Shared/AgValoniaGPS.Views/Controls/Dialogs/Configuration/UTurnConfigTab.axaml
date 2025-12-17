@@ -22,6 +22,19 @@
             <Setter Property="Padding" Value="12,8"/>
             <Setter Property="MinWidth" Value="80"/>
         </Style>
+        <Style Selector="Button.TappableValue">
+            <Setter Property="Background" Value="#DD1E2A38"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="MinWidth" Value="120"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.TappableValue:pointerover">
+            <Setter Property="Background" Value="#DD2A3A4A"/>
+            <Setter Property="BorderBrush" Value="#4A9A7E"/>
+        </Style>
     </UserControl.Styles>
 
     <ScrollViewer>
@@ -31,41 +44,41 @@
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Turn Radius" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnRadiusCommand}">
                         <TextBlock Text="{Binding Guidance.UTurnRadius, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Extension Length" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnExtensionCommand}">
                         <TextBlock Text="{Binding Guidance.UTurnExtension, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Distance from Boundary" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnDistanceCommand}">
                         <TextBlock Text="{Binding Guidance.UTurnDistanceFromBoundary, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Skip Width" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnSkipWidthCommand}">
                         <TextBlock Text="{Binding Guidance.UTurnSkipWidth}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <TextBlock Text="Smoothing" Foreground="White" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Classes="ValueBox">
+                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnSmoothingCommand}">
                         <TextBlock Text="{Binding Guidance.UTurnSmoothing}" Foreground="White" FontWeight="Bold"/>
-                    </Border>
+                    </Button>
                 </Grid>
             </Border>
         </StackPanel>
