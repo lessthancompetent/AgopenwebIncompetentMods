@@ -118,6 +118,13 @@ public class Track
 - `IsPointInPolygon()` - boundary checks
 - `PIBy2`, `twoPI` - common constants
 
+### File Format Philosophy
+AgValoniaGPS may use different/improved formats from AgOpenGPS when it benefits code simplicity or features. Provide **one-way import** from AgOpenGPS formats rather than maintaining full backwards compatibility.
+
+- **Current**: Legacy text formats (Field.txt, Boundary.txt, etc.) and XML profiles
+- **Future**: Unified JSON formats (see `Plans/FILE_FORMAT_MODERNIZATION_PLAN.md`)
+- **Migration**: Auto-detect legacy files, import once, save in new format only
+
 ## Technology Stack
 
 - **.NET 10.0** - Target framework
