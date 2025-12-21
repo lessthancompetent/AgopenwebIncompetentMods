@@ -70,15 +70,6 @@
                         <config:ToolConfigTab/>
                     </TabItem>
 
-                    <!-- Sections Tab -->
-                    <TabItem ToolTip.Tip="Sections">
-                        <TabItem.Header>
-                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConS_ImplementSection.png"
-                                   Width="40" Height="40" Stretch="Uniform"/>
-                        </TabItem.Header>
-                        <config:SectionsConfigTab/>
-                    </TabItem>
-
                     <!-- U-Turn Tab -->
                     <TabItem ToolTip.Tip="U-Turn">
                         <TabItem.Header>

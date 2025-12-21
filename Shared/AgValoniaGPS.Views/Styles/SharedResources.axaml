@@ -13,5 +13,6 @@
     <converters:BoolToSteerColorConverter x:Key="BoolToSteerColorConverter"/>
     <converters:BoolToSteerTextConverter x:Key="BoolToSteerTextConverter"/>
     <converters:BoolToSectionColorConverter x:Key="BoolToSectionColorConverter"/>
+    <converters:GreaterThanConverter x:Key="GreaterThanConverter"/>
 
 </ResourceDictionary>

@@ -271,9 +271,107 @@ public class ConfigurationViewModel : ReactiveObject
     public SimulatorConfig Simulator => Config.Simulator;
 
     /// <summary>
-    /// Calculated total width from sections (NumSections × DefaultSectionWidth in meters)
+    /// Calculated total width from sections based on mode.
+    /// In Individual mode: sum of first NumSections widths.
+    /// In Zone mode: NumSections × DefaultSectionWidth.
     /// </summary>
-    public double CalculatedSectionTotal => Config.NumSections * Tool.DefaultSectionWidth / 100.0;
+    public double CalculatedSectionTotal
+    {
+        get
+        {
+            if (Tool.IsSectionsNotZones)
+            {
+                // Individual sections mode - sum actual widths
+                double total = 0;
+                for (int i = 0; i < Config.NumSections && i < 16; i++)
+                    total += Tool.GetSectionWidth(i);
+                return total / 100.0; // cm to meters
+            }
+            else
+            {
+                // Zones mode - all sections same width
+                return Config.NumSections * Tool.DefaultSectionWidth / 100.0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the width of a specific section for display (1-based index).
+    /// </summary>
+    public double GetSectionWidthForDisplay(int sectionNumber)
+    {
+        if (sectionNumber < 1 || sectionNumber > 16) return 0;
+        return Tool.GetSectionWidth(sectionNumber - 1);
+    }
+
+    /// <summary>
+    /// Section width display properties for binding (1-based).
+    /// </summary>
+    public double Section1Width => Tool.GetSectionWidth(0);
+    public double Section2Width => Tool.GetSectionWidth(1);
+    public double Section3Width => Tool.GetSectionWidth(2);
+    public double Section4Width => Tool.GetSectionWidth(3);
+    public double Section5Width => Tool.GetSectionWidth(4);
+    public double Section6Width => Tool.GetSectionWidth(5);
+    public double Section7Width => Tool.GetSectionWidth(6);
+    public double Section8Width => Tool.GetSectionWidth(7);
+    public double Section9Width => Tool.GetSectionWidth(8);
+    public double Section10Width => Tool.GetSectionWidth(9);
+    public double Section11Width => Tool.GetSectionWidth(10);
+    public double Section12Width => Tool.GetSectionWidth(11);
+    public double Section13Width => Tool.GetSectionWidth(12);
+    public double Section14Width => Tool.GetSectionWidth(13);
+    public double Section15Width => Tool.GetSectionWidth(14);
+    public double Section16Width => Tool.GetSectionWidth(15);
+
+    /// <summary>
+    /// Refreshes all section width properties after a change.
+    /// </summary>
+    private void RefreshSectionWidthProperties()
+    {
+        this.RaisePropertyChanged(nameof(Section1Width));
+        this.RaisePropertyChanged(nameof(Section2Width));
+        this.RaisePropertyChanged(nameof(Section3Width));
+        this.RaisePropertyChanged(nameof(Section4Width));
+        this.RaisePropertyChanged(nameof(Section5Width));
+        this.RaisePropertyChanged(nameof(Section6Width));
+        this.RaisePropertyChanged(nameof(Section7Width));
+        this.RaisePropertyChanged(nameof(Section8Width));
+        this.RaisePropertyChanged(nameof(Section9Width));
+        this.RaisePropertyChanged(nameof(Section10Width));
+        this.RaisePropertyChanged(nameof(Section11Width));
+        this.RaisePropertyChanged(nameof(Section12Width));
+        this.RaisePropertyChanged(nameof(Section13Width));
+        this.RaisePropertyChanged(nameof(Section14Width));
+        this.RaisePropertyChanged(nameof(Section15Width));
+        this.RaisePropertyChanged(nameof(Section16Width));
+        this.RaisePropertyChanged(nameof(CalculatedSectionTotal));
+    }
+
+    // Zone end section properties (for binding in zone mode)
+    public int Zone1EndSection => Tool.GetZoneEndSection(1);
+    public int Zone2EndSection => Tool.GetZoneEndSection(2);
+    public int Zone3EndSection => Tool.GetZoneEndSection(3);
+    public int Zone4EndSection => Tool.GetZoneEndSection(4);
+    public int Zone5EndSection => Tool.GetZoneEndSection(5);
+    public int Zone6EndSection => Tool.GetZoneEndSection(6);
+    public int Zone7EndSection => Tool.GetZoneEndSection(7);
+    public int Zone8EndSection => Tool.GetZoneEndSection(8);
+
+    /// <summary>
+    /// Refreshes all zone end section properties after a change.
+    /// </summary>
+    private void RefreshZoneEndProperties()
+    {
+        this.RaisePropertyChanged(nameof(Zone1EndSection));
+        this.RaisePropertyChanged(nameof(Zone2EndSection));
+        this.RaisePropertyChanged(nameof(Zone3EndSection));
+        this.RaisePropertyChanged(nameof(Zone4EndSection));
+        this.RaisePropertyChanged(nameof(Zone5EndSection));
+        this.RaisePropertyChanged(nameof(Zone6EndSection));
+        this.RaisePropertyChanged(nameof(Zone7EndSection));
+        this.RaisePropertyChanged(nameof(Zone8EndSection));
+    }
 
     #endregion
 
@@ -342,6 +440,35 @@ public class ConfigurationViewModel : ReactiveObject
     public ICommand EditDefaultSectionWidthCommand { get; private set; } = null!;
     public ICommand EditMinCoverageCommand { get; private set; } = null!;
     public ICommand EditCutoffSpeedCommand { get; private set; } = null!;
+
+    // Individual Section Width Edit Commands (1-16)
+    public ICommand EditSection1WidthCommand { get; private set; } = null!;
+    public ICommand EditSection2WidthCommand { get; private set; } = null!;
+    public ICommand EditSection3WidthCommand { get; private set; } = null!;
+    public ICommand EditSection4WidthCommand { get; private set; } = null!;
+    public ICommand EditSection5WidthCommand { get; private set; } = null!;
+    public ICommand EditSection6WidthCommand { get; private set; } = null!;
+    public ICommand EditSection7WidthCommand { get; private set; } = null!;
+    public ICommand EditSection8WidthCommand { get; private set; } = null!;
+    public ICommand EditSection9WidthCommand { get; private set; } = null!;
+    public ICommand EditSection10WidthCommand { get; private set; } = null!;
+    public ICommand EditSection11WidthCommand { get; private set; } = null!;
+    public ICommand EditSection12WidthCommand { get; private set; } = null!;
+    public ICommand EditSection13WidthCommand { get; private set; } = null!;
+    public ICommand EditSection14WidthCommand { get; private set; } = null!;
+    public ICommand EditSection15WidthCommand { get; private set; } = null!;
+    public ICommand EditSection16WidthCommand { get; private set; } = null!;
+
+    // Zone Edit Commands
+    public ICommand EditNumZonesCommand { get; private set; } = null!;
+    public ICommand EditZone1EndCommand { get; private set; } = null!;
+    public ICommand EditZone2EndCommand { get; private set; } = null!;
+    public ICommand EditZone3EndCommand { get; private set; } = null!;
+    public ICommand EditZone4EndCommand { get; private set; } = null!;
+    public ICommand EditZone5EndCommand { get; private set; } = null!;
+    public ICommand EditZone6EndCommand { get; private set; } = null!;
+    public ICommand EditZone7EndCommand { get; private set; } = null!;
+    public ICommand EditZone8EndCommand { get; private set; } = null!;
 
     // U-Turn Tab Edit Commands
     public ICommand EditUTurnRadiusCommand { get; private set; } = null!;
@@ -521,6 +648,76 @@ public class ConfigurationViewModel : ReactiveObject
             ShowNumericInput("Slow Speed Cutoff", Tool.SlowSpeedCutoff,
                 v => Tool.SlowSpeedCutoff = v,
                 "km/h", integerOnly: false, allowNegative: false, min: 0, max: 10));
+
+        // Individual section width commands
+        EditSection1WidthCommand = new RelayCommand(() => EditSectionWidth(1));
+        EditSection2WidthCommand = new RelayCommand(() => EditSectionWidth(2));
+        EditSection3WidthCommand = new RelayCommand(() => EditSectionWidth(3));
+        EditSection4WidthCommand = new RelayCommand(() => EditSectionWidth(4));
+        EditSection5WidthCommand = new RelayCommand(() => EditSectionWidth(5));
+        EditSection6WidthCommand = new RelayCommand(() => EditSectionWidth(6));
+        EditSection7WidthCommand = new RelayCommand(() => EditSectionWidth(7));
+        EditSection8WidthCommand = new RelayCommand(() => EditSectionWidth(8));
+        EditSection9WidthCommand = new RelayCommand(() => EditSectionWidth(9));
+        EditSection10WidthCommand = new RelayCommand(() => EditSectionWidth(10));
+        EditSection11WidthCommand = new RelayCommand(() => EditSectionWidth(11));
+        EditSection12WidthCommand = new RelayCommand(() => EditSectionWidth(12));
+        EditSection13WidthCommand = new RelayCommand(() => EditSectionWidth(13));
+        EditSection14WidthCommand = new RelayCommand(() => EditSectionWidth(14));
+        EditSection15WidthCommand = new RelayCommand(() => EditSectionWidth(15));
+        EditSection16WidthCommand = new RelayCommand(() => EditSectionWidth(16));
+
+        // Zone edit command
+        EditNumZonesCommand = new RelayCommand(() =>
+            ShowNumericInput("Number of Zones", Tool.Zones,
+                v => { Tool.Zones = (int)v; RefreshZoneEndProperties(); },
+                "", integerOnly: true, allowNegative: false, min: 2, max: 8));
+
+        // Zone end section commands
+        EditZone1EndCommand = new RelayCommand(() => EditZoneEndSection(1));
+        EditZone2EndCommand = new RelayCommand(() => EditZoneEndSection(2));
+        EditZone3EndCommand = new RelayCommand(() => EditZoneEndSection(3));
+        EditZone4EndCommand = new RelayCommand(() => EditZoneEndSection(4));
+        EditZone5EndCommand = new RelayCommand(() => EditZoneEndSection(5));
+        EditZone6EndCommand = new RelayCommand(() => EditZoneEndSection(6));
+        EditZone7EndCommand = new RelayCommand(() => EditZoneEndSection(7));
+        EditZone8EndCommand = new RelayCommand(() => EditZoneEndSection(8));
+    }
+
+    /// <summary>
+    /// Edit an individual section width (1-based section number).
+    /// </summary>
+    private void EditSectionWidth(int sectionNumber)
+    {
+        int index = sectionNumber - 1;
+        double currentWidth = Tool.GetSectionWidth(index);
+        ShowNumericInput($"Section {sectionNumber} Width", currentWidth,
+            v =>
+            {
+                Tool.SetSectionWidth(index, v);
+                RefreshSectionWidthProperties();
+            },
+            "cm", integerOnly: false, allowNegative: false, min: 1, max: 500);
+    }
+
+    /// <summary>
+    /// Edit a zone's end section (1-based zone number).
+    /// Zone N contains sections from the previous zone's end + 1 to this zone's end.
+    /// </summary>
+    private void EditZoneEndSection(int zoneNumber)
+    {
+        int currentEnd = Tool.GetZoneEndSection(zoneNumber);
+        int minSection = zoneNumber; // Must have at least one section per zone
+        if (zoneNumber > 1)
+            minSection = Tool.GetZoneEndSection(zoneNumber - 1) + 1;
+
+        ShowNumericInput($"Zone {zoneNumber} End Section", currentEnd,
+            v =>
+            {
+                Tool.SetZoneEndSection(zoneNumber, (int)v);
+                RefreshZoneEndProperties();
+            },
+            "", integerOnly: true, allowNegative: false, min: minSection, max: Config.NumSections);
     }
 
     private void InitializeUTurnEditCommands()

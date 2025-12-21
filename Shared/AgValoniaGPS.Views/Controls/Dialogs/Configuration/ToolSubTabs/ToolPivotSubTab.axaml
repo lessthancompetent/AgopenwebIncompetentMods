@@ -38,11 +38,7 @@
     </UserControl.Styles>
 
     <ScrollViewer>
-        <StackPanel Spacing="12" Margin="16">
-            <TextBlock Text="Pivot Distance" FontSize="16" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,8"/>
-            <TextBlock Text="Configure pivot point for trailing implements"
-                       Foreground="#AAA" TextWrapping="Wrap" Margin="0,0,0,16"/>
-
+        <StackPanel Spacing="12" Margin="16,8,16,16">
             <!-- Only relevant for Trailing/TBT -->
             <Border Background="#DD3A3A2A" CornerRadius="6" Padding="12" Margin="0,0,0,16"
                     IsVisible="{Binding !Tool.IsToolTrailing}">
@@ -53,10 +49,13 @@
                 </StackPanel>
             </Border>
 
-            <!-- Diagram -->
-            <Border Background="#1A1A2E" CornerRadius="8" Height="150" Margin="0,0,0,16">
-                <TextBlock Text="[Pivot Distance Diagram]"
-                           Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <!-- Dynamic Pivot Diagram -->
+            <Border Background="#1A1A2E" CornerRadius="8" Height="150" Margin="0,0,0,16" Padding="8">
+                <Panel>
+                    <!-- Show positive pivot (behind) when value >= 0 -->
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ToolHitchPivotOffsetPos.png"
+                           Stretch="Uniform"/>
+                </Panel>
             </Border>
 
             <!-- Pivot Distance -->

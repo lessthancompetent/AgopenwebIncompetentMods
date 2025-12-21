@@ -23,11 +23,7 @@
     </UserControl.Styles>
 
     <ScrollViewer>
-        <StackPanel Spacing="12" Margin="16">
-            <TextBlock Text="Switch Configuration" FontSize="16" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,8"/>
-            <TextBlock Text="Configure work switch and steer switch inputs from hardware"
-                       Foreground="#AAA" TextWrapping="Wrap" Margin="0,0,0,16"/>
-
+        <StackPanel Spacing="12" Margin="16,8,16,16">
             <!-- Work Switch Section -->
             <Border Classes="SwitchGroup">
                 <StackPanel Spacing="12">
@@ -42,17 +38,25 @@
                     <!-- Work switch options (visible when enabled) -->
                     <StackPanel Spacing="8" IsVisible="{Binding Tool.IsWorkSwitchEnabled}">
                         <Border Background="#DD2C3E50" CornerRadius="4" Padding="12">
-                            <StackPanel>
-                                <TextBlock Text="Active State" Foreground="White" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                <StackPanel Orientation="Horizontal" Spacing="16">
-                                    <RadioButton Content="Active Low (Closed)" GroupName="WorkSwitchActive"
-                                                 IsChecked="{Binding Tool.IsWorkSwitchActiveLow}"
-                                                 Foreground="White"/>
-                                    <RadioButton Content="Active High (Open)" GroupName="WorkSwitchActive"
-                                                 IsChecked="{Binding !Tool.IsWorkSwitchActiveLow}"
-                                                 Foreground="White"/>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel>
+                                    <TextBlock Text="Active State" Foreground="White" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="16">
+                                        <RadioButton Content="Active Low (Closed)" GroupName="WorkSwitchActive"
+                                                     IsChecked="{Binding Tool.IsWorkSwitchActiveLow}"
+                                                     Foreground="White"/>
+                                        <RadioButton Content="Active High (Open)" GroupName="WorkSwitchActive"
+                                                     IsChecked="{Binding !Tool.IsWorkSwitchActiveLow}"
+                                                     Foreground="White"/>
+                                    </StackPanel>
                                 </StackPanel>
-                            </StackPanel>
+                                <Panel Grid.Column="1" Width="60" Height="60">
+                                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/SwitchActiveClosed.png"
+                                           Stretch="Uniform" IsVisible="{Binding Tool.IsWorkSwitchActiveLow}"/>
+                                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/SwitchActiveOpen.png"
+                                           Stretch="Uniform" IsVisible="{Binding !Tool.IsWorkSwitchActiveLow}"/>
+                                </Panel>
+                            </Grid>
                         </Border>
 
                         <Border Background="#DD2C3E50" CornerRadius="4" Padding="12">

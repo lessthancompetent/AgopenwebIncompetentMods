@@ -3,7 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="700"
+             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="800"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.Configuration.ToolSubTabs.ToolSectionsSubTab"
              x:DataType="vm:ConfigurationViewModel">
 
@@ -32,10 +32,11 @@
             <Setter Property="BorderBrush" Value="#555"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Padding" Value="6,4"/>
-            <Setter Property="MinWidth" Value="60"/>
-            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="4,6"/>
+            <Setter Property="MinWidth" Value="70"/>
+            <Setter Property="Height" Value="44"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
         </Style>
         <Style Selector="Button.SectionWidthBtn:pointerover">
             <Setter Property="Background" Value="#DD2A3A4A"/>
@@ -44,9 +45,7 @@
     </UserControl.Styles>
 
     <ScrollViewer>
-        <StackPanel Spacing="12" Margin="16">
-            <TextBlock Text="Section Configuration" FontSize="16" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,8"/>
-
+        <StackPanel Spacing="12" Margin="16,8,16,16">
             <!-- Mode Toggle -->
             <Border Background="#DD1A1A2E" CornerRadius="6" Padding="12" Margin="0,0,0,8">
                 <StackPanel>
@@ -76,12 +75,12 @@
                 </Grid>
             </Border>
 
-            <!-- Default Section Width -->
+            <!-- Default Section Width (shown in both modes but primarily used for zones) -->
             <Border Classes="SettingRow">
                 <Grid ColumnDefinitions="*,Auto">
                     <StackPanel>
                         <TextBlock Text="Default Section Width" Foreground="White" FontWeight="SemiBold"/>
-                        <TextBlock Text="Width applied to new sections" Foreground="#888" FontSize="12"/>
+                        <TextBlock Text="Width applied to new sections (or all sections in zone mode)" Foreground="#888" FontSize="12"/>
                     </StackPanel>
                     <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditDefaultSectionWidthCommand}">
                         <TextBlock Text="{Binding Tool.DefaultSectionWidth, StringFormat='{}{0:F0} cm'}" Foreground="White" FontWeight="Bold"/>
@@ -89,13 +88,244 @@
                 </Grid>
             </Border>
 
-            <!-- Section Width Info -->
+            <!-- Individual Section Widths Grid (only shown when IsSectionsNotZones is true) -->
             <Border Background="#DD1A1A2E" CornerRadius="6" Padding="12" Margin="0,8,0,0"
                     IsVisible="{Binding Tool.IsSectionsNotZones}">
                 <StackPanel>
                     <TextBlock Text="Section Widths" Foreground="White" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                    <TextBlock Text="Individual section width editing will be available in a future update. Currently all sections use the default width."
-                               Foreground="#888" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Text="Tap a section to edit its width. Sections shown based on count above."
+                               Foreground="#888" FontSize="11" Margin="0,0,0,12"/>
+
+                    <!-- Section Width Grid - Row 1 (1-8) -->
+                    <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <!-- Section 1 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection1WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=0}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="1" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section1Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 2 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection2WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=1}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="2" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section2Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 3 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection3WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=2}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="3" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section3Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 4 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection4WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=3}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="4" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section4Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 5 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection5WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=4}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="5" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section5Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 6 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection6WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=5}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="6" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section6Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 7 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection7WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=6}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="7" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section7Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 8 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection8WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=7}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="8" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section8Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 9 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection9WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=8}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="9" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section9Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 10 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection10WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=9}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="10" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section10Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 11 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection11WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=10}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="11" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section11Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 12 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection12WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=11}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="12" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section12Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 13 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection13WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=12}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="13" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section13Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 14 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection14WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=13}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="14" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section14Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 15 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection15WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=14}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="15" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section15Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Section 16 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditSection16WidthCommand}"
+                                Margin="4" IsVisible="{Binding Config.NumSections, Converter={StaticResource GreaterThanConverter}, ConverterParameter=15}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="16" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Section16Width, StringFormat='{}{0:F0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </WrapPanel>
+
+                    <TextBlock Text="All widths in cm" Foreground="#666" FontSize="10" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Zone Configuration (only shown when IsSectionsNotZones is false) -->
+            <Border Background="#DD1A1A2E" CornerRadius="6" Padding="12" Margin="0,8,0,0"
+                    IsVisible="{Binding !Tool.IsSectionsNotZones}">
+                <StackPanel>
+                    <TextBlock Text="Zone Configuration" Foreground="White" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                    <TextBlock Text="In zone mode, all sections have the same width. Sections are grouped into zones for control. Each zone ends at the specified section number."
+                               Foreground="#888" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                    <!-- Number of Zones -->
+                    <Border Background="#DD2C3E50" CornerRadius="4" Padding="12,8" Margin="0,4">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel>
+                                <TextBlock Text="Number of Zones" Foreground="White" FontWeight="SemiBold"/>
+                                <TextBlock Text="How many control zones (2-8)" Foreground="#888" FontSize="12"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditNumZonesCommand}">
+                                <TextBlock Text="{Binding Tool.Zones}" Foreground="White" FontWeight="Bold"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Text="Zone End Sections" Foreground="White" FontWeight="SemiBold" Margin="0,12,0,4"/>
+                    <TextBlock Text="Tap to set which section each zone ends at" Foreground="#888" FontSize="11" Margin="0,0,0,8"/>
+
+                    <!-- Zone End Buttons -->
+                    <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <!-- Zone 1 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditZone1EndCommand}"
+                                Margin="4" IsVisible="{Binding Tool.Zones, Converter={StaticResource GreaterThanConverter}, ConverterParameter=0}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="Zone 1" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Zone1EndSection, StringFormat='→ {0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Zone 2 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditZone2EndCommand}"
+                                Margin="4" IsVisible="{Binding Tool.Zones, Converter={StaticResource GreaterThanConverter}, ConverterParameter=1}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="Zone 2" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Zone2EndSection, StringFormat='→ {0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Zone 3 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditZone3EndCommand}"
+                                Margin="4" IsVisible="{Binding Tool.Zones, Converter={StaticResource GreaterThanConverter}, ConverterParameter=2}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="Zone 3" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Zone3EndSection, StringFormat='→ {0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Zone 4 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditZone4EndCommand}"
+                                Margin="4" IsVisible="{Binding Tool.Zones, Converter={StaticResource GreaterThanConverter}, ConverterParameter=3}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="Zone 4" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Zone4EndSection, StringFormat='→ {0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Zone 5 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditZone5EndCommand}"
+                                Margin="4" IsVisible="{Binding Tool.Zones, Converter={StaticResource GreaterThanConverter}, ConverterParameter=4}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="Zone 5" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Zone5EndSection, StringFormat='→ {0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Zone 6 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditZone6EndCommand}"
+                                Margin="4" IsVisible="{Binding Tool.Zones, Converter={StaticResource GreaterThanConverter}, ConverterParameter=5}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="Zone 6" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Zone6EndSection, StringFormat='→ {0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Zone 7 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditZone7EndCommand}"
+                                Margin="4" IsVisible="{Binding Tool.Zones, Converter={StaticResource GreaterThanConverter}, ConverterParameter=6}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="Zone 7" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Zone7EndSection, StringFormat='→ {0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Zone 8 -->
+                        <Button Classes="SectionWidthBtn" Command="{Binding EditZone8EndCommand}"
+                                Margin="4" IsVisible="{Binding Tool.Zones, Converter={StaticResource GreaterThanConverter}, ConverterParameter=7}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="Zone 8" Foreground="#888" FontSize="10" HorizontalAlignment="Center"/>
+                                <TextBlock Text="{Binding Zone8EndSection, StringFormat='→ {0}'}" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </WrapPanel>
+
+                    <TextBlock Text="Example: Zone 1 → 4 means Zone 1 controls sections 1-4"
+                               Foreground="#666" FontSize="10" FontStyle="Italic" HorizontalAlignment="Center" Margin="0,8,0,0"/>
                 </StackPanel>
             </Border>
 
@@ -104,7 +334,7 @@
                 <Grid ColumnDefinitions="*,Auto">
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="Calculated Total Width" Foreground="White" FontWeight="SemiBold"/>
-                        <TextBlock Text="(sections × section width)" Foreground="#AAA" FontSize="11"/>
+                        <TextBlock Text="(sum of active section widths)" Foreground="#AAA" FontSize="11"/>
                     </StackPanel>
                     <TextBlock Grid.Column="1" Text="{Binding CalculatedSectionTotal, StringFormat='{}{0:F2} m'}"
                                Foreground="White" FontWeight="Bold" FontSize="16" VerticalAlignment="Center"/>

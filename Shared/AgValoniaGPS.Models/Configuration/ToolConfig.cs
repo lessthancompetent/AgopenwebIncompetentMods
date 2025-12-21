@@ -159,12 +159,93 @@ public class ToolConfig : ReactiveObject
         set => this.RaiseAndSetIfChanged(ref _slowSpeedCutoff, value);
     }
 
+    // Individual section widths (cm) - up to 16 sections
+    private double[] _sectionWidths = new double[16] { 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100 };
+
+    /// <summary>
+    /// Gets or sets individual section widths in centimeters.
+    /// Array of 16 values, one per section.
+    /// </summary>
+    public double[] SectionWidths
+    {
+        get => _sectionWidths;
+        set => this.RaiseAndSetIfChanged(ref _sectionWidths, value);
+    }
+
+    /// <summary>
+    /// Gets or sets a specific section width by index (0-15).
+    /// </summary>
+    public double GetSectionWidth(int index)
+    {
+        if (index < 0 || index >= 16) return DefaultSectionWidth;
+        return _sectionWidths[index];
+    }
+
+    /// <summary>
+    /// Sets a specific section width by index and raises change notification.
+    /// </summary>
+    public void SetSectionWidth(int index, double value)
+    {
+        if (index < 0 || index >= 16) return;
+        _sectionWidths[index] = value;
+        this.RaisePropertyChanged(nameof(SectionWidths));
+        this.RaisePropertyChanged(nameof(TotalSectionWidth));
+    }
+
+    /// <summary>
+    /// Calculates total width of all active sections in meters.
+    /// </summary>
+    public double TotalSectionWidth
+    {
+        get
+        {
+            double total = 0;
+            // NumSections is in ConfigurationStore, so we use a simpler approach here
+            // This will be calculated properly in the ViewModel
+            for (int i = 0; i < 16; i++)
+                total += _sectionWidths[i];
+            return total / 100.0; // Convert cm to meters
+        }
+    }
+
     // Zone configuration
     private int _zones = 2;
     public int Zones
     {
         get => _zones;
         set => this.RaiseAndSetIfChanged(ref _zones, value);
+    }
+
+    // Zone end sections - which section each zone ends at (up to 8 zones)
+    private int[] _zoneRanges = new int[9] { 0, 2, 4, 6, 8, 10, 12, 14, 16 };
+
+    /// <summary>
+    /// Gets or sets zone end section indices.
+    /// ZoneRanges[0] is always 0 (start), ZoneRanges[i] is the end section of zone i.
+    /// </summary>
+    public int[] ZoneRanges
+    {
+        get => _zoneRanges;
+        set => this.RaiseAndSetIfChanged(ref _zoneRanges, value);
+    }
+
+    /// <summary>
+    /// Gets the end section for a zone (1-8).
+    /// </summary>
+    public int GetZoneEndSection(int zoneIndex)
+    {
+        if (zoneIndex < 1 || zoneIndex > 8) return 0;
+        return _zoneRanges[zoneIndex];
+    }
+
+    /// <summary>
+    /// Sets the end section for a zone (1-8).
+    /// </summary>
+    public void SetZoneEndSection(int zoneIndex, int endSection)
+    {
+        if (zoneIndex < 1 || zoneIndex > 8) return;
+        _zoneRanges[zoneIndex] = endSection;
+        this.RaisePropertyChanged(nameof(ZoneRanges));
     }
 
     // Switch configuration

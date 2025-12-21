@@ -39,10 +39,7 @@
     </UserControl.Styles>
 
     <ScrollViewer>
-        <StackPanel Spacing="12" Margin="16">
-            <TextBlock Text="Tool Attachment Type" FontSize="16" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,8"/>
-            <TextBlock Text="Select how your implement is attached to the vehicle" Foreground="#AAA" TextWrapping="Wrap" Margin="0,0,0,16"/>
-
+        <StackPanel Spacing="12" Margin="16,8,16,16">
             <!-- Tool Type Selection Grid -->
             <UniformGrid Columns="2" Rows="2">
                 <!-- Front Fixed -->
@@ -51,10 +48,8 @@
                         <TextBlock Text="Front Fixed" FontWeight="SemiBold" FontSize="14" Foreground="White"/>
                         <TextBlock Text="Front-mounted implement (harvester header, front loader)"
                                    Foreground="#AAA" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                        <Border Background="#1A1A2E" CornerRadius="4" Margin="0,8,0,0" Padding="8" Height="60">
-                            <TextBlock Text="[Front Fixed]" Foreground="#666"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ToolChkFront.png"
+                               Height="60" Stretch="Uniform" Margin="0,8,0,0"/>
                     </StackPanel>
                 </RadioButton>
 
@@ -64,10 +59,8 @@
                         <TextBlock Text="Rear Fixed" FontWeight="SemiBold" FontSize="14" Foreground="White"/>
                         <TextBlock Text="3-point hitch mounted implement (cultivator, planter)"
                                    Foreground="#AAA" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                        <Border Background="#1A1A2E" CornerRadius="4" Margin="0,8,0,0" Padding="8" Height="60">
-                            <TextBlock Text="[Rear Fixed]" Foreground="#666"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ToolChkRear.png"
+                               Height="60" Stretch="Uniform" Margin="0,8,0,0"/>
                     </StackPanel>
                 </RadioButton>
 
@@ -77,10 +70,8 @@
                         <TextBlock Text="TBT (Tow Between)" FontWeight="SemiBold" FontSize="14" Foreground="White"/>
                         <TextBlock Text="Tool between tractor and tank trailer (sprayer setup)"
                                    Foreground="#AAA" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                        <Border Background="#1A1A2E" CornerRadius="4" Margin="0,8,0,0" Padding="8" Height="60">
-                            <TextBlock Text="[TBT]" Foreground="#666"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ToolChkTBT.png"
+                               Height="60" Stretch="Uniform" Margin="0,8,0,0"/>
                     </StackPanel>
                 </RadioButton>
 
@@ -90,10 +81,8 @@
                         <TextBlock Text="Trailing" FontWeight="SemiBold" FontSize="14" Foreground="White"/>
                         <TextBlock Text="Towed implement on drawbar (grain drill, air seeder)"
                                    Foreground="#AAA" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                        <Border Background="#1A1A2E" CornerRadius="4" Margin="0,8,0,0" Padding="8" Height="60">
-                            <TextBlock Text="[Trailing]" Foreground="#666"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ToolChkTrailing.png"
+                               Height="60" Stretch="Uniform" Margin="0,8,0,0"/>
                     </StackPanel>
                 </RadioButton>
             </UniformGrid>
