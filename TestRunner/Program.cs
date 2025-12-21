@@ -1,4 +1,12 @@
 using AgValoniaGPS.Services.Track;
+using TestRunner;
+
+// Check for command line args
+if (args.Length > 0 && args[0] == "benchmark")
+{
+    NmeaParserBenchmark.Run();
+    return;
+}
 
 Console.WriteLine("Running TrackGuidanceService Tests...\n");
 
