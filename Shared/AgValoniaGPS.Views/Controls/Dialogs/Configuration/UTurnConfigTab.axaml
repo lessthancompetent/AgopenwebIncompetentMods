@@ -3,25 +3,11 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
-             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="400"
+             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="550"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.Configuration.UTurnConfigTab"
              x:DataType="vm:ConfigurationViewModel">
 
     <UserControl.Styles>
-        <Style Selector="Border.SettingRow">
-            <Setter Property="Background" Value="#DD2C3E50"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Padding" Value="12,8"/>
-            <Setter Property="Margin" Value="0,4"/>
-        </Style>
-        <Style Selector="Border.ValueBox">
-            <Setter Property="Background" Value="#DD1E2A38"/>
-            <Setter Property="BorderBrush" Value="#555"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Padding" Value="12,8"/>
-            <Setter Property="MinWidth" Value="80"/>
-        </Style>
         <Style Selector="Button.TappableValue">
             <Setter Property="Background" Value="#DD1E2A38"/>
             <Setter Property="BorderBrush" Value="#555"/>
@@ -38,49 +24,62 @@
     </UserControl.Styles>
 
     <ScrollViewer>
-        <StackPanel Spacing="8" Margin="16">
-            <TextBlock Text="U-Turn Settings" FontSize="16" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,12"/>
+        <StackPanel Spacing="8" Margin="16,8,16,16">
+            <!-- Turn Radius -->
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Background="#1A1A2E" CornerRadius="6" Padding="4" Width="160" Height="120" Margin="0,0,12,0">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConU_UturnRadius.png" Stretch="Uniform"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Turn Radius" Foreground="White" FontWeight="SemiBold"/>
+                    <TextBlock Text="Match to your vehicle's actual turning capability" Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Button Grid.Column="2" Classes="TappableValue" Command="{Binding EditUTurnRadiusCommand}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Guidance.UTurnRadius, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
+                </Button>
+            </Grid>
 
-            <Border Classes="SettingRow">
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Text="Turn Radius" Foreground="White" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnRadiusCommand}">
-                        <TextBlock Text="{Binding Guidance.UTurnRadius, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Button>
-                </Grid>
-            </Border>
-            <Border Classes="SettingRow">
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Text="Extension Length" Foreground="White" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnExtensionCommand}">
-                        <TextBlock Text="{Binding Guidance.UTurnExtension, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Button>
-                </Grid>
-            </Border>
-            <Border Classes="SettingRow">
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Text="Distance from Boundary" Foreground="White" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnDistanceCommand}">
-                        <TextBlock Text="{Binding Guidance.UTurnDistanceFromBoundary, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
-                    </Button>
-                </Grid>
-            </Border>
-            <Border Classes="SettingRow">
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Text="Skip Width" Foreground="White" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnSkipWidthCommand}">
-                        <TextBlock Text="{Binding Guidance.UTurnSkipWidth}" Foreground="White" FontWeight="Bold"/>
-                    </Button>
-                </Grid>
-            </Border>
-            <Border Classes="SettingRow">
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Text="Smoothing" Foreground="White" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Classes="TappableValue" Command="{Binding EditUTurnSmoothingCommand}">
-                        <TextBlock Text="{Binding Guidance.UTurnSmoothing}" Foreground="White" FontWeight="Bold"/>
-                    </Button>
-                </Grid>
-            </Border>
+            <!-- Extension Length -->
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Background="#1A1A2E" CornerRadius="6" Padding="4" Width="160" Height="120" Margin="0,0,12,0">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConU_UturnLength.png" Stretch="Uniform"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Extension Length" Foreground="White" FontWeight="SemiBold"/>
+                    <TextBlock Text="Increase if turns start too abruptly" Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Button Grid.Column="2" Classes="TappableValue" Command="{Binding EditUTurnExtensionCommand}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Guidance.UTurnExtension, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
+                </Button>
+            </Grid>
+
+            <!-- Distance from Boundary -->
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Background="#1A1A2E" CornerRadius="6" Padding="4" Width="160" Height="120" Margin="0,0,12,0">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConU_UturnDistance.png" Stretch="Uniform"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Distance from Boundary" Foreground="White" FontWeight="SemiBold"/>
+                    <TextBlock Text="How far from boundary to trigger turn calculation" Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Button Grid.Column="2" Classes="TappableValue" Command="{Binding EditUTurnDistanceCommand}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Guidance.UTurnDistanceFromBoundary, StringFormat='{}{0:F1} m'}" Foreground="White" FontWeight="Bold"/>
+                </Button>
+            </Grid>
+
+            <!-- Path Smoothing -->
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Background="#1A1A2E" CornerRadius="6" Padding="4" Width="160" Height="120" Margin="0,0,12,0">
+                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConU_UturnSmooth.png" Stretch="Uniform"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Path Smoothing" Foreground="White" FontWeight="SemiBold"/>
+                    <TextBlock Text="Higher = smoother curves but less precise (1-50)" Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Button Grid.Column="2" Classes="TappableValue" Command="{Binding EditUTurnSmoothingCommand}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Guidance.UTurnSmoothing}" Foreground="White" FontWeight="Bold"/>
+                </Button>
+            </Grid>
         </StackPanel>
     </ScrollViewer>
 </UserControl>
