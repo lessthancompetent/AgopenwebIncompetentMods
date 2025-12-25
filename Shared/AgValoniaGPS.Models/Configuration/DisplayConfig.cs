@@ -124,4 +124,103 @@ public class DisplayConfig : ReactiveObject
         get => _simulatorPanelVisible;
         set => this.RaiseAndSetIfChanged(ref _simulatorPanelVisible, value);
     }
+
+    // Display Options (toggle buttons)
+    private bool _polygonsVisible = true;
+    public bool PolygonsVisible
+    {
+        get => _polygonsVisible;
+        set => this.RaiseAndSetIfChanged(ref _polygonsVisible, value);
+    }
+
+    private bool _speedometerVisible = true;
+    public bool SpeedometerVisible
+    {
+        get => _speedometerVisible;
+        set => this.RaiseAndSetIfChanged(ref _speedometerVisible, value);
+    }
+
+    private bool _keyboardEnabled;
+    public bool KeyboardEnabled
+    {
+        get => _keyboardEnabled;
+        set => this.RaiseAndSetIfChanged(ref _keyboardEnabled, value);
+    }
+
+    private bool _headlandDistanceVisible = true;
+    public bool HeadlandDistanceVisible
+    {
+        get => _headlandDistanceVisible;
+        set => this.RaiseAndSetIfChanged(ref _headlandDistanceVisible, value);
+    }
+
+    private bool _autoDayNight;
+    public bool AutoDayNight
+    {
+        get => _autoDayNight;
+        set => this.RaiseAndSetIfChanged(ref _autoDayNight, value);
+    }
+
+    private bool _svennArrowVisible;
+    public bool SvennArrowVisible
+    {
+        get => _svennArrowVisible;
+        set => this.RaiseAndSetIfChanged(ref _svennArrowVisible, value);
+    }
+
+    private bool _startFullscreen;
+    public bool StartFullscreen
+    {
+        get => _startFullscreen;
+        set => this.RaiseAndSetIfChanged(ref _startFullscreen, value);
+    }
+
+    private bool _elevationLogEnabled;
+    public bool ElevationLogEnabled
+    {
+        get => _elevationLogEnabled;
+        set => this.RaiseAndSetIfChanged(ref _elevationLogEnabled, value);
+    }
+
+    private bool _fieldTextureVisible;
+    public bool FieldTextureVisible
+    {
+        get => _fieldTextureVisible;
+        set => this.RaiseAndSetIfChanged(ref _fieldTextureVisible, value);
+    }
+
+    private bool _extraGuidelines;
+    public bool ExtraGuidelines
+    {
+        get => _extraGuidelines;
+        set => this.RaiseAndSetIfChanged(ref _extraGuidelines, value);
+    }
+
+    private int _extraGuidelinesCount = 10;
+    public int ExtraGuidelinesCount
+    {
+        get => _extraGuidelinesCount;
+        set => this.RaiseAndSetIfChanged(ref _extraGuidelinesCount, Math.Clamp(value, 1, 50));
+    }
+
+    private bool _lineSmoothEnabled = true;
+    public bool LineSmoothEnabled
+    {
+        get => _lineSmoothEnabled;
+        set => this.RaiseAndSetIfChanged(ref _lineSmoothEnabled, value);
+    }
+
+    private bool _directionMarkersVisible;
+    public bool DirectionMarkersVisible
+    {
+        get => _directionMarkersVisible;
+        set => this.RaiseAndSetIfChanged(ref _directionMarkersVisible, value);
+    }
+
+    private bool _sectionLinesVisible = true;
+    public bool SectionLinesVisible
+    {
+        get => _sectionLinesVisible;
+        set => this.RaiseAndSetIfChanged(ref _sectionLinesVisible, value);
+    }
 }

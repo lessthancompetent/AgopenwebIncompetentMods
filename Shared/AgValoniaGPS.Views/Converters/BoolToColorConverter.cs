@@ -25,6 +25,58 @@ public class BoolToColorConverter : IValueConverter
     }
 }
 
+/// <summary>
+/// Converts bool to toggle button background brush.
+/// True = green (#DD1E8449), False = gray (#DD34495E)
+/// </summary>
+public class BoolToToggleBackgroundConverter : IValueConverter
+{
+    public static readonly BoolToToggleBackgroundConverter Instance = new();
+
+    private static readonly IBrush ActiveBrush = new SolidColorBrush(Color.Parse("#DD1E8449"));
+    private static readonly IBrush InactiveBrush = new SolidColorBrush(Color.Parse("#DD34495E"));
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is bool isActive)
+        {
+            return isActive ? ActiveBrush : InactiveBrush;
+        }
+        return InactiveBrush;
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        return BindingOperations.DoNothing;
+    }
+}
+
+/// <summary>
+/// Converts bool to toggle button border brush.
+/// True = green border (#4A9A7E), False = gray border (#555)
+/// </summary>
+public class BoolToToggleBorderConverter : IValueConverter
+{
+    public static readonly BoolToToggleBorderConverter Instance = new();
+
+    private static readonly IBrush ActiveBrush = new SolidColorBrush(Color.Parse("#4A9A7E"));
+    private static readonly IBrush InactiveBrush = new SolidColorBrush(Color.Parse("#555555"));
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is bool isActive)
+        {
+            return isActive ? ActiveBrush : InactiveBrush;
+        }
+        return InactiveBrush;
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        return BindingOperations.DoNothing;
+    }
+}
+
 public class BoolToStatusConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)

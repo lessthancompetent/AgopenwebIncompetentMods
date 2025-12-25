@@ -656,6 +656,25 @@ public class ConfigurationViewModel : ReactiveObject
     public ICommand UploadPinConfigCommand { get; private set; } = null!;
     public ICommand SendAndSaveMachineConfigCommand { get; private set; } = null!;
 
+    // Display Options Tab Commands
+    public ICommand TogglePolygonsCommand { get; private set; } = null!;
+    public ICommand ToggleSpeedometerCommand { get; private set; } = null!;
+    public ICommand ToggleKeyboardCommand { get; private set; } = null!;
+    public ICommand ToggleHeadlandDistanceCommand { get; private set; } = null!;
+    public ICommand ToggleAutoDayNightCommand { get; private set; } = null!;
+    public ICommand ToggleSvennArrowCommand { get; private set; } = null!;
+    public ICommand ToggleStartFullscreenCommand { get; private set; } = null!;
+    public ICommand ToggleElevationLogCommand { get; private set; } = null!;
+    public ICommand ToggleFieldTextureCommand { get; private set; } = null!;
+    public ICommand ToggleGridCommand { get; private set; } = null!;
+    public ICommand ToggleExtraGuidelinesCommand { get; private set; } = null!;
+    public ICommand EditExtraGuidelinesCountCommand { get; private set; } = null!;
+    public ICommand ToggleLineSmoothCommand { get; private set; } = null!;
+    public ICommand ToggleDirectionMarkersCommand { get; private set; } = null!;
+    public ICommand ToggleSectionLinesCommand { get; private set; } = null!;
+    public ICommand SetMetricUnitsCommand { get; private set; } = null!;
+    public ICommand SetImperialUnitsCommand { get; private set; } = null!;
+
     #endregion
 
     #region Events
@@ -691,6 +710,7 @@ public class ConfigurationViewModel : ReactiveObject
         InitializeRollEditCommands();
         InitializeTramCommands();
         InitializeMachineCommands();
+        InitializeDisplayCommands();
 
         // Subscribe to config changes for HasUnsavedChanges notification
         Config.PropertyChanged += (_, e) =>
@@ -1169,6 +1189,110 @@ public class ConfigurationViewModel : ReactiveObject
             // TODO: Implement send to hardware
             // This would send the current config to the machine module via UDP
             // For now, just mark as saved
+            Config.MarkChanged();
+        });
+    }
+
+    private void InitializeDisplayCommands()
+    {
+        TogglePolygonsCommand = new RelayCommand(() =>
+        {
+            Display.PolygonsVisible = !Display.PolygonsVisible;
+            Config.MarkChanged();
+        });
+
+        ToggleSpeedometerCommand = new RelayCommand(() =>
+        {
+            Display.SpeedometerVisible = !Display.SpeedometerVisible;
+            Config.MarkChanged();
+        });
+
+        ToggleKeyboardCommand = new RelayCommand(() =>
+        {
+            Display.KeyboardEnabled = !Display.KeyboardEnabled;
+            Config.MarkChanged();
+        });
+
+        ToggleHeadlandDistanceCommand = new RelayCommand(() =>
+        {
+            Display.HeadlandDistanceVisible = !Display.HeadlandDistanceVisible;
+            Config.MarkChanged();
+        });
+
+        ToggleAutoDayNightCommand = new RelayCommand(() =>
+        {
+            Display.AutoDayNight = !Display.AutoDayNight;
+            Config.MarkChanged();
+        });
+
+        ToggleSvennArrowCommand = new RelayCommand(() =>
+        {
+            Display.SvennArrowVisible = !Display.SvennArrowVisible;
+            Config.MarkChanged();
+        });
+
+        ToggleStartFullscreenCommand = new RelayCommand(() =>
+        {
+            Display.StartFullscreen = !Display.StartFullscreen;
+            Config.MarkChanged();
+        });
+
+        ToggleElevationLogCommand = new RelayCommand(() =>
+        {
+            Display.ElevationLogEnabled = !Display.ElevationLogEnabled;
+            Config.MarkChanged();
+        });
+
+        ToggleFieldTextureCommand = new RelayCommand(() =>
+        {
+            Display.FieldTextureVisible = !Display.FieldTextureVisible;
+            Config.MarkChanged();
+        });
+
+        ToggleGridCommand = new RelayCommand(() =>
+        {
+            Display.GridVisible = !Display.GridVisible;
+            Config.MarkChanged();
+        });
+
+        ToggleExtraGuidelinesCommand = new RelayCommand(() =>
+        {
+            Display.ExtraGuidelines = !Display.ExtraGuidelines;
+            Config.MarkChanged();
+        });
+
+        EditExtraGuidelinesCountCommand = new RelayCommand(() =>
+            ShowNumericInput("Extra Guidelines Count", Display.ExtraGuidelinesCount,
+                v => Display.ExtraGuidelinesCount = (int)v,
+                "", integerOnly: true, allowNegative: false, min: 1, max: 50));
+
+        ToggleLineSmoothCommand = new RelayCommand(() =>
+        {
+            Display.LineSmoothEnabled = !Display.LineSmoothEnabled;
+            Config.MarkChanged();
+        });
+
+        ToggleDirectionMarkersCommand = new RelayCommand(() =>
+        {
+            Display.DirectionMarkersVisible = !Display.DirectionMarkersVisible;
+            Config.MarkChanged();
+        });
+
+        ToggleSectionLinesCommand = new RelayCommand(() =>
+        {
+            Display.SectionLinesVisible = !Display.SectionLinesVisible;
+            Config.MarkChanged();
+        });
+
+        SetMetricUnitsCommand = new RelayCommand(() =>
+        {
+            Config.IsMetric = true;
+            Config.MarkChanged();
+        });
+
+        SetImperialUnitsCommand = new RelayCommand(() =>
+        {
+            Config.IsMetric = false;
             Config.MarkChanged();
         });
     }
