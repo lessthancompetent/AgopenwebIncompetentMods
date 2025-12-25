@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
+             xmlns:conv="clr-namespace:AgValoniaGPS.Views.Converters;assembly=AgValoniaGPS.Views"
              mc:Ignorable="d" d:DesignWidth="620" d:DesignHeight="400"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.Configuration.TramConfigTab"
              x:DataType="vm:ConfigurationViewModel">
@@ -23,21 +24,25 @@
             <Setter Property="BorderBrush" Value="#4A9A7E"/>
         </Style>
 
-        <!-- Action Button -->
-        <Style Selector="Button.ActionButton">
-            <Setter Property="Background" Value="#DD2C3E50"/>
-            <Setter Property="BorderBrush" Value="#555"/>
+        <!-- Toggle Button with custom template for instant feedback -->
+        <Style Selector="Button.ToggleButton">
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="4"/>
             <Setter Property="Padding" Value="12,8"/>
             <Setter Property="Cursor" Value="Hand"/>
-        </Style>
-        <Style Selector="Button.ActionButton:pointerover">
-            <Setter Property="Background" Value="#DD3C4E60"/>
-        </Style>
-        <Style Selector="Button.ActionButton.Active">
-            <Setter Property="Background" Value="#DD1E8449"/>
-            <Setter Property="BorderBrush" Value="#4A9A7E"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
         </Style>
 
         <!-- Parameter Card -->
@@ -75,7 +80,9 @@
                         <!-- Display Toggle -->
                         <StackPanel Spacing="4" HorizontalAlignment="Center">
                             <TextBlock Text="Display" Foreground="#AAA" FontSize="12" HorizontalAlignment="Center"/>
-                            <Button Classes="ActionButton" Classes.Active="{Binding Guidance.TramDisplay}"
+                            <Button Classes="ToggleButton"
+                                    Background="{Binding Guidance.TramDisplay, Converter={x:Static conv:BoolToToggleBackgroundConverter.Instance}}"
+                                    BorderBrush="{Binding Guidance.TramDisplay, Converter={x:Static conv:BoolToToggleBorderConverter.Instance}}"
                                     Command="{Binding ToggleTramDisplayCommand}"
                                     Width="100" Height="80" HorizontalAlignment="Center">
                                 <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConT_TramOverrideDisplay.png"

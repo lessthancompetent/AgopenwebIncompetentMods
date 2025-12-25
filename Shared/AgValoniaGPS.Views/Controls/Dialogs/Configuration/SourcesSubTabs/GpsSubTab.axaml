@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
+             xmlns:conv="clr-namespace:AgValoniaGPS.Views.Converters;assembly=AgValoniaGPS.Views"
              mc:Ignorable="d" d:DesignWidth="620" d:DesignHeight="600"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.Configuration.SourcesSubTabs.GpsSubTab"
              x:DataType="vm:ConfigurationViewModel">
@@ -68,7 +69,28 @@
             <Setter Property="BorderBrush" Value="#333"/>
         </Style>
 
-        <!-- Action Button Style -->
+        <!-- Toggle Button with custom template for instant feedback -->
+        <Style Selector="Button.ToggleButton">
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+
+        <!-- Action Button Style (non-toggle) -->
         <Style Selector="Button.ActionButton">
             <Setter Property="Background" Value="#DD2C3E50"/>
             <Setter Property="BorderBrush" Value="#555"/>
@@ -79,10 +101,6 @@
         </Style>
         <Style Selector="Button.ActionButton:pointerover">
             <Setter Property="Background" Value="#DD3C4E60"/>
-        </Style>
-        <Style Selector="Button.ActionButton.Active">
-            <Setter Property="Background" Value="#DD1E8449"/>
-            <Setter Property="BorderBrush" Value="#4A9A7E"/>
         </Style>
         <Style Selector="Button.ActionButton:disabled">
             <Setter Property="Background" Value="#DD1A1A1A"/>
@@ -159,7 +177,9 @@
                         </Grid>
 
                         <!-- Auto Dual <> Fix -->
-                        <Button Classes="ActionButton" Classes.Active="{Binding Connections.AutoDualFix}"
+                        <Button Classes="ToggleButton"
+                                Background="{Binding Connections.AutoDualFix, Converter={x:Static conv:BoolToToggleBackgroundConverter.Instance}}"
+                                BorderBrush="{Binding Connections.AutoDualFix, Converter={x:Static conv:BoolToToggleBorderConverter.Instance}}"
                                 Command="{Binding ToggleAutoDualFixCommand}" IsEnabled="{Binding Connections.IsDualGps}"
                                 HorizontalAlignment="Stretch">
                             <TextBlock Text="Auto Dual &lt;&gt; Fix" Foreground="White" HorizontalAlignment="Center"/>
@@ -221,7 +241,9 @@
                         </StackPanel>
 
                         <!-- Reverse Detection -->
-                        <Button Classes="ActionButton" Classes.Active="{Binding Connections.ReverseDetection}"
+                        <Button Classes="ToggleButton"
+                                Background="{Binding Connections.ReverseDetection, Converter={x:Static conv:BoolToToggleBackgroundConverter.Instance}}"
+                                BorderBrush="{Binding Connections.ReverseDetection, Converter={x:Static conv:BoolToToggleBorderConverter.Instance}}"
                                 Command="{Binding ToggleReverseDetectionCommand}" IsEnabled="{Binding !Connections.IsDualGps}"
                                 HorizontalAlignment="Stretch">
                             <TextBlock Text="Reverse Detection" Foreground="White" HorizontalAlignment="Center"/>
@@ -233,7 +255,9 @@
             <!-- RTK SETTINGS (Always Active) -->
             <Grid ColumnDefinitions="*,12,*">
                 <!-- RTK Fix Alarm -->
-                <Button Grid.Column="0" Classes="ActionButton" Classes.Active="{Binding Connections.RtkLostAlarm}"
+                <Button Grid.Column="0" Classes="ToggleButton"
+                        Background="{Binding Connections.RtkLostAlarm, Converter={x:Static conv:BoolToToggleBackgroundConverter.Instance}}"
+                        BorderBrush="{Binding Connections.RtkLostAlarm, Converter={x:Static conv:BoolToToggleBorderConverter.Instance}}"
                         Command="{Binding ToggleRtkAlarmCommand}" HorizontalAlignment="Stretch" Height="70">
                     <StackPanel Spacing="4" HorizontalAlignment="Center">
                         <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/Con_SourcesRTKAlarm.png" Width="32" Height="32"/>
@@ -242,8 +266,9 @@
                 </Button>
 
                 <!-- Alarm Stops Autosteer -->
-                <Button Grid.Column="2" Classes="ActionButton"
-                        Classes.Active="{Binding Connections.RtkLostAction, Converter={StaticResource EqualityConverter}, ConverterParameter=1}"
+                <Button Grid.Column="2" Classes="ToggleButton"
+                        Background="{Binding Connections.RtkLostAction, Converter={x:Static conv:IntToToggleBackgroundConverter.Instance}, ConverterParameter=1}"
+                        BorderBrush="{Binding Connections.RtkLostAction, Converter={x:Static conv:IntToToggleBorderConverter.Instance}, ConverterParameter=1}"
                         Command="{Binding ToggleAlarmStopsAutosteerCommand}" HorizontalAlignment="Stretch" Height="70">
                     <StackPanel Spacing="4" HorizontalAlignment="Center">
                         <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/AutoSteerOff.png" Width="32" Height="32"/>

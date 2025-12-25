@@ -77,6 +77,64 @@ public class BoolToToggleBorderConverter : IValueConverter
     }
 }
 
+/// <summary>
+/// Converts int to toggle button background brush by comparing to parameter.
+/// Matching = green (#DD1E8449), Not matching = gray (#DD34495E)
+/// </summary>
+public class IntToToggleBackgroundConverter : IValueConverter
+{
+    public static readonly IntToToggleBackgroundConverter Instance = new();
+
+    private static readonly IBrush ActiveBrush = new SolidColorBrush(Color.Parse("#DD1E8449"));
+    private static readonly IBrush InactiveBrush = new SolidColorBrush(Color.Parse("#DD34495E"));
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is int intValue && parameter != null)
+        {
+            if (int.TryParse(parameter.ToString(), out int paramValue))
+            {
+                return intValue == paramValue ? ActiveBrush : InactiveBrush;
+            }
+        }
+        return InactiveBrush;
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        return BindingOperations.DoNothing;
+    }
+}
+
+/// <summary>
+/// Converts int to toggle button border brush by comparing to parameter.
+/// Matching = green border (#4A9A7E), Not matching = gray border (#555)
+/// </summary>
+public class IntToToggleBorderConverter : IValueConverter
+{
+    public static readonly IntToToggleBorderConverter Instance = new();
+
+    private static readonly IBrush ActiveBrush = new SolidColorBrush(Color.Parse("#4A9A7E"));
+    private static readonly IBrush InactiveBrush = new SolidColorBrush(Color.Parse("#555555"));
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is int intValue && parameter != null)
+        {
+            if (int.TryParse(parameter.ToString(), out int paramValue))
+            {
+                return intValue == paramValue ? ActiveBrush : InactiveBrush;
+            }
+        }
+        return InactiveBrush;
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        return BindingOperations.DoNothing;
+    }
+}
+
 public class BoolToStatusConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
