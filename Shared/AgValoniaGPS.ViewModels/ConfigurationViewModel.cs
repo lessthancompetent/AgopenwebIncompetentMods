@@ -271,6 +271,133 @@ public class ConfigurationViewModel : ReactiveObject
     public SimulatorConfig Simulator => Config.Simulator;
     public ConnectionConfig Connections => Config.Connections;
     public AhrsConfig Ahrs => Config.Ahrs;
+    public MachineConfig Machine => Config.Machine;
+
+    // Pin function options for dropdowns
+    public ObservableCollection<string> PinFunctionOptions { get; } = new()
+    {
+        "-", "Section 1", "Section 2", "Section 3", "Section 4",
+        "Section 5", "Section 6", "Section 7", "Section 8",
+        "Section 9", "Section 10", "Section 11", "Section 12",
+        "Section 13", "Section 14", "Section 15", "Section 16",
+        "Hyd Up", "Hyd Down", "Tram Left", "Tram Right", "Geo Stop"
+    };
+
+    // Individual pin function properties for binding
+    public string Pin1Function { get => GetPinFunctionName(0); set => SetPinFunctionByName(0, value); }
+    public string Pin2Function { get => GetPinFunctionName(1); set => SetPinFunctionByName(1, value); }
+    public string Pin3Function { get => GetPinFunctionName(2); set => SetPinFunctionByName(2, value); }
+    public string Pin4Function { get => GetPinFunctionName(3); set => SetPinFunctionByName(3, value); }
+    public string Pin5Function { get => GetPinFunctionName(4); set => SetPinFunctionByName(4, value); }
+    public string Pin6Function { get => GetPinFunctionName(5); set => SetPinFunctionByName(5, value); }
+    public string Pin7Function { get => GetPinFunctionName(6); set => SetPinFunctionByName(6, value); }
+    public string Pin8Function { get => GetPinFunctionName(7); set => SetPinFunctionByName(7, value); }
+    public string Pin9Function { get => GetPinFunctionName(8); set => SetPinFunctionByName(8, value); }
+    public string Pin10Function { get => GetPinFunctionName(9); set => SetPinFunctionByName(9, value); }
+    public string Pin11Function { get => GetPinFunctionName(10); set => SetPinFunctionByName(10, value); }
+    public string Pin12Function { get => GetPinFunctionName(11); set => SetPinFunctionByName(11, value); }
+    public string Pin13Function { get => GetPinFunctionName(12); set => SetPinFunctionByName(12, value); }
+    public string Pin14Function { get => GetPinFunctionName(13); set => SetPinFunctionByName(13, value); }
+    public string Pin15Function { get => GetPinFunctionName(14); set => SetPinFunctionByName(14, value); }
+    public string Pin16Function { get => GetPinFunctionName(15); set => SetPinFunctionByName(15, value); }
+    public string Pin17Function { get => GetPinFunctionName(16); set => SetPinFunctionByName(16, value); }
+    public string Pin18Function { get => GetPinFunctionName(17); set => SetPinFunctionByName(17, value); }
+    public string Pin19Function { get => GetPinFunctionName(18); set => SetPinFunctionByName(18, value); }
+    public string Pin20Function { get => GetPinFunctionName(19); set => SetPinFunctionByName(19, value); }
+    public string Pin21Function { get => GetPinFunctionName(20); set => SetPinFunctionByName(20, value); }
+    public string Pin22Function { get => GetPinFunctionName(21); set => SetPinFunctionByName(21, value); }
+    public string Pin23Function { get => GetPinFunctionName(22); set => SetPinFunctionByName(22, value); }
+    public string Pin24Function { get => GetPinFunctionName(23); set => SetPinFunctionByName(23, value); }
+
+    private string GetPinFunctionName(int pinIndex)
+    {
+        var func = Machine.GetPinAssignment(pinIndex);
+        return func switch
+        {
+            PinFunction.None => "-",
+            PinFunction.Section1 => "Section 1",
+            PinFunction.Section2 => "Section 2",
+            PinFunction.Section3 => "Section 3",
+            PinFunction.Section4 => "Section 4",
+            PinFunction.Section5 => "Section 5",
+            PinFunction.Section6 => "Section 6",
+            PinFunction.Section7 => "Section 7",
+            PinFunction.Section8 => "Section 8",
+            PinFunction.Section9 => "Section 9",
+            PinFunction.Section10 => "Section 10",
+            PinFunction.Section11 => "Section 11",
+            PinFunction.Section12 => "Section 12",
+            PinFunction.Section13 => "Section 13",
+            PinFunction.Section14 => "Section 14",
+            PinFunction.Section15 => "Section 15",
+            PinFunction.Section16 => "Section 16",
+            PinFunction.HydUp => "Hyd Up",
+            PinFunction.HydDown => "Hyd Down",
+            PinFunction.TramLeft => "Tram Left",
+            PinFunction.TramRight => "Tram Right",
+            PinFunction.GeoStop => "Geo Stop",
+            _ => "-"
+        };
+    }
+
+    private void SetPinFunctionByName(int pinIndex, string name)
+    {
+        var func = name switch
+        {
+            "Section 1" => PinFunction.Section1,
+            "Section 2" => PinFunction.Section2,
+            "Section 3" => PinFunction.Section3,
+            "Section 4" => PinFunction.Section4,
+            "Section 5" => PinFunction.Section5,
+            "Section 6" => PinFunction.Section6,
+            "Section 7" => PinFunction.Section7,
+            "Section 8" => PinFunction.Section8,
+            "Section 9" => PinFunction.Section9,
+            "Section 10" => PinFunction.Section10,
+            "Section 11" => PinFunction.Section11,
+            "Section 12" => PinFunction.Section12,
+            "Section 13" => PinFunction.Section13,
+            "Section 14" => PinFunction.Section14,
+            "Section 15" => PinFunction.Section15,
+            "Section 16" => PinFunction.Section16,
+            "Hyd Up" => PinFunction.HydUp,
+            "Hyd Down" => PinFunction.HydDown,
+            "Tram Left" => PinFunction.TramLeft,
+            "Tram Right" => PinFunction.TramRight,
+            "Geo Stop" => PinFunction.GeoStop,
+            _ => PinFunction.None
+        };
+        Machine.SetPinAssignment(pinIndex, func);
+        Config.MarkChanged();
+    }
+
+    private void RefreshAllPinProperties()
+    {
+        this.RaisePropertyChanged(nameof(Pin1Function));
+        this.RaisePropertyChanged(nameof(Pin2Function));
+        this.RaisePropertyChanged(nameof(Pin3Function));
+        this.RaisePropertyChanged(nameof(Pin4Function));
+        this.RaisePropertyChanged(nameof(Pin5Function));
+        this.RaisePropertyChanged(nameof(Pin6Function));
+        this.RaisePropertyChanged(nameof(Pin7Function));
+        this.RaisePropertyChanged(nameof(Pin8Function));
+        this.RaisePropertyChanged(nameof(Pin9Function));
+        this.RaisePropertyChanged(nameof(Pin10Function));
+        this.RaisePropertyChanged(nameof(Pin11Function));
+        this.RaisePropertyChanged(nameof(Pin12Function));
+        this.RaisePropertyChanged(nameof(Pin13Function));
+        this.RaisePropertyChanged(nameof(Pin14Function));
+        this.RaisePropertyChanged(nameof(Pin15Function));
+        this.RaisePropertyChanged(nameof(Pin16Function));
+        this.RaisePropertyChanged(nameof(Pin17Function));
+        this.RaisePropertyChanged(nameof(Pin18Function));
+        this.RaisePropertyChanged(nameof(Pin19Function));
+        this.RaisePropertyChanged(nameof(Pin20Function));
+        this.RaisePropertyChanged(nameof(Pin21Function));
+        this.RaisePropertyChanged(nameof(Pin22Function));
+        this.RaisePropertyChanged(nameof(Pin23Function));
+        this.RaisePropertyChanged(nameof(Pin24Function));
+    }
 
     /// <summary>
     /// Calculated total width from sections based on mode.
@@ -510,6 +637,20 @@ public class ConfigurationViewModel : ReactiveObject
     public ICommand ToggleRollInvertCommand { get; private set; } = null!;
     public ICommand SetRollZeroCommand { get; private set; } = null!;
 
+    // Machine Control Tab Commands
+    public ICommand ToggleHydraulicLiftCommand { get; private set; } = null!;
+    public ICommand EditRaiseTimeCommand { get; private set; } = null!;
+    public ICommand EditLookAheadCommand { get; private set; } = null!;
+    public ICommand EditLowerTimeCommand { get; private set; } = null!;
+    public ICommand ToggleInvertRelayCommand { get; private set; } = null!;
+    public ICommand EditUser1Command { get; private set; } = null!;
+    public ICommand EditUser2Command { get; private set; } = null!;
+    public ICommand EditUser3Command { get; private set; } = null!;
+    public ICommand EditUser4Command { get; private set; } = null!;
+    public ICommand ResetPinConfigCommand { get; private set; } = null!;
+    public ICommand UploadPinConfigCommand { get; private set; } = null!;
+    public ICommand SendAndSaveMachineConfigCommand { get; private set; } = null!;
+
     #endregion
 
     #region Events
@@ -543,6 +684,7 @@ public class ConfigurationViewModel : ReactiveObject
         InitializeUTurnEditCommands();
         InitializeGpsEditCommands();
         InitializeRollEditCommands();
+        InitializeMachineCommands();
 
         // Subscribe to config changes for HasUnsavedChanges notification
         Config.PropertyChanged += (_, e) =>
@@ -928,6 +1070,80 @@ public class ConfigurationViewModel : ReactiveObject
         SetRollZeroCommand = new RelayCommand(() =>
         {
             Ahrs.RollZero = 0;
+            Config.MarkChanged();
+        });
+    }
+
+    private void InitializeMachineCommands()
+    {
+        // Machine Module Commands
+        ToggleHydraulicLiftCommand = new RelayCommand(() =>
+        {
+            Machine.HydraulicLiftEnabled = !Machine.HydraulicLiftEnabled;
+            Config.MarkChanged();
+        });
+
+        EditRaiseTimeCommand = new RelayCommand(() =>
+            ShowNumericInput("Raise Time", Machine.RaiseTime,
+                v => Machine.RaiseTime = (int)v,
+                "sec", integerOnly: true, allowNegative: false, min: 0, max: 20));
+
+        EditLookAheadCommand = new RelayCommand(() =>
+            ShowNumericInput("Look Ahead", Machine.LookAhead,
+                v => Machine.LookAhead = v,
+                "sec", integerOnly: false, allowNegative: false, min: 0, max: 10));
+
+        EditLowerTimeCommand = new RelayCommand(() =>
+            ShowNumericInput("Lower Time", Machine.LowerTime,
+                v => Machine.LowerTime = (int)v,
+                "sec", integerOnly: true, allowNegative: false, min: 0, max: 20));
+
+        ToggleInvertRelayCommand = new RelayCommand(() =>
+        {
+            Machine.InvertRelay = !Machine.InvertRelay;
+            Config.MarkChanged();
+        });
+
+        // User Value Commands
+        EditUser1Command = new RelayCommand(() =>
+            ShowNumericInput("User 1", Machine.User1Value,
+                v => Machine.User1Value = (int)v,
+                "", integerOnly: true, allowNegative: false, min: 0, max: 255));
+
+        EditUser2Command = new RelayCommand(() =>
+            ShowNumericInput("User 2", Machine.User2Value,
+                v => Machine.User2Value = (int)v,
+                "", integerOnly: true, allowNegative: false, min: 0, max: 255));
+
+        EditUser3Command = new RelayCommand(() =>
+            ShowNumericInput("User 3", Machine.User3Value,
+                v => Machine.User3Value = (int)v,
+                "", integerOnly: true, allowNegative: false, min: 0, max: 255));
+
+        EditUser4Command = new RelayCommand(() =>
+            ShowNumericInput("User 4", Machine.User4Value,
+                v => Machine.User4Value = (int)v,
+                "", integerOnly: true, allowNegative: false, min: 0, max: 255));
+
+        // Pin Config Commands
+        ResetPinConfigCommand = new RelayCommand(() =>
+        {
+            Machine.ResetPinAssignments();
+            RefreshAllPinProperties();
+            Config.MarkChanged();
+        });
+
+        UploadPinConfigCommand = new RelayCommand(() =>
+        {
+            // TODO: Implement upload from hardware
+            // This would typically read the current pin config from the machine module
+        });
+
+        SendAndSaveMachineConfigCommand = new RelayCommand(() =>
+        {
+            // TODO: Implement send to hardware
+            // This would send the current config to the machine module via UDP
+            // For now, just mark as saved
             Config.MarkChanged();
         });
     }

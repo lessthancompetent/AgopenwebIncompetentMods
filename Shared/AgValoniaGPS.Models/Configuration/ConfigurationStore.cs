@@ -31,6 +31,7 @@ public class ConfigurationStore : ReactiveObject
     public SimulatorConfig Simulator { get; } = new();
     public ConnectionConfig Connections { get; } = new();
     public AhrsConfig Ahrs { get; } = new();
+    public MachineConfig Machine { get; } = new();
 
     // Profile management
     private string _activeProfileName = "Default";

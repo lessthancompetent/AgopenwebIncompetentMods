@@ -79,6 +79,15 @@
                         <config:UTurnConfigTab/>
                     </TabItem>
 
+                    <!-- Machine Control Tab -->
+                    <TabItem ToolTip.Tip="Machine Control">
+                        <TabItem.Header>
+                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/Con_ModulesMenu.png"
+                                   Width="40" Height="40" Stretch="Uniform"/>
+                        </TabItem.Header>
+                        <config:MachineControlConfigTab/>
+                    </TabItem>
+
                     <!-- Data Sources Tab -->
                     <TabItem ToolTip.Tip="Data Sources">
                         <TabItem.Header>
@@ -86,15 +95,6 @@
                                    Width="40" Height="40" Stretch="Uniform"/>
                         </TabItem.Header>
                         <config:SourcesConfigTab/>
-                    </TabItem>
-
-                    <!-- Hardware Tab -->
-                    <TabItem ToolTip.Tip="Hardware/Modules">
-                        <TabItem.Header>
-                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/Con_ModulesMenu.png"
-                                   Width="40" Height="40" Stretch="Uniform"/>
-                        </TabItem.Header>
-                        <config:HardwareConfigTab/>
                     </TabItem>
 
                     <!-- Display Tab -->
