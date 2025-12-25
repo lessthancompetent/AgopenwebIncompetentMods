@@ -38,6 +38,9 @@
             <TabItem Header="GPS">
                 <subtabs:GpsSubTab/>
             </TabItem>
+            <TabItem Header="NTRIP">
+                <subtabs:NtripSubTab/>
+            </TabItem>
             <TabItem Header="Roll">
                 <subtabs:RollSubTab/>
             </TabItem>

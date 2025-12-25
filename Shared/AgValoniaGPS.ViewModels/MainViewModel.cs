@@ -3843,7 +3843,7 @@ public class MainViewModel : ReactiveObject
         // Configuration Dialog Commands
         ShowConfigurationDialogCommand = new RelayCommand(() =>
         {
-            ConfigurationViewModel = new ConfigurationViewModel(_configurationService);
+            ConfigurationViewModel = new ConfigurationViewModel(_configurationService, _ntripService);
             ConfigurationViewModel.CloseRequested += (s, e) =>
             {
                 ConfigurationViewModel.IsDialogVisible = false;
