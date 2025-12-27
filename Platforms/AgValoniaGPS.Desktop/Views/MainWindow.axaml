@@ -46,7 +46,7 @@
             </StackPanel>
         </Border>
 
-        <!-- Draggable Navigation Panels (using Canvas for absolute positioning) -->
+        <!-- All Draggable Panels in single Canvas (must be in same Canvas for consistent drag bounds) -->
         <Canvas ZIndex="10">
             <!-- LEFT SIDEBAR: Main Navigation Panel (Draggable & Rotatable) -->
             <panels:LeftNavigationPanel x:Name="LeftNavPanel"
@@ -57,24 +57,19 @@
             <panels:RightNavigationPanel x:Name="RightNavPanel"
                                          Canvas.Right="20" Canvas.Top="100"
                                          DataContext="{Binding}"/>
-        </Canvas>
 
-        <!-- BOTTOM BAR: AB Line Guidance Panel (positioned from bottom) -->
-        <panels:BottomNavigationPanel x:Name="BottomNavPanel"
-                                      HorizontalAlignment="Left"
-                                      VerticalAlignment="Bottom"
-                                      Margin="20,0,0,20"
-                                      ZIndex="10"/>
-
-        <!-- Draggable Section Control (using Canvas for absolute positioning) -->
-        <Canvas>
+            <!-- Section Control Panel (Draggable) -->
             <panels:SectionControlPanel x:Name="SectionControlPanel"
-                                        ZIndex="10"
                                         Canvas.Left="900" Canvas.Top="600"
                                         Cursor="Hand"
                                         PointerPressed="SectionControl_PointerPressed"
                                         PointerMoved="SectionControl_PointerMoved"
                                         PointerReleased="SectionControl_PointerReleased"/>
+
+            <!-- Bottom Navigation Panel (Draggable & Rotatable) -->
+            <panels:BottomNavigationPanel x:Name="BottomNavPanel"
+                                          Canvas.Left="200" Canvas.Top="600"
+                                          DataContext="{Binding}"/>
         </Canvas>
     </Grid>
 

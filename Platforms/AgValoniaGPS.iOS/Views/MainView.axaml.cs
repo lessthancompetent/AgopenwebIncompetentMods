@@ -148,22 +148,4 @@ public partial class MainView : UserControl
     {
         DragBehavior.OnPointerReleased(e);
     }
-
-    // Bottom Navigation Panel drag handlers - use shared DragBehavior
-    private void BottomNavPanel_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (sender is Control control)
-            DragBehavior.OnPointerPressed(control, e);
-    }
-
-    private void BottomNavPanel_PointerMoved(object? sender, PointerEventArgs e)
-    {
-        if (sender is Control control)
-            DragBehavior.OnPointerMoved(control, this, e);
-    }
-
-    private void BottomNavPanel_PointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        DragBehavior.OnPointerReleased(e);
-    }
 }

@@ -2,32 +2,19 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Threading;
-using System;
+using Avalonia.Layout;
 
 namespace AgValoniaGPS.Views.Controls.Panels;
 
-public partial class BottomNavigationPanel : UserControl
+public partial class BottomNavigationPanel : DraggableRotatablePanel
 {
     private Border? _mainPanel;
     private Border? _abLineFlyoutPanel;
     private Border? _flagsFlyoutPanel;
     private Button? _abLineMenuButton;
     private Button? _flagMenuButton;
-    private Grid? _dragHandle;
-    private bool _isABLineFlyoutOpen = false;
-    private bool _isFlagsFlyoutOpen = false;
-
-    // Drag state
-    private bool _isDragging = false;
-    private Point _dragStartPoint;
-    private double _panelStartLeft;
-    private double _panelStartTop;
-    private DispatcherTimer? _holdTimer;
-    private bool _isHolding = false;
-
-    // Orientation (0 = horizontal, 1 = vertical)
-    private int _orientation = 0;
+    private bool _isABLineFlyoutOpen;
+    private bool _isFlagsFlyoutOpen;
 
     public BottomNavigationPanel()
     {
@@ -39,7 +26,9 @@ public partial class BottomNavigationPanel : UserControl
         _flagMenuButton = this.FindControl<Button>("FlagMenuButton");
         _abLineFlyoutPanel = this.FindControl<Border>("ABLineFlyoutPanel");
         _flagsFlyoutPanel = this.FindControl<Border>("FlagsFlyoutPanel");
-        _dragHandle = this.FindControl<Grid>("DragHandle");
+
+        // Initialize drag and rotate behavior from base class
+        InitializeDragRotate();
 
         // Wire up menu buttons to toggle flyouts
         if (_abLineMenuButton != null)
@@ -52,97 +41,21 @@ public partial class BottomNavigationPanel : UserControl
             _flagMenuButton.Click += FlagMenuButton_Click;
         }
 
-        // Wire up drag handle
-        if (_dragHandle != null)
-        {
-            _dragHandle.PointerPressed += DragHandle_PointerPressed;
-            _dragHandle.PointerMoved += DragHandle_PointerMoved;
-            _dragHandle.PointerReleased += DragHandle_PointerReleased;
-        }
-
-        // Setup hold timer for drag detection
-        _holdTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(300)
-        };
-        _holdTimer.Tick += HoldTimer_Tick;
-
         // Close flyouts when clicking outside
         this.PointerPressed += OnPanelPointerPressed;
     }
 
-    private void DragHandle_PointerPressed(object? sender, PointerPressedEventArgs e)
+    /// <summary>
+    /// Override to rotate the ButtonStack orientation.
+    /// </summary>
+    protected override void RotatePanel()
     {
-        if (_mainPanel == null) return;
-
-        _dragStartPoint = e.GetPosition(this.Parent as Visual);
-        _panelStartLeft = Canvas.GetLeft(_mainPanel);
-        _panelStartTop = Canvas.GetTop(_mainPanel);
-
-        if (double.IsNaN(_panelStartLeft)) _panelStartLeft = 0;
-        if (double.IsNaN(_panelStartTop)) _panelStartTop = 0;
-
-        _isHolding = false;
-        _holdTimer?.Start();
-
-        e.Handled = true;
-    }
-
-    private void HoldTimer_Tick(object? sender, EventArgs e)
-    {
-        _holdTimer?.Stop();
-        _isHolding = true;
-        _isDragging = true;
-    }
-
-    private void DragHandle_PointerMoved(object? sender, PointerEventArgs e)
-    {
-        if (!_isDragging || _mainPanel == null) return;
-
-        var currentPoint = e.GetPosition(this.Parent as Visual);
-        var deltaX = currentPoint.X - _dragStartPoint.X;
-        var deltaY = currentPoint.Y - _dragStartPoint.Y;
-
-        Canvas.SetLeft(_mainPanel, _panelStartLeft + deltaX);
-        Canvas.SetTop(_mainPanel, _panelStartTop + deltaY);
-
-        // Update flyout positions to follow
-        UpdateFlyoutPositions();
-
-        e.Handled = true;
-    }
-
-    private void DragHandle_PointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        _holdTimer?.Stop();
-
-        if (!_isHolding && !_isDragging)
+        var buttonStack = FindButtonStack();
+        if (buttonStack != null)
         {
-            // Quick tap - rotate orientation
-            RotatePanel();
-        }
-
-        _isDragging = false;
-        _isHolding = false;
-        e.Handled = true;
-    }
-
-    private void RotatePanel()
-    {
-        var buttonStack = this.FindControl<StackPanel>("ButtonStack");
-        if (buttonStack == null) return;
-
-        _orientation = (_orientation + 1) % 2;
-
-        if (_orientation == 0)
-        {
-            // Horizontal
-            buttonStack.Orientation = Avalonia.Layout.Orientation.Horizontal;
-        }
-        else
-        {
-            // Vertical
-            buttonStack.Orientation = Avalonia.Layout.Orientation.Vertical;
+            buttonStack.Orientation = buttonStack.Orientation == Orientation.Vertical
+                ? Orientation.Horizontal
+                : Orientation.Vertical;
         }
     }
 

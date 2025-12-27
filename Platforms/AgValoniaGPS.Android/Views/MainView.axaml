@@ -31,36 +31,31 @@
             <Grid Grid.Row="1">
                 <controls:DrawingContextMapControl x:Name="MapControl" Margin="5"
                                                    IsGridVisible="{Binding IsGridOn}"/>
-                <!-- Left Navigation Panel overlay (contains all sub-panels including SimulatorPanel) -->
-                <panels:LeftNavigationPanel x:Name="LeftNavPanel"
-                                            HorizontalAlignment="Stretch"
-                                            VerticalAlignment="Stretch"/>
 
-                <!-- RIGHT SIDEBAR: Guidance Control Panel -->
-                <panels:RightNavigationPanel x:Name="RightNavPanel"
-                                             HorizontalAlignment="Right"
-                                             VerticalAlignment="Top"
-                                             Margin="0,100,0,0"
-                                             DataContext="{Binding}"/>
+                <!-- All Draggable Panels in single Canvas (must be in same Canvas for consistent drag bounds) -->
+                <Canvas ZIndex="10">
+                    <!-- Left Navigation Panel (Draggable & Rotatable) -->
+                    <panels:LeftNavigationPanel x:Name="LeftNavPanel"
+                                                Canvas.Left="20" Canvas.Top="50"
+                                                DataContext="{Binding}"/>
 
-                <!-- Draggable Section Control -->
-                <Canvas>
+                    <!-- Right Navigation Panel (Draggable & Rotatable) -->
+                    <panels:RightNavigationPanel x:Name="RightNavPanel"
+                                                 Canvas.Left="600" Canvas.Top="50"
+                                                 DataContext="{Binding}"/>
+
+                    <!-- Section Control Panel (Draggable) -->
                     <panels:SectionControlPanel x:Name="SectionControlPanel"
                                                 Canvas.Left="200" Canvas.Top="500"
                                                 Cursor="Hand"
                                                 PointerPressed="SectionControl_PointerPressed"
                                                 PointerMoved="SectionControl_PointerMoved"
                                                 PointerReleased="SectionControl_PointerReleased"/>
-                </Canvas>
 
-                <!-- BOTTOM BAR: AB Line Guidance Panel (Draggable) -->
-                <Canvas>
+                    <!-- Bottom Navigation Panel (Draggable & Rotatable) -->
                     <panels:BottomNavigationPanel x:Name="BottomNavPanel"
                                                   Canvas.Left="200" Canvas.Top="420"
-                                                  DataContext="{Binding}"
-                                                  PointerPressed="BottomNavPanel_PointerPressed"
-                                                  PointerMoved="BottomNavPanel_PointerMoved"
-                                                  PointerReleased="BottomNavPanel_PointerReleased"/>
+                                                  DataContext="{Binding}"/>
                 </Canvas>
 
                 <!-- Zoom Controls - Bottom Right -->

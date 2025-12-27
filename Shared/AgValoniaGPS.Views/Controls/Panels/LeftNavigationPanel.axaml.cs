@@ -1,47 +1,17 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Layout;
-using Avalonia.Threading;
 
 namespace AgValoniaGPS.Views.Controls.Panels;
 
-public partial class LeftNavigationPanel : UserControl
+public partial class LeftNavigationPanel : DraggableRotatablePanel
 {
-    // Drag state
-    private bool _isDragging = false;
-    private Point _dragStartPoint;
-    private double _panelStartLeft;
-    private double _panelStartTop;
-    private DispatcherTimer? _holdTimer;
-    private bool _isHolding = false;
-
-    /// <summary>
-    /// Event raised when the user is dragging the panel.
-    /// Provides the new absolute position (Left, Top).
-    /// </summary>
-    public event EventHandler<Point>? DragMoved;
-
     public LeftNavigationPanel()
     {
         InitializeComponent();
 
-        // Wire up drag handle events
-        var dragHandle = this.FindControl<Grid>("DragHandle");
-        if (dragHandle != null)
-        {
-            dragHandle.PointerPressed += DragHandle_PointerPressed;
-            dragHandle.PointerMoved += DragHandle_PointerMoved;
-            dragHandle.PointerReleased += DragHandle_PointerReleased;
-        }
-
-        // Setup hold timer for drag detection
-        _holdTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(300)
-        };
-        _holdTimer.Tick += HoldTimer_Tick;
+        // Initialize drag and rotate behavior from base class
+        InitializeDragRotate();
 
         // Wire up sub-panel drag events
         WireUpSubPanelDrag<SimulatorPanel>("SimulatorPanelControl");
@@ -76,80 +46,6 @@ public partial class LeftNavigationPanel : UserControl
                     Canvas.SetTop(control, top + delta.Y);
                 }
             }));
-        }
-    }
-
-    private void DragHandle_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (sender is Grid handle)
-        {
-            // Get position relative to parent for smooth dragging
-            _dragStartPoint = e.GetPosition(this.Parent as Visual);
-
-            // Get current canvas position
-            _panelStartLeft = Canvas.GetLeft(this);
-            _panelStartTop = Canvas.GetTop(this);
-
-            if (double.IsNaN(_panelStartLeft)) _panelStartLeft = 20;
-            if (double.IsNaN(_panelStartTop)) _panelStartTop = 100;
-
-            _isHolding = false;
-            _holdTimer?.Start();
-
-            // Close any tooltips
-            ToolTip.SetIsOpen(handle, false);
-            e.Handled = true;
-        }
-    }
-
-    private void HoldTimer_Tick(object? sender, EventArgs e)
-    {
-        _holdTimer?.Stop();
-        _isHolding = true;
-        _isDragging = true;
-    }
-
-    private void DragHandle_PointerMoved(object? sender, PointerEventArgs e)
-    {
-        if (!_isDragging) return;
-
-        var currentPoint = e.GetPosition(this.Parent as Visual);
-        var deltaX = currentPoint.X - _dragStartPoint.X;
-        var deltaY = currentPoint.Y - _dragStartPoint.Y;
-
-        // Calculate new absolute position
-        var newLeft = _panelStartLeft + deltaX;
-        var newTop = _panelStartTop + deltaY;
-
-        // Fire event with new position
-        DragMoved?.Invoke(this, new Point(newLeft, newTop));
-
-        e.Handled = true;
-    }
-
-    private void DragHandle_PointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        _holdTimer?.Stop();
-
-        if (!_isHolding && !_isDragging)
-        {
-            // Quick tap - rotate the panel
-            RotatePanel();
-        }
-
-        _isDragging = false;
-        _isHolding = false;
-        e.Handled = true;
-    }
-
-    private void RotatePanel()
-    {
-        var buttonStack = this.FindControl<StackPanel>("ButtonStack");
-        if (buttonStack != null)
-        {
-            buttonStack.Orientation = buttonStack.Orientation == Orientation.Vertical
-                ? Orientation.Horizontal
-                : Orientation.Vertical;
         }
     }
 }

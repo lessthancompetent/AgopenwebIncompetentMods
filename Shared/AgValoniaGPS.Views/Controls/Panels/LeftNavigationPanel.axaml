@@ -50,7 +50,7 @@
     <!-- Background must be null (not set) to allow pointer events to pass through to controls behind -->
     <Canvas ClipToBounds="False" Background="{x:Null}">
         <!-- Navigation Button Bar -->
-        <Border Classes="FloatingPanel" Canvas.Left="12" Canvas.Top="100">
+        <Border Classes="FloatingPanel" Canvas.Left="0" Canvas.Top="0">
             <StackPanel x:Name="ButtonStack" Spacing="6" Orientation="Vertical">
                 <!-- Touch Handle: Tap to rotate, Hold to drag -->
                 <Grid x:Name="DragHandle" Height="40" Margin="0"
@@ -120,55 +120,55 @@
 
         <!-- View Settings Panel -->
         <controls:ViewSettingsPanel x:Name="ViewSettingsPanelControl"
-                                    Canvas.Left="102" Canvas.Top="100"
+                                    Canvas.Left="90" Canvas.Top="0"
                                     ZIndex="15"
                                     DataContext="{Binding}"/>
 
         <!-- File Menu Panel -->
         <controls:FileMenuPanel x:Name="FileMenuPanelControl"
-                                Canvas.Left="102" Canvas.Top="100"
+                                Canvas.Left="90" Canvas.Top="0"
                                 ZIndex="15"
                                 DataContext="{Binding}"/>
 
         <!-- Tools Panel -->
         <controls:ToolsPanel x:Name="ToolsPanelControl"
-                             Canvas.Left="102" Canvas.Top="100"
+                             Canvas.Left="90" Canvas.Top="0"
                              ZIndex="15"
                              DataContext="{Binding}"/>
 
         <!-- Configuration Panel -->
         <controls:ConfigurationPanel x:Name="ConfigurationPanelControl"
-                                     Canvas.Left="102" Canvas.Top="100"
+                                     Canvas.Left="90" Canvas.Top="0"
                                      ZIndex="15"
                                      DataContext="{Binding}"/>
 
         <!-- Job Menu Panel -->
         <controls:JobMenuPanel x:Name="JobMenuPanelControl"
-                               Canvas.Left="102" Canvas.Top="100"
+                               Canvas.Left="90" Canvas.Top="0"
                                ZIndex="15"
                                DataContext="{Binding}"/>
 
         <!-- Field Tools Panel -->
         <controls:FieldToolsPanel x:Name="FieldToolsPanelControl"
-                                  Canvas.Left="102" Canvas.Top="100"
+                                  Canvas.Left="90" Canvas.Top="0"
                                   ZIndex="15"
                                   DataContext="{Binding}"/>
 
         <!-- Simulator Panel -->
         <controls:SimulatorPanel x:Name="SimulatorPanelControl"
-                                 Canvas.Left="102" Canvas.Top="250"
+                                 Canvas.Left="90" Canvas.Top="150"
                                  ZIndex="15"
                                  DataContext="{Binding}"/>
 
         <!-- Boundary Recording Panel -->
         <controls:BoundaryRecordingPanel x:Name="BoundaryRecordingPanelControl"
-                                          Canvas.Left="212" Canvas.Top="150"
+                                          Canvas.Left="200" Canvas.Top="50"
                                           ZIndex="20"
                                           DataContext="{Binding}"/>
 
         <!-- Boundary Player Panel -->
         <controls:BoundaryPlayerPanel x:Name="BoundaryPlayerPanelControl"
-                                       Canvas.Left="112" Canvas.Top="100"
+                                       Canvas.Left="100" Canvas.Top="0"
                                        ZIndex="25"
                                        DataContext="{Binding}"/>
     </Canvas>
