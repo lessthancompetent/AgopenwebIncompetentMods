@@ -814,14 +814,18 @@ public class MainViewModel : ReactiveObject
         };
 
         // Directly update GPS service (bypasses NMEA parsing like WinForms version does)
+        // This applies antenna-to-pivot transformation to gpsData.CurrentPosition
         _gpsService.UpdateGpsData(gpsData);
+
+        // Use the TRANSFORMED position (pivot/tractor center) for all guidance calculations
+        var transformedPosition = gpsData.CurrentPosition;
 
         // Process through AutoSteer pipeline for latency measurement
         _autoSteerService.ProcessSimulatedPosition(
-            position.Latitude, position.Longitude, position.Altitude,
-            position.Heading, position.Speed, gpsData.FixQuality,
+            transformedPosition.Latitude, transformedPosition.Longitude, transformedPosition.Altitude,
+            transformedPosition.Heading, transformedPosition.Speed, gpsData.FixQuality,
             gpsData.SatellitesInUse, gpsData.Hdop,
-            position.Easting, position.Northing);
+            transformedPosition.Easting, transformedPosition.Northing);
 
         // Calculate autosteer guidance if engaged and we have an active track
         if (IsAutoSteerEngaged && HasActiveTrack && SelectedTrack != null)
@@ -832,17 +836,17 @@ public class MainViewModel : ReactiveObject
             // Check for YouTurn execution or create path if approaching headland
             if (IsYouTurnEnabled && _currentHeadlandLine != null && _currentHeadlandLine.Count >= 3)
             {
-                ProcessYouTurn(position);
+                ProcessYouTurn(transformedPosition);
             }
 
             // If we're in a YouTurn, use YouTurn guidance; otherwise use AB line guidance
             if (_isYouTurnTriggered && _youTurnPath != null && _youTurnPath.Count > 0)
             {
-                CalculateYouTurnGuidance(position);
+                CalculateYouTurnGuidance(transformedPosition);
             }
             else
             {
-                CalculateAutoSteerGuidance(position);
+                CalculateAutoSteerGuidance(transformedPosition);
             }
         }
     }

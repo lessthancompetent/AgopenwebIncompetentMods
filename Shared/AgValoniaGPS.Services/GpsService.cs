@@ -57,8 +57,20 @@ public class GpsService : IGpsService
     }
 
     /// <summary>
-    /// Transform GPS antenna position to vehicle pivot point using configured offsets.
-    /// The GPS antenna is typically mounted above and behind the pivot point.
+    /// Transform GPS antenna position to tractor center (pivot point).
+    ///
+    /// The GPS reports the antenna's true world coordinates. We calculate the tractor
+    /// center position so that guidance steers the tractor/implement over the correct
+    /// real-world coordinates.
+    ///
+    /// Example: Antenna is 1m LEFT of tractor center, heading North, antenna at x=-1.
+    ///   - AntennaOffset = -1.0 (negative = LEFT of center)
+    ///   - Tractor center = antenna_x - perpRight * (-1) = -1 + 1 = 0
+    ///   - Result: Tractor center calculated at x=0 (prime meridian) ✓
+    ///
+    /// Sign conventions:
+    ///   AntennaPivot: Positive = antenna is AHEAD of pivot (typical roof mount)
+    ///   AntennaOffset: Negative = antenna is LEFT of center, Positive = RIGHT
     /// </summary>
     private void TransformAntennaToPivot(GpsData gpsData)
     {
@@ -71,16 +83,25 @@ public class GpsService : IGpsService
         // Convert heading to radians
         double headingRadians = gpsData.CurrentPosition.Heading * Math.PI / 180.0;
 
-        // Transform antenna position to pivot position
-        // Pivot is behind antenna by AntennaPivot distance (positive = antenna ahead of pivot)
-        double pivotEasting = gpsData.CurrentPosition.Easting - Math.Sin(headingRadians) * vehicle.AntennaPivot;
-        double pivotNorthing = gpsData.CurrentPosition.Northing - Math.Cos(headingRadians) * vehicle.AntennaPivot;
+        // Start with antenna position
+        double pivotEasting = gpsData.CurrentPosition.Easting;
+        double pivotNorthing = gpsData.CurrentPosition.Northing;
 
-        // Apply lateral offset if antenna is not on centerline
-        // Positive AntennaOffset = antenna is to the right of centerline
+        // Apply fore/aft offset (AntennaPivot):
+        // Positive value = antenna is ahead of pivot (typical roof mount)
+        // To find pivot: move BACKWARD from antenna position
+        if (Math.Abs(vehicle.AntennaPivot) > 0.001)
+        {
+            pivotEasting -= Math.Sin(headingRadians) * vehicle.AntennaPivot;
+            pivotNorthing -= Math.Cos(headingRadians) * vehicle.AntennaPivot;
+        }
+
+        // Apply lateral offset (AntennaOffset):
+        // Positive value = antenna is RIGHT of centerline
+        // To find centerline: move LEFT from antenna position
         if (Math.Abs(vehicle.AntennaOffset) > 0.001)
         {
-            double perpHeading = headingRadians + Math.PI / 2.0;
+            double perpHeading = headingRadians + Math.PI / 2.0; // Points right
             pivotEasting -= Math.Sin(perpHeading) * vehicle.AntennaOffset;
             pivotNorthing -= Math.Cos(perpHeading) * vehicle.AntennaOffset;
         }
