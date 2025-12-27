@@ -47,6 +47,7 @@ public class MainViewModel : ReactiveObject
     private readonly IConfigurationService _configurationService;
     private readonly IAutoSteerService _autoSteerService;
     private readonly IModuleCommunicationService _moduleCommunicationService;
+    private readonly IToolPositionService _toolPositionService;
     private readonly ApplicationState _appState;
     private readonly DispatcherTimer _simulatorTimer;
     private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
@@ -152,6 +153,7 @@ public class MainViewModel : ReactiveObject
         IConfigurationService configurationService,
         IAutoSteerService autoSteerService,
         IModuleCommunicationService moduleCommunicationService,
+        IToolPositionService toolPositionService,
         ApplicationState appState)
     {
         _udpService = udpService;
@@ -176,6 +178,7 @@ public class MainViewModel : ReactiveObject
         _configurationService = configurationService;
         _autoSteerService = autoSteerService;
         _moduleCommunicationService = moduleCommunicationService;
+        _toolPositionService = toolPositionService;
         _appState = appState;
         _nmeaParser = new NmeaParserService(gpsService);
         _fieldPlaneFileService = new FieldPlaneFileService();
@@ -819,6 +822,15 @@ public class MainViewModel : ReactiveObject
 
         // Use the TRANSFORMED position (pivot/tractor center) for all guidance calculations
         var transformedPosition = gpsData.CurrentPosition;
+
+        // Update tool position based on vehicle pivot position
+        // Tool position service handles fixed, trailing, and TBT configurations
+        var vehiclePivot = new Models.Base.Vec3(
+            transformedPosition.Easting,
+            transformedPosition.Northing,
+            transformedPosition.Heading * Math.PI / 180.0  // Convert to radians
+        );
+        _toolPositionService.Update(vehiclePivot, transformedPosition.Heading * Math.PI / 180.0);
 
         // Process through AutoSteer pipeline for latency measurement
         _autoSteerService.ProcessSimulatedPosition(

@@ -32,6 +32,7 @@ public class ConfigurationStore : ReactiveObject
     public ConnectionConfig Connections { get; } = new();
     public AhrsConfig Ahrs { get; } = new();
     public MachineConfig Machine { get; } = new();
+    public TramConfig Tram { get; } = new();
 
     // Profile management
     private string _activeProfileName = "Default";

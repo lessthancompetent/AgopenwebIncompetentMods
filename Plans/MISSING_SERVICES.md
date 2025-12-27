@@ -49,9 +49,16 @@ This document tracks services and features from the original AgOpenGPS that were
 
 ---
 
-## 2. ToolPositionService (Config Settings Support)
+## 2. ToolPositionService (Config Settings Support) ✅ COMPLETE
 
-**Status:** 📋 Detailed plan created - see `Plans/SERVICE_PLAN_ToolPositionService.md`
+**Status:** Implemented in `Services/Tool/ToolPositionService.cs` (December 2024)
+
+**Implementation:**
+- Interface: `IToolPositionService` in `Services/Interfaces/`
+- Service: `ToolPositionService` in `Services/Tool/`
+- Supports Fixed (front/rear), Trailing (Torriem algorithm), and TBT configurations
+- Integrated with MainViewModel GPS update loop
+- DI registered in Desktop and iOS platforms
 
 **Purpose:** Calculate tool/implement position relative to vehicle pivot point based on hitch configuration.
 
@@ -59,9 +66,19 @@ This document tracks services and features from the original AgOpenGPS that were
 
 ---
 
-## 3. SectionControlService (Config Settings Support)
+## 3. SectionControlService (Config Settings Support) ✅ COMPLETE
 
-**Status:** 📋 Detailed plan created - see `Plans/SERVICE_PLAN_SectionControlService.md`
+**Status:** Implemented in `Services/Section/SectionControlService.cs` (December 2024)
+
+**Implementation:**
+- Interface: `ISectionControlService` in `Services/Interfaces/`
+- Service: `SectionControlService` in `Services/Section/`
+- State model: `SectionControlState`, `SectionMasterState`, `SectionButtonState` enums in interface
+- Look-ahead logic for predictive section on/off
+- Boundary/headland checking via ApplicationState
+- Manual override support (Off/Auto/On per section)
+- Coverage integration via ICoverageMapService
+- DI registered in Desktop and iOS platforms
 
 **Purpose:** Manage automatic section on/off based on coverage, boundaries, and headlands.
 
@@ -69,9 +86,18 @@ This document tracks services and features from the original AgOpenGPS that were
 
 ---
 
-## 4. CoverageMapService (Config Settings Support)
+## 4. CoverageMapService (Config Settings Support) ✅ COMPLETE
 
-**Status:** 📋 Detailed plan created - see `Plans/SERVICE_PLAN_CoverageMapService.md`
+**Status:** Implemented in `Services/Coverage/CoverageMapService.cs` (December 2024)
+
+**Implementation:**
+- Interface: `ICoverageMapService` in `Services/Interfaces/`
+- Service: `CoverageMapService` in `Services/Coverage/`
+- Model: `CoveragePatch` in `Models/Coverage/`
+- Triangle strip storage for efficient rendering
+- File I/O for Sections.txt format
+- Area calculation using WorkedAreaService
+- DI registered in Desktop and iOS platforms
 
 **Purpose:** Track and render coverage (where tool has been active).
 
@@ -96,9 +122,20 @@ This document tracks services and features from the original AgOpenGPS that were
 
 ---
 
-## 6. TramLineService (Config Settings Support)
+## 6. TramLineService (Config Settings Support) ✅ COMPLETE
 
-**Status:** 📋 Detailed plan created - see `Plans/SERVICE_PLAN_TramLineService.md`
+**Status:** Implemented in `Services/Tram/TramLineService.cs` (December 2024)
+
+**Implementation:**
+- Interface: `ITramLineService` in `Services/Interfaces/`
+- Offset service: `ITramLineOffsetService` / `TramLineOffsetService` in `Services/`
+- Main service: `TramLineService` in `Services/Tram/`
+- Config: `TramConfig` added to `ConfigurationStore`
+- Boundary tram track generation (inner/outer wheel paths)
+- Parallel tram line generation from guidance tracks
+- On-tram-line query for section control integration
+- File I/O (TramLines.txt)
+- DI registered in Desktop and iOS platforms
 
 **Purpose:** Generate and display tram lines for controlled traffic farming.
 
