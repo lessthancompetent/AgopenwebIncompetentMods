@@ -67,9 +67,21 @@ namespace AgValoniaGPS.Services.YouTurn
             isOutOfBounds = false;
             isOutSameCurve = false;
 
-            // Calculate turn offset
-            double turnOffset = (input.ToolWidth - input.ToolOverlap) * input.RowSkipsWidth
-                + (input.IsTurnLeft ? -input.ToolOffset * 2.0 : input.ToolOffset * 2.0);
+            // Use pre-calculated TurnOffset if provided, otherwise calculate from RowSkipsWidth
+            double turnOffset;
+            if (input.TurnOffset > 0)
+            {
+                // Use the pre-calculated offset (matches cyan next-track line exactly)
+                turnOffset = input.TurnOffset + (input.IsTurnLeft ? -input.ToolOffset * 2.0 : input.ToolOffset * 2.0);
+                Console.WriteLine($"[YouTurn] Using pre-calculated TurnOffset: {input.TurnOffset:F2}m -> turnOffset={turnOffset:F2}m");
+            }
+            else
+            {
+                // Fallback: calculate from RowSkipsWidth (skip=0 means 1 width, skip=1 means 2 widths, etc.)
+                turnOffset = (input.ToolWidth - input.ToolOverlap) * (input.RowSkipsWidth + 1)
+                    + (input.IsTurnLeft ? -input.ToolOffset * 2.0 : input.ToolOffset * 2.0);
+                Console.WriteLine($"[YouTurn] Fallback: TurnOffset was {input.TurnOffset:F2}m, calculated turnOffset={turnOffset:F2}m from RowSkipsWidth={input.RowSkipsWidth}");
+            }
             pointSpacing = input.TurnRadius * 0.1;
 
             bool success = false;
@@ -871,15 +883,9 @@ namespace AgValoniaGPS.Services.YouTurn
         {
             if (input.TurnType == YouTurnType.AlbinStyle)
             {
-                // Omega (narrow) or Wide turn based on offset
-                if (turnOffset > (input.TurnRadius * 2.0))
-                {
-                    return CreateABWideTurn(input, turnOffset);
-                }
-                else
-                {
-                    return CreateABOmegaTurn(input, turnOffset);
-                }
+                // Always use OmegaTurn - it uses Dubins paths which handle any turnOffset
+                // The wide turn multi-phase approach doesn't work with single-call pattern
+                return CreateABOmegaTurn(input, turnOffset);
             }
             else // KStyle
             {
@@ -1072,12 +1078,17 @@ namespace AgValoniaGPS.Services.YouTurn
 
                 case 1:
                     // Build the next line to add sequencelines
+                    // Use the pre-calculated turnOffset instead of recalculating from RowSkipsWidth
                     double widthMinusOverlap = input.ToolWidth - input.ToolOverlap;
 
-                    double distAway = widthMinusOverlap * (input.HowManyPathsAway + ((input.IsTurnLeft ^ input.IsHeadingSameWay) ? input.RowSkipsWidth : -input.RowSkipsWidth))
+                    // distAway = offset from reference line to next track center
+                    // turnOffset is the perpendicular distance we need to move
+                    double distAway = widthMinusOverlap * input.HowManyPathsAway
+                        + ((input.IsTurnLeft ^ input.IsHeadingSameWay) ? -turnOffset : turnOffset)
                         + (input.IsHeadingSameWay ? input.ToolOffset : -input.ToolOffset) + input.NudgeDistance;
 
                     distAway += (0.5 * widthMinusOverlap);
+                    Console.WriteLine($"[YouTurn] WideTurn case 1: turnOffset={turnOffset:F2}m, distAway={distAway:F2}m");
 
                     nextCurve = BuildNewOffsetCurveList(input, distAway);
 
@@ -1355,8 +1366,8 @@ namespace AgValoniaGPS.Services.YouTurn
                 return false;
             }
 
-            // Grab the vehicle widths and offsets
-            double turnOffsetCalc = (input.ToolWidth - input.ToolOverlap) * input.RowSkipsWidth + (input.IsTurnLeft ? input.ToolOffset : -input.ToolOffset);
+            // Grab the vehicle widths and offsets: skip=0 means 1 width, skip=1 means 2 widths, etc.
+            double turnOffsetCalc = (input.ToolWidth - input.ToolOverlap) * (input.RowSkipsWidth + 1) + (input.IsTurnLeft ? input.ToolOffset : -input.ToolOffset);
 
             // Add the tail to first turn
             int count = ytList.Count;
@@ -1764,7 +1775,8 @@ namespace AgValoniaGPS.Services.YouTurn
             Vec3 entryStart = ytList[0];
 
             // Calculate the turn offset (perpendicular distance to next track)
-            double turnOffset = (input.ToolWidth - input.ToolOverlap) * input.RowSkipsWidth
+            // skip=0 means 1 width (adjacent), skip=1 means 2 widths, etc.
+            double turnOffset = (input.ToolWidth - input.ToolOverlap) * (input.RowSkipsWidth + 1)
                 + (input.IsTurnLeft ? -input.ToolOffset * 2.0 : input.ToolOffset * 2.0);
 
             // Calculate perpendicular angle based on TRAVEL heading and turn direction

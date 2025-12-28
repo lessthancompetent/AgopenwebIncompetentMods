@@ -254,9 +254,9 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         _abLineExtendPen = new Pen(new SolidColorBrush(Color.FromArgb(128, 255, 165, 0)), 1.5); // Semi-transparent extended line
         _pointABrush = new SolidColorBrush(Color.FromRgb(0, 255, 0)); // Green Point A
         _pointBBrush = new SolidColorBrush(Color.FromRgb(255, 0, 0)); // Red Point B
-        _toolBrush = new SolidColorBrush(Color.FromArgb(150, 255, 100, 50)); // Semi-transparent orange/red tool body
-        _toolPen = new Pen(new SolidColorBrush(Color.FromRgb(255, 150, 0)), 1.0); // Orange outline
-        _hitchPen = new Pen(new SolidColorBrush(Color.FromRgb(255, 255, 0)), 1.0); // Bright yellow hitch line
+        _toolBrush = new SolidColorBrush(Color.FromArgb(180, 200, 80, 40)); // Semi-transparent brownish-red tool body
+        _toolPen = new Pen(new SolidColorBrush(Color.FromRgb(255, 150, 0)), 0.1); // Thin orange outline
+        _hitchPen = new Pen(new SolidColorBrush(Color.FromRgb(255, 255, 0)), 0.15); // Yellow hitch line
 
         // Load vehicle (tractor) image from embedded resources
         LoadVehicleImage();
@@ -592,8 +592,10 @@ public class DrawingContextMapControl : Control, ISharedMapControl
         double halfWidth = _toolWidth / 2.0;
         double toolDepth = 2.0; // Tool depth in meters (front to back)
 
-        // Draw hitch line from vehicle hitch point to tool center
-        context.DrawLine(_hitchPen, new Point(_hitchX, _hitchY), new Point(_toolX, _toolY));
+        // Draw hitch line from vehicle to tool center
+        // Use vehicle position as start (not hitch point) because for fixed tools,
+        // hitch point equals tool point which gives a zero-length line
+        context.DrawLine(_hitchPen, new Point(_vehicleX, _vehicleY), new Point(_toolX, _toolY));
 
         // Draw tool rectangle centered at tool position, rotated to tool heading
         using (context.PushTransform(Matrix.CreateTranslation(_toolX, _toolY)))

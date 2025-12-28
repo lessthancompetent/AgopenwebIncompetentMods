@@ -352,7 +352,8 @@ public partial class MainWindow : Window
                 // NOTE: Boundary point recording is now handled by MainViewModel
             }
         }
-        else if (e.PropertyName == nameof(MainViewModel.ToolEasting))
+        else if (e.PropertyName == nameof(MainViewModel.ToolEasting) ||
+                 e.PropertyName == nameof(MainViewModel.ToolNorthing))
         {
             // Tool position updated - update map control
             if (ViewModel != null && MapControl != null)

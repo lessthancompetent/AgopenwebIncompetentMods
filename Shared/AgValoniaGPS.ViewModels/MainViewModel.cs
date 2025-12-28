@@ -84,6 +84,12 @@ public class MainViewModel : ReactiveObject
     private bool _lastTurnWasLeft; // Track last turn direction to alternate
     private bool _hasCompletedFirstTurn; // Track if we've done at least one turn
     private Track? _nextTrack; // The next track to switch to after U-turn completes
+
+    /// <summary>
+    /// Pre-calculated perpendicular offset to next track (always positive, in meters).
+    /// This is the authoritative value for U-turn arc width - use this instead of recalculating.
+    /// </summary>
+    public double NextTrackTurnOffset { get; private set; }
     private int _howManyPathsAway; // Which parallel offset line we're on (like AgOpenGPS)
     private Vec2? _lastTurnCompletionPosition; // Position where last U-turn completed - used to prevent immediate re-triggering
 
@@ -312,7 +318,7 @@ public class MainViewModel : ReactiveObject
             {
                 var store = _configurationService.Store;
                 Console.WriteLine($"Loaded vehicle profile: {store.ActiveProfileName}");
-                Console.WriteLine($"  Tool width: {store.Tool.Width}m");
+                Console.WriteLine($"  Tool width: {store.ActualToolWidth}m (from {store.NumSections} sections)");
                 Console.WriteLine($"  YouTurn radius: {store.Guidance.UTurnRadius}m");
                 Console.WriteLine($"  Wheelbase: {store.Vehicle.Wheelbase}m");
                 Console.WriteLine($"  Sections: {store.NumSections}");
@@ -978,7 +984,7 @@ public class MainViewModel : ReactiveObject
 
         // Calculate the perpendicular offset distance based on howManyPathsAway
         // This is the key insight from AgOpenGPS - the guidance line is dynamically calculated
-        double widthMinusOverlap = Tool.Width - Tool.Overlap; // Implement width minus overlap
+        double widthMinusOverlap = ConfigStore.ActualToolWidth - Tool.Overlap; // Implement width minus overlap
         double distAway = widthMinusOverlap * _howManyPathsAway;
 
         // Calculate the perpendicular direction (90 degrees from AB heading)
@@ -1162,6 +1168,12 @@ public class MainViewModel : ReactiveObject
             if (WouldNextLineBeInsideBoundary(track, abHeading))
             {
                 Console.WriteLine($"[YouTurn] Creating turn path - dist ahead: {_distanceToHeadland:F1}m");
+                // Determine turn direction BEFORE computing next track
+                // Same direction = turn left, opposite = turn right (for zig-zag pattern)
+                _isTurnLeft = _isHeadingSameWay;
+                _wasHeadingSameWayAtTurnStart = _isHeadingSameWay;
+                // Compute the next track offset BEFORE creating the path (so NextTrackTurnOffset is set)
+                ComputeNextTrack(track, abHeading);
                 CreateYouTurnPath(currentPosition, headingRadians, abHeading);
             }
             else
@@ -1189,9 +1201,7 @@ public class MainViewModel : ReactiveObject
                 _isInYouTurn = true;
                 StatusMessage = "YouTurn triggered!";
                 Console.WriteLine($"[YouTurn] Triggered at distance {distToTurnStart:F2}m from turn start");
-
-                // Compute the next track (offset by row skip width)
-                ComputeNextTrack(track, abHeading);
+                // Note: ComputeNextTrack was already called when the path was created
             }
         }
 
@@ -1234,8 +1244,12 @@ public class MainViewModel : ReactiveObject
         var pointB = currentTrack.Points[currentTrack.Points.Count - 1];
 
         // Calculate where the next line would be (use config skip width)
+        // skipWidth=0 means adjacent passes, skipWidth=1 means skip 1 row, etc.
         int rowSkipWidth = Guidance.UTurnSkipWidth;
-        double offsetDistance = rowSkipWidth * (Tool.Width - Tool.Overlap);
+        double actualWidth = ConfigStore.ActualToolWidth;
+        double overlap = Tool.Overlap;
+        double offsetDistance = (rowSkipWidth + 1) * (actualWidth - overlap);
+        Console.WriteLine($"[NextTrack] ActualToolWidth={actualWidth:F2}m, Overlap={overlap:F2}m, SkipWidth={rowSkipWidth}, OffsetDistance={offsetDistance:F2}m");
 
         // Perpendicular offset direction
         double perpAngle = abHeading + (_isHeadingSameWay ? -Math.PI / 2 : Math.PI / 2);
@@ -1287,23 +1301,26 @@ public class MainViewModel : ReactiveObject
         var refPointA = referenceTrack.Points[0];
         var refPointB = referenceTrack.Points[referenceTrack.Points.Count - 1];
 
-        // Following AgOpenGPS approach exactly:
-        // howManyPathsAway += (isTurnLeft ^ isHeadingSameWay) ? rowSkipsWidth : -rowSkipsWidth
+        // Determine offset direction based on turn direction and heading
         // XOR truth table:
-        //   turnLeft=true,  sameWay=true  -> true  -> positive offset (left of AB when facing A->B)
-        //   turnLeft=true,  sameWay=false -> false -> negative offset
-        //   turnLeft=false, sameWay=true  -> false -> negative offset
-        //   turnLeft=false, sameWay=false -> true  -> positive offset
-        int rowSkipWidth = UTurnSkipRows;  // Use runtime property from bottom nav button
+        //   turnLeft=true,  sameWay=true  -> false -> negative offset
+        //   turnLeft=true,  sameWay=false -> true  -> positive offset
+        //   turnLeft=false, sameWay=true  -> true  -> positive offset
+        //   turnLeft=false, sameWay=false -> false -> negative offset
+        int rowSkipWidth = UTurnSkipRows;  // Use runtime property from bottom nav button (0 = adjacent, 1 = skip 1, etc.)
+        int pathsToMove = rowSkipWidth + 1;  // skip=0 moves 1 path, skip=1 moves 2 paths, etc.
 
-        // Calculate offset direction using XOR like AgOpenGPS
+        // Calculate offset direction using XOR
         bool positiveOffset = _isTurnLeft ^ _isHeadingSameWay;
-        int offsetChange = positiveOffset ? rowSkipWidth : -rowSkipWidth;
+        int offsetChange = positiveOffset ? pathsToMove : -pathsToMove;
         int nextPathsAway = _howManyPathsAway + offsetChange;
 
         // Calculate the total offset for the next line
-        double widthMinusOverlap = Tool.Width - Tool.Overlap;
+        double widthMinusOverlap = ConfigStore.ActualToolWidth - Tool.Overlap;
         double nextDistAway = widthMinusOverlap * nextPathsAway;
+
+        // Save the perpendicular turn offset (always positive - direction handled by IsTurnLeft)
+        NextTrackTurnOffset = Math.Abs(pathsToMove * widthMinusOverlap);
 
         // Calculate the perpendicular direction (90 degrees from AB heading)
         // Positive offset is to the LEFT of the AB line (when looking from A to B)
@@ -1339,19 +1356,20 @@ public class MainViewModel : ReactiveObject
         }
 
         // Following AgOpenGPS approach exactly:
-        // howManyPathsAway += (isTurnLeft ^ isHeadingSameWay) ? rowSkipsWidth : -rowSkipsWidth
-        int rowSkipWidth = UTurnSkipRows;  // Use runtime property from bottom nav button
+        // Determine offset direction using XOR
+        int rowSkipWidth = UTurnSkipRows;  // Use runtime property from bottom nav button (0 = adjacent, 1 = skip 1, etc.)
+        int pathsToMove = rowSkipWidth + 1;  // skip=0 moves 1 path, skip=1 moves 2 paths, etc.
 
-        // Calculate offset direction using XOR like AgOpenGPS
+        // Calculate offset direction using XOR
         // IMPORTANT: Use _wasHeadingSameWayAtTurnStart (saved at turn creation), NOT _isHeadingSameWay
         // (which has now flipped because we completed a 180° turn)
         bool positiveOffset = _isTurnLeft ^ _wasHeadingSameWayAtTurnStart;
-        int offsetChange = positiveOffset ? rowSkipWidth : -rowSkipWidth;
+        int offsetChange = positiveOffset ? pathsToMove : -pathsToMove;
         _howManyPathsAway += offsetChange;
 
         Console.WriteLine($"[YouTurn] Turn complete! Turn was {(_isTurnLeft ? "LEFT" : "RIGHT")}, heading WAS {(_wasHeadingSameWayAtTurnStart ? "SAME" : "OPPOSITE")} at start");
         Console.WriteLine($"[YouTurn] Offset {(positiveOffset ? "positive" : "negative")} by {offsetChange}, now on path {_howManyPathsAway}");
-        Console.WriteLine($"[YouTurn] Total offset: {(Tool.Width - Tool.Overlap) * _howManyPathsAway:F1}m from reference line");
+        Console.WriteLine($"[YouTurn] Total offset: {(ConfigStore.ActualToolWidth - Tool.Overlap) * _howManyPathsAway:F1}m from reference line");
 
         // Remember this turn direction for alternating pattern
         _lastTurnWasLeft = _isTurnLeft;
@@ -1377,7 +1395,7 @@ public class MainViewModel : ReactiveObject
         _mapService.SetNextTrack(null);
         _mapService.SetIsInYouTurn(false);
 
-        StatusMessage = $"Following path {_howManyPathsAway} ({(Tool.Width - Tool.Overlap) * Math.Abs(_howManyPathsAway):F1}m offset)";
+        StatusMessage = $"Following path {_howManyPathsAway} ({(ConfigStore.ActualToolWidth - Tool.Overlap) * Math.Abs(_howManyPathsAway):F1}m offset)";
     }
 
     /// <summary>
@@ -1437,15 +1455,8 @@ public class MainViewModel : ReactiveObject
         var track = SelectedTrack;
         if (track == null || _currentHeadlandLine == null) return;
 
-        // Determine turn direction for zig-zag pattern across field
-        // The turn direction depends on whether we're incrementing tracks (_howManyPathsAway increasing)
-        // For zig-zag pattern:
-        // - When going A→B (same way): turn LEFT to increment track
-        // - When going B→A (opposite way): turn RIGHT to increment track
-        // This creates alternating left/right turns as we traverse the field
-        bool turnLeft = _isHeadingSameWay;  // Same direction = turn left, opposite = turn right
-        _isTurnLeft = turnLeft;
-        _wasHeadingSameWayAtTurnStart = _isHeadingSameWay;
+        // Turn direction was already set before ComputeNextTrack was called
+        bool turnLeft = _isTurnLeft;
 
         Console.WriteLine($"[YouTurn] Creating turn with YouTurnCreationService: direction={(_isTurnLeft ? "LEFT" : "RIGHT")}, isHeadingSameWay={_isHeadingSameWay}, pathsAway={_howManyPathsAway}");
 
@@ -1554,8 +1565,8 @@ public class MainViewModel : ReactiveObject
             return null;
         }
 
-        // Tool/implement width from configuration
-        double toolWidth = Tool.Width;
+        // Tool/implement width from configuration (use actual width from sections)
+        double toolWidth = ConfigStore.ActualToolWidth;
 
         // Total headland width from the headland multiplier setting
         double totalHeadlandWidth = HeadlandCalculatedWidth;
@@ -1646,8 +1657,9 @@ public class MainViewModel : ReactiveObject
             ToolOffset = Tool.Offset,
             TurnRadius = Guidance.UTurnRadius,
 
-            // Turn parameters - use runtime UTurnSkipRows (controlled by bottom nav button)
-            RowSkipsWidth = UTurnSkipRows,
+            // Turn parameters - use pre-calculated offset from ComputeNextTrack (matches cyan line exactly)
+            TurnOffset = NextTrackTurnOffset,
+            RowSkipsWidth = UTurnSkipRows, // Kept for fallback/logging
             TurnStartOffset = 0,
             HowManyPathsAway = _howManyPathsAway,
             NudgeDistance = 0.0,
@@ -1706,9 +1718,9 @@ public class MainViewModel : ReactiveObject
 
         // Parameters - use ConfigurationStore values
         double pointSpacing = 0.5; // meters between path points
-        int rowSkipWidth = Guidance.UTurnSkipWidth; // From config (1 = no skip, 2 = skip 1 row, etc.)
-        double trackWidth = Tool.Width - Tool.Overlap; // Implement width minus overlap
-        double turnOffset = trackWidth * rowSkipWidth; // Perpendicular distance to next track
+        int rowSkipWidth = Guidance.UTurnSkipWidth; // From config (0 = adjacent, 1 = skip 1 row, etc.)
+        double trackWidth = ConfigStore.ActualToolWidth - Tool.Overlap; // Implement width minus overlap
+        double turnOffset = trackWidth * (rowSkipWidth + 1); // Perpendicular distance to next track
 
         // Turn radius from config, with fallback calculation
         double turnRadius = Guidance.UTurnRadius;
@@ -1873,13 +1885,38 @@ public class MainViewModel : ReactiveObject
         // ============================================
         // BUILD PATH: Exit Leg
         // ============================================
-        // Exit leg goes straight from the ACTUAL last arc point in exitHeading direction
-        // Use same length as entry leg to ensure symmetry
+        // Exit leg must end at exitEnd (which is turnOffset perpendicular from entryStart)
+        // This ensures the exit lands on the next track regardless of arc diameter
         var lastArcPoint = path[path.Count - 1];
         double actualArcEndE = lastArcPoint.Easting;
         double actualArcEndN = lastArcPoint.Northing;
-        double actualExitHeading = lastArcPoint.Heading; // Use the tangent heading from arc end
 
+        // Calculate exitStart: same distance into headland as arcEnd, but at turnOffset from entry track
+        // This is where the exit leg begins (at turnOffset perpendicular offset)
+        double exitStartE = arcStartE + Math.Sin(perpAngle) * turnOffset;
+        double exitStartN = arcStartN + Math.Cos(perpAngle) * turnOffset;
+
+        // If arc diameter differs from turnOffset, we need a connecting segment
+        // from actualArcEnd to exitStart (perpendicular adjustment)
+        double arcToExitDist = Math.Sqrt(Math.Pow(exitStartE - actualArcEndE, 2) + Math.Pow(exitStartN - actualArcEndN, 2));
+        if (arcToExitDist > pointSpacing)
+        {
+            // Add connecting points from arc end to exit start
+            int connectPoints = (int)(arcToExitDist / pointSpacing);
+            for (int i = 1; i <= connectPoints; i++)
+            {
+                double t = (double)i / (connectPoints + 1);
+                Vec3 pt = new Vec3
+                {
+                    Easting = actualArcEndE + (exitStartE - actualArcEndE) * t,
+                    Northing = actualArcEndN + (exitStartN - actualArcEndN) * t,
+                    Heading = exitHeading
+                };
+                path.Add(pt);
+            }
+        }
+
+        // Now build exit leg from exitStart to exitEnd (going back into field)
         int totalExitPoints = (int)(totalEntryLength / pointSpacing);
 
         for (int i = 1; i <= totalExitPoints; i++)
@@ -1887,9 +1924,9 @@ public class MainViewModel : ReactiveObject
             double dist = i * pointSpacing;
             Vec3 pt = new Vec3
             {
-                Easting = actualArcEndE + Math.Sin(actualExitHeading) * dist,
-                Northing = actualArcEndN + Math.Cos(actualExitHeading) * dist,
-                Heading = actualExitHeading
+                Easting = exitStartE + Math.Sin(exitHeading) * dist,
+                Northing = exitStartN + Math.Cos(exitHeading) * dist,
+                Heading = exitHeading
             };
             path.Add(pt);
         }
@@ -3306,12 +3343,12 @@ public class MainViewModel : ReactiveObject
             // Update distance based on tool width multiplier
             if (value > 0)
             {
-                HeadlandDistance = Tool.Width * value;
+                HeadlandDistance = ConfigStore.ActualToolWidth * value;
             }
         }
     }
 
-    public double HeadlandCalculatedWidth => Tool.Width * _headlandToolWidthMultiplier;
+    public double HeadlandCalculatedWidth => ConfigStore.ActualToolWidth * _headlandToolWidthMultiplier;
 
     // Headland point selection (for clipping headland via boundary points)
     // Each point is stored as (segmentIndex, t parameter 0-1, world position)
@@ -4996,8 +5033,9 @@ public class MainViewModel : ReactiveObject
 
         SetHeadlandToToolWidthCommand = new RelayCommand(() =>
         {
-            // Set headland distance to implement width
-            HeadlandDistance = Tool.Width > 0 ? Tool.Width * 2 : 12.0;
+            // Set headland distance to implement width (use actual width from sections)
+            double actualWidth = ConfigStore.ActualToolWidth;
+            HeadlandDistance = actualWidth > 0 ? actualWidth * 2 : 12.0;
             UpdateHeadlandPreview();
         });
 
