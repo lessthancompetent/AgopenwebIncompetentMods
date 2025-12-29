@@ -41,21 +41,33 @@ public partial class AppDelegate : AvaloniaAppDelegate<App>
     [Export("applicationDidEnterBackground:")]
     public void OnDidEnterBackground(UIApplication application)
     {
-        SaveCoverageToActiveField();
+        SaveAppState();
     }
 
     [Export("applicationWillTerminate:")]
     public void OnWillTerminate(UIApplication application)
     {
-        SaveCoverageToActiveField();
+        SaveAppState();
     }
 
-    private void SaveCoverageToActiveField()
+    private void SaveAppState()
     {
         try
         {
             if (App.Services == null) return;
 
+            // Save panel positions from MainView
+            if (App.MainView != null)
+            {
+                App.MainView.SavePanelPositions();
+            }
+
+            // Save configuration (includes panel positions)
+            var configService = App.Services.GetRequiredService<IConfigurationService>();
+            configService.SaveAppSettings();
+            Console.WriteLine("[AppDelegate] Saved configuration on app background/terminate");
+
+            // Save coverage to active field
             var fieldService = App.Services.GetRequiredService<IFieldService>();
             var coverageService = App.Services.GetRequiredService<ICoverageMapService>();
 
@@ -67,7 +79,7 @@ public partial class AppDelegate : AvaloniaAppDelegate<App>
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Coverage] Error saving coverage: {ex.Message}");
+            Console.WriteLine($"[AppDelegate] Error saving app state: {ex.Message}");
         }
     }
 }

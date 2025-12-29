@@ -40,9 +40,11 @@ public partial class App : Application
         // Wire up cross-referencing services (AutoSteer → UDP)
         Services.WireUpServices();
 
-        // Load settings
+        // Load settings and sync to ConfigurationStore
         var settingsService = Services.GetRequiredService<ISettingsService>();
         settingsService.Load();
+        var configService = Services.GetRequiredService<IConfigurationService>();
+        configService.LoadAppSettings();
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

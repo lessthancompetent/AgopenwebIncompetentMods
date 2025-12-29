@@ -18,6 +18,7 @@ public partial class App : Avalonia.Application
     private IServiceProvider? _services;
 
     public static IServiceProvider? Services { get; private set; }
+    public static MainView? MainView { get; private set; }
 
     public override void Initialize()
     {
@@ -52,11 +53,21 @@ public partial class App : Avalonia.Application
             Services.WireUpServices();
             System.Diagnostics.Debug.WriteLine("[App] Services wired up.");
 
-            // Load settings
+            // Load settings and sync to ConfigurationStore
             System.Diagnostics.Debug.WriteLine("[App] Loading settings...");
             var settingsService = Services.GetRequiredService<ISettingsService>();
             settingsService.Load();
-            System.Diagnostics.Debug.WriteLine("[App] Settings loaded.");
+            try
+            {
+                var configService = Services.GetRequiredService<IConfigurationService>();
+                configService.LoadAppSettings();
+                System.Diagnostics.Debug.WriteLine("[App] Settings loaded and synced to ConfigurationStore.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Error syncing settings: {ex.Message}");
+                Console.WriteLine($"[App] Error syncing settings: {ex}");
+            }
 
             if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
             {
@@ -75,7 +86,9 @@ public partial class App : Avalonia.Application
                 var coverageService = Services.GetRequiredService<AgValoniaGPS.Services.Interfaces.ICoverageMapService>();
                 System.Diagnostics.Debug.WriteLine("[App] CoverageMapService retrieved from DI.");
 
-                singleViewPlatform.MainView = new MainView(viewModel, concreteMapService!, coverageService);
+                var mainView = new MainView(viewModel, concreteMapService!, coverageService);
+                singleViewPlatform.MainView = mainView;
+                MainView = mainView;
                 System.Diagnostics.Debug.WriteLine("[App] MainView created and assigned.");
             }
 

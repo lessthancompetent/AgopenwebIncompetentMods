@@ -171,59 +171,105 @@ public partial class MainWindow : Window
 
     private void LoadWindowSettings()
     {
-        if (App.Services == null) return;
-
-        var settingsService = App.Services.GetRequiredService<ISettingsService>();
-        var settings = settingsService.Settings;
+        // Load all settings from ConfigurationStore.Display (synced from AppSettings at startup)
+        var display = AgValoniaGPS.Models.Configuration.ConfigurationStore.Instance.Display;
 
         // Apply window size and position
-        if (settings.WindowWidth > 0 && settings.WindowHeight > 0)
+        if (display.WindowWidth > 0 && display.WindowHeight > 0)
         {
-            Width = settings.WindowWidth;
-            Height = settings.WindowHeight;
+            Width = display.WindowWidth;
+            Height = display.WindowHeight;
         }
 
-        if (settings.WindowX >= 0 && settings.WindowY >= 0)
+        if (display.WindowX >= 0 && display.WindowY >= 0)
         {
-            Position = new PixelPoint((int)settings.WindowX, (int)settings.WindowY);
+            Position = new PixelPoint((int)display.WindowX, (int)display.WindowY);
         }
 
-        if (settings.WindowMaximized)
+        if (display.WindowMaximized)
         {
             WindowState = WindowState.Maximized;
         }
 
-        // Note: SimulatorPanel is now a child of LeftNavigationPanel
-        // Panel positions are managed by the shared controls themselves
+        // Restore panel positions
+
+        if (!double.IsNaN(display.LeftNavPanelX) && !double.IsNaN(display.LeftNavPanelY) && LeftNavPanel != null)
+        {
+            Canvas.SetLeft(LeftNavPanel, display.LeftNavPanelX);
+            Canvas.SetTop(LeftNavPanel, display.LeftNavPanelY);
+        }
+
+        if (!double.IsNaN(display.RightNavPanelX) && !double.IsNaN(display.RightNavPanelY) && RightNavPanel != null)
+        {
+            Canvas.SetLeft(RightNavPanel, display.RightNavPanelX);
+            Canvas.SetTop(RightNavPanel, display.RightNavPanelY);
+        }
+
+        if (!double.IsNaN(display.BottomNavPanelX) && !double.IsNaN(display.BottomNavPanelY) && BottomNavPanel != null)
+        {
+            Canvas.SetLeft(BottomNavPanel, display.BottomNavPanelX);
+            Canvas.SetTop(BottomNavPanel, display.BottomNavPanelY);
+        }
+
+        if (!double.IsNaN(display.SectionPanelX) && !double.IsNaN(display.SectionPanelY) && SectionControlPanel != null)
+        {
+            Canvas.SetLeft(SectionControlPanel, display.SectionPanelX);
+            Canvas.SetTop(SectionControlPanel, display.SectionPanelY);
+        }
     }
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         if (App.Services == null) return;
 
-        var settingsService = App.Services.GetRequiredService<ISettingsService>();
-        var settings = settingsService.Settings;
+        // Save all settings to ConfigurationStore.Display (which then syncs to AppSettings)
+        var display = AgValoniaGPS.Models.Configuration.ConfigurationStore.Instance.Display;
 
         // Save window state
-        settings.WindowMaximized = WindowState == WindowState.Maximized;
+        display.WindowMaximized = WindowState == WindowState.Maximized;
 
         if (WindowState == WindowState.Normal)
         {
-            settings.WindowWidth = Width;
-            settings.WindowHeight = Height;
-            settings.WindowX = Position.X;
-            settings.WindowY = Position.Y;
+            display.WindowWidth = Width;
+            display.WindowHeight = Height;
+            display.WindowX = Position.X;
+            display.WindowY = Position.Y;
         }
 
-        // Note: SimulatorPanel is now a child of LeftNavigationPanel
-        // Panel positions are managed by the shared controls
+        // Save panel positions
+        if (LeftNavPanel != null)
+        {
+            display.LeftNavPanelX = Canvas.GetLeft(LeftNavPanel);
+            display.LeftNavPanelY = Canvas.GetTop(LeftNavPanel);
+        }
 
-        // Save UI state
+        if (RightNavPanel != null)
+        {
+            display.RightNavPanelX = Canvas.GetLeft(RightNavPanel);
+            display.RightNavPanelY = Canvas.GetTop(RightNavPanel);
+        }
+
+        if (BottomNavPanel != null)
+        {
+            display.BottomNavPanelX = Canvas.GetLeft(BottomNavPanel);
+            display.BottomNavPanelY = Canvas.GetTop(BottomNavPanel);
+        }
+
+        if (SectionControlPanel != null)
+        {
+            display.SectionPanelX = Canvas.GetLeft(SectionControlPanel);
+            display.SectionPanelY = Canvas.GetTop(SectionControlPanel);
+        }
+
+        // Save UI state to ConfigurationStore
         if (ViewModel != null)
         {
-            settings.SimulatorEnabled = ViewModel.IsSimulatorEnabled;
-            settings.GridVisible = ViewModel.IsGridOn;
+            display.GridVisible = ViewModel.IsGridOn;
         }
+
+        // Save configuration (syncs ConfigurationStore to AppSettings and saves to disk)
+        var configService = App.Services.GetRequiredService<IConfigurationService>();
+        configService.SaveAppSettings();
 
         // Save coverage to active field before closing
         var fieldService = App.Services.GetRequiredService<IFieldService>();
