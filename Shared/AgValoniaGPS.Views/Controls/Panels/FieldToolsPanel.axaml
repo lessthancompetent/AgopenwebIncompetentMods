@@ -92,7 +92,7 @@
 
                 <!-- Row 3: Delete Applied Area, Flag By Lat Lon -->
                 <Button Grid.Column="0" Grid.Row="3" Classes="ModernButton" HorizontalAlignment="Stretch" Margin="0,2" Height="44"
-                        ClickMode="Press">
+                        ClickMode="Press" Command="{Binding DeleteAppliedAreaCommand}">
                     <StackPanel Orientation="Horizontal" Spacing="6" IsHitTestVisible="False">
                         <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/TrashApplied.png" Width="28" Height="28"/>
                         <TextBlock Text="Delete Applied Area" VerticalAlignment="Center" FontSize="12"/>

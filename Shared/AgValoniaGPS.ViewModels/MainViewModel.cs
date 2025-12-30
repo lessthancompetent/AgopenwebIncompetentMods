@@ -4415,6 +4415,7 @@ public class MainViewModel : ReactiveObject
     // Right Navigation Panel Commands
     public ICommand? ToggleContourModeCommand { get; private set; }
     public ICommand? DeleteContoursCommand { get; private set; }
+    public ICommand? DeleteAppliedAreaCommand { get; private set; }
     public ICommand? ToggleManualModeCommand { get; private set; }
     public ICommand? ToggleSectionMasterCommand { get; private set; }
     public ICommand? ToggleSectionCommand { get; private set; }
@@ -6000,6 +6001,42 @@ public class MainViewModel : ReactiveObject
         {
             _coverageMapService.ClearAll();
             StatusMessage = "Coverage/contours cleared";
+        });
+
+        DeleteAppliedAreaCommand = new RelayCommand(async () =>
+        {
+            // Show confirmation dialog
+            var confirmed = await _dialogService.ShowConfirmationAsync(
+                "Delete Applied Area",
+                "Are you sure you want to delete all applied area coverage? This cannot be undone.");
+
+            if (!confirmed)
+                return;
+
+            // Clear in-memory coverage
+            _coverageMapService.ClearAll();
+
+            // Delete Sections.txt file from current field
+            if (State.Field.ActiveField != null)
+            {
+                var sectionsFile = System.IO.Path.Combine(State.Field.ActiveField.DirectoryPath, "Sections.txt");
+                if (System.IO.File.Exists(sectionsFile))
+                {
+                    try
+                    {
+                        System.IO.File.Delete(sectionsFile);
+                        Console.WriteLine($"[Coverage] Deleted {sectionsFile}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[Coverage] Error deleting Sections.txt: {ex.Message}");
+                    }
+                }
+            }
+
+            // Refresh statistics display
+            RefreshCoverageStatistics();
+            StatusMessage = "Applied area deleted";
         });
 
         // Manual All button: Toggle all sections between On (green) and Off (red)
