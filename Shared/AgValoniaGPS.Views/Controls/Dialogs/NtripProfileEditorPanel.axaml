@@ -1,0 +1,186 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
+             xmlns:ntrip="clr-namespace:AgValoniaGPS.Models.Ntrip;assembly=AgValoniaGPS.Models"
+             mc:Ignorable="d" d:DesignWidth="500" d:DesignHeight="650"
+             x:Class="AgValoniaGPS.Views.Controls.Dialogs.NtripProfileEditorPanel"
+             x:DataType="vm:MainViewModel"
+             IsVisible="{Binding State.UI.IsNtripProfileEditorDialogVisible}"
+             IsHitTestVisible="{Binding State.UI.IsNtripProfileEditorDialogVisible}">
+
+    <UserControl.Styles>
+        <Style Selector="TextBlock.Header">
+            <Setter Property="Foreground" Value="#3498DB"/>
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style Selector="TextBlock.Label">
+            <Setter Property="Foreground" Value="#BDC3C7"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Background" Value="#1E2930"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#4A5F73"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+        <Style Selector="TextBox:focus">
+            <Setter Property="BorderBrush" Value="#3498DB"/>
+        </Style>
+        <Style Selector="Button.DialogButton">
+            <Setter Property="Background" Value="#3498DB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Button.DialogButton:pointerover">
+            <Setter Property="Background" Value="#2980B9"/>
+        </Style>
+        <Style Selector="Button.CancelButton">
+            <Setter Property="Background" Value="#5D6D7E"/>
+        </Style>
+        <Style Selector="Button.CancelButton:pointerover">
+            <Setter Property="Background" Value="#4A5A6A"/>
+        </Style>
+        <Style Selector="Button.TestButton">
+            <Setter Property="Background" Value="#27AE60"/>
+        </Style>
+        <Style Selector="Button.TestButton:pointerover">
+            <Setter Property="Background" Value="#219A52"/>
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid>
+        <!-- Semi-transparent backdrop -->
+        <Border Background="#80000000" PointerPressed="Backdrop_PointerPressed"/>
+
+        <!-- Dialog panel -->
+        <Border Background="#2C3E50"
+                CornerRadius="12"
+                BorderBrush="#444"
+                BorderThickness="1"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                MinWidth="420"
+                MaxWidth="500"
+                Padding="20">
+            <StackPanel Spacing="12">
+                <!-- Header -->
+                <TextBlock Classes="Header" Text="Edit NTRIP Profile"/>
+
+                <!-- Profile Name -->
+                <StackPanel>
+                    <TextBlock Classes="Label" Text="Profile Name"/>
+                    <TextBox Text="{Binding EditingNtripProfile.Name, FallbackValue='', TargetNullValue=''}" Watermark="e.g., Local Base Station"/>
+                </StackPanel>
+
+                <!-- Separator -->
+                <Separator Height="1" Background="#444" Margin="0,4"/>
+
+                <!-- Caster Settings Section -->
+                <TextBlock Text="Caster Settings" Foreground="#3498DB" FontSize="14" FontWeight="SemiBold"/>
+
+                <!-- Host -->
+                <StackPanel>
+                    <TextBlock Classes="Label" Text="Caster Host"/>
+                    <TextBox Text="{Binding EditingNtripProfile.CasterHost, FallbackValue='', TargetNullValue=''}" Watermark="e.g., rtk2go.com"/>
+                </StackPanel>
+
+                <!-- Port -->
+                <Grid ColumnDefinitions="*,*" Margin="0,0,0,0">
+                    <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                        <TextBlock Classes="Label" Text="Port"/>
+                        <TextBox Text="{Binding EditingNtripProfile.CasterPort, FallbackValue=2101}" Watermark="2101"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                        <TextBlock Classes="Label" Text="Mount Point"/>
+                        <TextBox Text="{Binding EditingNtripProfile.MountPoint, FallbackValue='', TargetNullValue=''}" Watermark="NEAR-RTCM3"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Credentials -->
+                <Grid ColumnDefinitions="*,*" Margin="0,0,0,0">
+                    <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                        <TextBlock Classes="Label" Text="Username"/>
+                        <TextBox Text="{Binding EditingNtripProfile.Username, FallbackValue='', TargetNullValue=''}" Watermark="(optional)"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                        <TextBlock Classes="Label" Text="Password"/>
+                        <TextBox Text="{Binding EditingNtripProfile.Password, FallbackValue='', TargetNullValue=''}" Watermark="(optional)" PasswordChar="*"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Test Connection -->
+                <Grid ColumnDefinitions="Auto,*" Margin="0,8,0,0">
+                    <Button Grid.Column="0" Classes="DialogButton TestButton" Content="Test Connection"
+                            Command="{Binding TestNtripConnectionCommand}"
+                            IsEnabled="{Binding !IsTestingNtripConnection}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding NtripTestStatus}"
+                               Foreground="#BDC3C7"
+                               FontSize="13" VerticalAlignment="Center" Margin="12,0,0,0"
+                               TextWrapping="Wrap"/>
+                </Grid>
+
+                <!-- Separator -->
+                <Separator Height="1" Background="#444" Margin="0,4"/>
+
+                <!-- Field Associations Section -->
+                <TextBlock Text="Associated Fields" Foreground="#3498DB" FontSize="14" FontWeight="SemiBold"/>
+                <TextBlock Text="Select fields that will use this NTRIP profile:" Foreground="#7F8C8D" FontSize="12" Margin="0,0,0,4"/>
+
+                <Border Background="#1E2930" BorderBrush="#4A5F73" BorderThickness="1" CornerRadius="4"
+                        MaxHeight="120" Padding="4">
+                    <ScrollViewer>
+                        <ItemsControl ItemsSource="{Binding AvailableFieldsForProfile}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="ntrip:FieldAssociationItem">
+                                    <CheckBox IsChecked="{Binding IsSelected}" Content="{Binding FieldName}"
+                                              Foreground="White" FontSize="13" Margin="4,2"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+                <TextBlock Text="Fields not selected will use the default profile (if set)." Foreground="#7F8C8D" FontSize="11" Margin="0,4,0,0"/>
+
+                <!-- Separator -->
+                <Separator Height="1" Background="#444" Margin="0,4"/>
+
+                <!-- Options -->
+                <CheckBox IsChecked="{Binding EditingNtripProfile.AutoConnectOnFieldLoad, FallbackValue=True}"
+                          Content="Auto-connect when associated field is loaded"/>
+
+                <CheckBox IsChecked="{Binding EditingNtripProfile.IsDefault, FallbackValue=False}"
+                          Content="Set as default profile (for fields without specific association)"/>
+
+                <!-- Action Buttons -->
+                <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                    <!-- Spacer -->
+                    <Border Grid.Column="0"/>
+
+                    <!-- Cancel Button -->
+                    <Button Grid.Column="1" Classes="DialogButton CancelButton" Content="Cancel"
+                            Command="{Binding CancelNtripProfileEditCommand}" Margin="0,0,8,0"/>
+
+                    <!-- Save Button -->
+                    <Button Grid.Column="2" Classes="DialogButton" Content="Save Profile"
+                            Command="{Binding SaveNtripProfileCommand}"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

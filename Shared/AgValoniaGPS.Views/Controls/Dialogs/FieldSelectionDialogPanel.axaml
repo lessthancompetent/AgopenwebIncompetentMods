@@ -73,8 +73,8 @@
                 BorderThickness="1"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
-                MinWidth="380"
-                MaxWidth="500"
+                MinWidth="480"
+                MaxWidth="600"
                 MaxHeight="500"
                 Padding="16">
             <Grid RowDefinitions="Auto,Auto,*,Auto">
@@ -83,10 +83,11 @@
 
                 <!-- Column Headers -->
                 <Border Grid.Row="1" Background="#34495E" CornerRadius="4,4,0,0" Padding="12,8" Margin="0,0,0,0">
-                    <Grid ColumnDefinitions="*,80,80">
+                    <Grid ColumnDefinitions="*,120,80,80">
                         <TextBlock Grid.Column="0" Text="Field Name" Foreground="#BDC3C7" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Column="1" Text="Distance" Foreground="#BDC3C7" FontWeight="SemiBold" TextAlignment="Right"/>
-                        <TextBlock Grid.Column="2" Text="Area (ha)" Foreground="#BDC3C7" FontWeight="SemiBold" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="1" Text="NTRIP Profile" Foreground="#BDC3C7" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Column="2" Text="Distance" Foreground="#BDC3C7" FontWeight="SemiBold" TextAlignment="Right"/>
+                        <TextBlock Grid.Column="3" Text="Area (ha)" Foreground="#BDC3C7" FontWeight="SemiBold" TextAlignment="Right"/>
                     </Grid>
                 </Border>
 
@@ -100,10 +101,12 @@
                          SelectedItem="{Binding SelectedFieldInfo}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid ColumnDefinitions="*,80,80">
+                            <Grid ColumnDefinitions="*,120,80,80">
                                 <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="White" FontSize="14"/>
-                                <TextBlock Grid.Column="1" Text="{Binding Distance, StringFormat='{}{0:F1}'}" Foreground="#BDC3C7" TextAlignment="Right" FontSize="14"/>
-                                <TextBlock Grid.Column="2" Text="{Binding Area, StringFormat='{}{0:F1}'}" Foreground="#BDC3C7" TextAlignment="Right" FontSize="14"/>
+                                <TextBlock Grid.Column="1" Text="{Binding NtripProfileName}" Foreground="#7F8C8D" FontSize="13"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Column="2" Text="{Binding Distance, StringFormat='{}{0:F1}'}" Foreground="#BDC3C7" TextAlignment="Right" FontSize="14"/>
+                                <TextBlock Grid.Column="3" Text="{Binding Area, StringFormat='{}{0:F1}'}" Foreground="#BDC3C7" TextAlignment="Right" FontSize="14"/>
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

@@ -41,6 +41,8 @@ public class UIState : ReactiveObject
                 this.RaisePropertyChanged(nameof(IsSimCoordsDialogVisible));
                 this.RaisePropertyChanged(nameof(IsQuickABSelectorVisible));
                 this.RaisePropertyChanged(nameof(IsDrawABDialogVisible));
+                this.RaisePropertyChanged(nameof(IsNtripProfilesDialogVisible));
+                this.RaisePropertyChanged(nameof(IsNtripProfileEditorDialogVisible));
 
                 DialogChanged?.Invoke(this, new DialogChangedEventArgs(previous, value));
             }
@@ -68,6 +70,8 @@ public class UIState : ReactiveObject
     public bool IsSimCoordsDialogVisible => ActiveDialog == DialogType.SimCoords;
     public bool IsQuickABSelectorVisible => ActiveDialog == DialogType.QuickABSelector;
     public bool IsDrawABDialogVisible => ActiveDialog == DialogType.DrawAB;
+    public bool IsNtripProfilesDialogVisible => ActiveDialog == DialogType.NtripProfiles;
+    public bool IsNtripProfileEditorDialogVisible => ActiveDialog == DialogType.NtripProfileEditor;
 
     // Panel visibility (non-modal, can have multiple open)
     private bool _isSimulatorPanelVisible;
@@ -159,7 +163,9 @@ public enum DialogType
     HeadlandBuilder,
     SimCoords,
     QuickABSelector,
-    DrawAB
+    DrawAB,
+    NtripProfiles,
+    NtripProfileEditor
 }
 
 /// <summary>

@@ -31,6 +31,8 @@
         <dialogs:QuickABSelectorPanel/>
         <dialogs:TracksDialogPanel/>
         <dialogs:DrawABDialogPanel/>
+        <dialogs:NtripProfilesDialogPanel/>
+        <dialogs:NtripProfileEditorPanel/>
         <dialogs:ConfigurationDialog DataContext="{Binding ConfigurationViewModel}"/>
     </Panel>
 </UserControl>

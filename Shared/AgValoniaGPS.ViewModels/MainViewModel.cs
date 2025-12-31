@@ -17,6 +17,7 @@ using AgValoniaGPS.Models.Configuration;
 using AgValoniaGPS.Models.Track;
 using AgValoniaGPS.Models.State;
 using AgValoniaGPS.Models.Communication;
+using AgValoniaGPS.Models.Ntrip;
 using Avalonia.Threading;
 
 namespace AgValoniaGPS.ViewModels;
@@ -50,6 +51,7 @@ public class MainViewModel : ReactiveObject
     private readonly IToolPositionService _toolPositionService;
     private readonly ICoverageMapService _coverageMapService;
     private readonly ISectionControlService _sectionControlService;
+    private readonly INtripProfileService _ntripProfileService;
     private readonly ApplicationState _appState;
     private readonly DispatcherTimer _simulatorTimer;
     private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
@@ -203,6 +205,7 @@ public class MainViewModel : ReactiveObject
         IToolPositionService toolPositionService,
         ICoverageMapService coverageMapService,
         ISectionControlService sectionControlService,
+        INtripProfileService ntripProfileService,
         ApplicationState appState)
     {
         _udpService = udpService;
@@ -230,6 +233,7 @@ public class MainViewModel : ReactiveObject
         _toolPositionService = toolPositionService;
         _coverageMapService = coverageMapService;
         _sectionControlService = sectionControlService;
+        _ntripProfileService = ntripProfileService;
         _appState = appState;
         _nmeaParser = new NmeaParserService(gpsService);
         _fieldPlaneFileService = new FieldPlaneFileService();
@@ -300,17 +304,20 @@ public class MainViewModel : ReactiveObject
         // Restore vehicle profile settings
         LoadDefaultVehicleProfile();
 
-        // Restore NTRIP settings
+        // Load NTRIP profiles
+        _ = _ntripProfileService.LoadProfilesAsync();
+
+        // Restore legacy NTRIP settings (used if no profiles exist)
         NtripCasterAddress = settings.NtripCasterIp;
         NtripCasterPort = settings.NtripCasterPort;
         NtripMountPoint = settings.NtripMountPoint;
         NtripUsername = settings.NtripUsername;
         NtripPassword = settings.NtripPassword;
 
-        // Auto-connect to NTRIP if configured
+        // Auto-connect to NTRIP if configured (legacy behavior, profiles will override when field loads)
         if (settings.NtripAutoConnect && !string.IsNullOrEmpty(settings.NtripCasterIp))
         {
-            Console.WriteLine("[NTRIP] Auto-connecting at startup...");
+            Console.WriteLine("[NTRIP] Auto-connecting at startup (legacy settings)...");
             _ = ConnectToNtripAsync(); // Fire and forget - don't await in RestoreSettings
         }
 
@@ -414,6 +421,52 @@ public class MainViewModel : ReactiveObject
     public async System.Threading.Tasks.Task DisconnectFromNtripAsync()
     {
         await _ntripService.DisconnectAsync();
+    }
+
+    /// <summary>
+    /// Handles NTRIP profile connection when a field is loaded.
+    /// Checks for field-specific profile or falls back to default profile.
+    /// </summary>
+    private async System.Threading.Tasks.Task HandleNtripProfileForFieldAsync(string fieldName)
+    {
+        try
+        {
+            var profile = _ntripProfileService.GetProfileForField(fieldName);
+
+            if (profile == null)
+            {
+                Console.WriteLine($"[NTRIP Profile] No profile found for field '{fieldName}' (no default set)");
+                return;
+            }
+
+            if (!profile.AutoConnectOnFieldLoad)
+            {
+                Console.WriteLine($"[NTRIP Profile] Profile '{profile.Name}' has auto-connect disabled");
+                return;
+            }
+
+            // Disconnect from current caster if connected
+            if (_ntripService.IsConnected)
+            {
+                Console.WriteLine($"[NTRIP Profile] Disconnecting from current caster...");
+                await _ntripService.DisconnectAsync();
+            }
+
+            // Update UI properties for display
+            NtripCasterAddress = profile.CasterHost;
+            NtripCasterPort = profile.CasterPort;
+            NtripMountPoint = profile.MountPoint;
+            NtripUsername = profile.Username;
+            NtripPassword = profile.Password;
+
+            // Connect to new caster
+            Console.WriteLine($"[NTRIP Profile] Connecting to '{profile.Name}' for field '{fieldName}'...");
+            await ConnectToNtripAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[NTRIP Profile] Error handling profile for field '{fieldName}': {ex.Message}");
+        }
     }
 
     private async void InitializeAsync()
@@ -3072,6 +3125,53 @@ public class MainViewModel : ReactiveObject
     public ICommand? SwapABPointsCommand { get; private set; }
     public ICommand? SelectTrackAsActiveCommand { get; private set; }
 
+    // NTRIP Profiles Dialog properties
+    public ObservableCollection<NtripProfile> NtripProfiles { get; } = new();
+
+    private NtripProfile? _selectedNtripProfile;
+    public NtripProfile? SelectedNtripProfile
+    {
+        get => _selectedNtripProfile;
+        set => this.RaiseAndSetIfChanged(ref _selectedNtripProfile, value);
+    }
+
+    private NtripProfile? _editingNtripProfile;
+    public NtripProfile? EditingNtripProfile
+    {
+        get => _editingNtripProfile;
+        set => this.RaiseAndSetIfChanged(ref _editingNtripProfile, value);
+    }
+
+    /// <summary>
+    /// Available fields for NTRIP profile association (with selection state)
+    /// </summary>
+    public ObservableCollection<FieldAssociationItem> AvailableFieldsForProfile { get; } = new();
+
+    // NTRIP Profiles commands
+    public ICommand? ShowNtripProfilesDialogCommand { get; private set; }
+    public ICommand? CloseNtripProfilesDialogCommand { get; private set; }
+    public ICommand? AddNtripProfileCommand { get; private set; }
+    public ICommand? EditNtripProfileCommand { get; private set; }
+    public ICommand? DeleteNtripProfileCommand { get; private set; }
+    public ICommand? SetDefaultNtripProfileCommand { get; private set; }
+    public ICommand? SaveNtripProfileCommand { get; private set; }
+    public ICommand? CancelNtripProfileEditCommand { get; private set; }
+    public ICommand? TestNtripConnectionCommand { get; private set; }
+
+    private string _ntripTestStatus = string.Empty;
+    public string NtripTestStatus
+    {
+        get => _ntripTestStatus;
+        set => this.RaiseAndSetIfChanged(ref _ntripTestStatus, value);
+    }
+
+    private bool _isTestingNtripConnection;
+    public bool IsTestingNtripConnection
+    {
+        get => _isTestingNtripConnection;
+        set => this.RaiseAndSetIfChanged(ref _isTestingNtripConnection, value);
+    }
+
     // New Field Dialog properties (visibility managed by State.UI)
     private string _newFieldName = string.Empty;
     public string NewFieldName
@@ -4772,6 +4872,9 @@ public class MainViewModel : ReactiveObject
             };
             _fieldService.SetActiveField(field);
 
+            // Handle NTRIP profile for this field
+            _ = HandleNtripProfileForFieldAsync(SelectedFieldInfo.Name);
+
             State.UI.CloseDialog();
             IsJobMenuPanelVisible = false;
             StatusMessage = $"Opened field: {SelectedFieldInfo.Name}";
@@ -5768,6 +5871,197 @@ public class MainViewModel : ReactiveObject
             }
         });
 
+        // NTRIP Profiles commands
+        ShowNtripProfilesDialogCommand = new RelayCommand(() =>
+        {
+            RefreshNtripProfiles();
+            State.UI.ShowDialog(DialogType.NtripProfiles);
+        });
+
+        CloseNtripProfilesDialogCommand = new RelayCommand(() =>
+        {
+            State.UI.CloseDialog();
+            SelectedNtripProfile = null;
+        });
+
+        AddNtripProfileCommand = new RelayCommand(() =>
+        {
+            EditingNtripProfile = _ntripProfileService.CreateNewProfile("New Profile");
+            PopulateAvailableFieldsForProfile(EditingNtripProfile);
+            State.UI.ShowDialog(DialogType.NtripProfileEditor);
+        });
+
+        EditNtripProfileCommand = new RelayCommand(() =>
+        {
+            if (SelectedNtripProfile != null)
+            {
+                // Clone the profile for editing
+                EditingNtripProfile = new NtripProfile
+                {
+                    Id = SelectedNtripProfile.Id,
+                    Name = SelectedNtripProfile.Name,
+                    CasterHost = SelectedNtripProfile.CasterHost,
+                    CasterPort = SelectedNtripProfile.CasterPort,
+                    MountPoint = SelectedNtripProfile.MountPoint,
+                    Username = SelectedNtripProfile.Username,
+                    Password = SelectedNtripProfile.Password,
+                    AutoConnectOnFieldLoad = SelectedNtripProfile.AutoConnectOnFieldLoad,
+                    IsDefault = SelectedNtripProfile.IsDefault,
+                    AssociatedFields = new List<string>(SelectedNtripProfile.AssociatedFields),
+                    FilePath = SelectedNtripProfile.FilePath
+                };
+                PopulateAvailableFieldsForProfile(EditingNtripProfile);
+                State.UI.ShowDialog(DialogType.NtripProfileEditor);
+            }
+        });
+
+        DeleteNtripProfileCommand = new AsyncRelayCommand(async () =>
+        {
+            if (SelectedNtripProfile != null)
+            {
+                var confirmed = await _dialogService.ShowConfirmationAsync(
+                    "Delete NTRIP Profile",
+                    $"Are you sure you want to delete the profile '{SelectedNtripProfile.Name}'?");
+                if (!confirmed) return;
+
+                await _ntripProfileService.DeleteProfileAsync(SelectedNtripProfile.Id);
+                RefreshNtripProfiles();
+                SelectedNtripProfile = null;
+                StatusMessage = "NTRIP profile deleted";
+            }
+        });
+
+        SetDefaultNtripProfileCommand = new AsyncRelayCommand(async () =>
+        {
+            if (SelectedNtripProfile != null)
+            {
+                await _ntripProfileService.SetDefaultProfileAsync(SelectedNtripProfile.Id);
+                RefreshNtripProfiles();
+                StatusMessage = $"Set '{SelectedNtripProfile.Name}' as default NTRIP profile";
+            }
+        });
+
+        SaveNtripProfileCommand = new AsyncRelayCommand(async () =>
+        {
+            if (EditingNtripProfile != null)
+            {
+                // Update associated fields from the selection
+                EditingNtripProfile.AssociatedFields = AvailableFieldsForProfile
+                    .Where(f => f.IsSelected)
+                    .Select(f => f.FieldName)
+                    .ToList();
+
+                await _ntripProfileService.SaveProfileAsync(EditingNtripProfile);
+                RefreshNtripProfiles();
+                EditingNtripProfile = null;
+                AvailableFieldsForProfile.Clear();
+                State.UI.ShowDialog(DialogType.NtripProfiles);
+                StatusMessage = "NTRIP profile saved";
+            }
+        });
+
+        CancelNtripProfileEditCommand = new RelayCommand(() =>
+        {
+            EditingNtripProfile = null;
+            AvailableFieldsForProfile.Clear();
+            NtripTestStatus = string.Empty;
+            State.UI.ShowDialog(DialogType.NtripProfiles);
+        });
+
+        TestNtripConnectionCommand = new AsyncRelayCommand(async () =>
+        {
+            if (EditingNtripProfile == null) return;
+            if (string.IsNullOrWhiteSpace(EditingNtripProfile.CasterHost))
+            {
+                NtripTestStatus = "Error: Caster host is required";
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(EditingNtripProfile.MountPoint))
+            {
+                NtripTestStatus = "Error: Mount point is required";
+                return;
+            }
+
+            IsTestingNtripConnection = true;
+            NtripTestStatus = "Testing connection...";
+
+            try
+            {
+                using var tcpClient = new System.Net.Sockets.TcpClient();
+                var connectTask = tcpClient.ConnectAsync(
+                    EditingNtripProfile.CasterHost,
+                    EditingNtripProfile.CasterPort);
+
+                if (await Task.WhenAny(connectTask, Task.Delay(5000)) == connectTask)
+                {
+                    if (tcpClient.Connected)
+                    {
+                        // Try to get the mount point table to verify caster is responding
+                        using var stream = tcpClient.GetStream();
+                        var request = $"GET /{EditingNtripProfile.MountPoint} HTTP/1.1\r\n" +
+                                    $"Host: {EditingNtripProfile.CasterHost}\r\n" +
+                                    $"Ntrip-Version: Ntrip/2.0\r\n" +
+                                    $"User-Agent: NTRIP AgValoniaGPS/Test\r\n";
+
+                        if (!string.IsNullOrEmpty(EditingNtripProfile.Username))
+                        {
+                            var credentials = Convert.ToBase64String(
+                                System.Text.Encoding.ASCII.GetBytes(
+                                    $"{EditingNtripProfile.Username}:{EditingNtripProfile.Password}"));
+                            request += $"Authorization: Basic {credentials}\r\n";
+                        }
+                        request += "\r\n";
+
+                        var requestBytes = System.Text.Encoding.ASCII.GetBytes(request);
+                        await stream.WriteAsync(requestBytes, 0, requestBytes.Length);
+
+                        // Read response with timeout
+                        var buffer = new byte[1024];
+                        stream.ReadTimeout = 3000;
+                        var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                        var response = System.Text.Encoding.ASCII.GetString(buffer, 0, bytesRead);
+
+                        if (response.Contains("200 OK") || response.Contains("ICY 200"))
+                        {
+                            NtripTestStatus = "Success: Connected to caster and mount point";
+                        }
+                        else if (response.Contains("401"))
+                        {
+                            NtripTestStatus = "Error: Authentication failed (check username/password)";
+                        }
+                        else if (response.Contains("404"))
+                        {
+                            NtripTestStatus = "Error: Mount point not found";
+                        }
+                        else
+                        {
+                            NtripTestStatus = "Connected to caster (mount point status unknown)";
+                        }
+                    }
+                    else
+                    {
+                        NtripTestStatus = "Error: Could not connect to caster";
+                    }
+                }
+                else
+                {
+                    NtripTestStatus = "Error: Connection timed out";
+                }
+            }
+            catch (System.Net.Sockets.SocketException ex)
+            {
+                NtripTestStatus = $"Error: {ex.Message}";
+            }
+            catch (Exception ex)
+            {
+                NtripTestStatus = $"Error: {ex.Message}";
+            }
+            finally
+            {
+                IsTestingNtripConnection = false;
+            }
+        });
+
         ShowQuickABSelectorCommand = new RelayCommand(() =>
         {
             State.UI.ShowDialog(DialogType.QuickABSelector);
@@ -6133,11 +6427,29 @@ public class MainViewModel : ReactiveObject
         });
 
         // Field Commands
-        CloseFieldCommand = new RelayCommand(() =>
+        CloseFieldCommand = new AsyncRelayCommand(async () =>
         {
             CurrentFieldName = string.Empty;
             IsFieldOpen = false;
             SetCurrentBoundary(null);
+
+            // Clear headland
+            LoadHeadlandFromField(null);
+
+            // Clear tracks
+            State.Field.Tracks.Clear();
+            SavedTracks.Clear();
+            SelectedTrack = null;
+
+            // Disconnect NTRIP if connected
+            if (_ntripService.IsConnected)
+            {
+                await _ntripService.DisconnectAsync();
+            }
+
+            // Clear field service state
+            _fieldService.SetActiveField(null);
+
             StatusMessage = "Field closed";
         });
 
@@ -6227,6 +6539,9 @@ public class MainViewModel : ReactiveObject
                     Boundary = boundary
                 };
                 _fieldService.SetActiveField(field);
+
+                // Handle NTRIP profile for this field
+                _ = HandleNtripProfileForFieldAsync(lastField);
 
                 IsJobMenuPanelVisible = false;
                 StatusMessage = $"Resumed field: {lastField}";
@@ -6830,6 +7145,18 @@ public class MainViewModel : ReactiveObject
                 // Calculate area in hectares
                 item.Area = boundary.OuterBoundary.AreaHectares;
                 // Distance is not calculated - boundary points are in local coordinates
+            }
+
+            // Get NTRIP profile name for this field
+            var ntripProfile = _ntripProfileService.GetProfileForField(fieldName);
+            if (ntripProfile != null)
+            {
+                // Show profile name, with "(Default)" suffix if it's the default profile
+                // and not specifically associated with this field
+                var isSpecificallyAssociated = ntripProfile.AssociatedFields.Contains(fieldName, StringComparer.OrdinalIgnoreCase);
+                item.NtripProfileName = isSpecificallyAssociated
+                    ? ntripProfile.Name
+                    : $"{ntripProfile.Name} (Default)";
             }
 
             AvailableFields.Add(item);
@@ -7975,6 +8302,36 @@ public class MainViewModel : ReactiveObject
     }
 
     /// <summary>
+    /// Refreshes the NtripProfiles collection from the service
+    /// </summary>
+    private void RefreshNtripProfiles()
+    {
+        NtripProfiles.Clear();
+        foreach (var profile in _ntripProfileService.Profiles)
+        {
+            NtripProfiles.Add(profile);
+        }
+    }
+
+    /// <summary>
+    /// Populates the available fields list for NTRIP profile editing
+    /// </summary>
+    private void PopulateAvailableFieldsForProfile(NtripProfile profile)
+    {
+        AvailableFieldsForProfile.Clear();
+
+        var availableFields = _ntripProfileService.GetAvailableFields();
+        foreach (var fieldName in availableFields)
+        {
+            AvailableFieldsForProfile.Add(new FieldAssociationItem
+            {
+                FieldName = fieldName,
+                IsSelected = profile.AssociatedFields.Contains(fieldName)
+            });
+        }
+    }
+
+    /// <summary>
     /// Load tracks from field directory.
     /// Supports WinForms TrackLines.txt format (primary) and legacy ABLines.txt format (fallback).
     /// </summary>
@@ -8113,6 +8470,7 @@ public class FieldSelectionItem
     public string DirectoryPath { get; set; } = string.Empty;
     public double Distance { get; set; }
     public double Area { get; set; }
+    public string NtripProfileName { get; set; } = string.Empty;
 }
 
 /// <summary>
