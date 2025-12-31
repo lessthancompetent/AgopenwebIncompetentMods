@@ -294,8 +294,8 @@ public partial class MainViewModel : ObservableObject
             RestoreSettings();
         }, DispatcherPriority.Background);
 
-        // Start UDP communication
-        InitializeAsync();
+        // Start UDP communication (fire-and-forget but explicit)
+        _ = InitializeAsync();
     }
 
     private void RestoreSettings()
@@ -470,7 +470,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private async void InitializeAsync()
+    private async Task InitializeAsync()
     {
         try
         {
@@ -478,8 +478,8 @@ public partial class MainViewModel : ObservableObject
             NetworkStatus = $"UDP Connected: {_udpService.LocalIPAddress}";
             StatusMessage = "Ready - Waiting for modules...";
 
-            // Start sending hello packets every second
-            StartHelloTimer();
+            // Start sending hello packets (fire-and-forget but explicit)
+            _ = StartHelloTimerAsync();
         }
         catch (Exception ex)
         {
@@ -488,47 +488,55 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private async void StartHelloTimer()
+    private async Task StartHelloTimerAsync()
     {
-        while (_udpService.IsConnected)
+        try
         {
-            // Send hello packet every second
-            _udpService.SendHelloPacket();
-
-            // Check module status using appropriate method for each:
-            // - AutoSteer: Data flow (sends PGN 250/253 regularly)
-            // - Machine: Hello only (receive-only, no data sent)
-            // - IMU: Hello only (only sends when active)
-            // - GPS: Data flow (sends NMEA regularly)
-
-            var steerOk = _udpService.IsModuleDataOk(ModuleType.AutoSteer);
-            var machineOk = _udpService.IsModuleHelloOk(ModuleType.Machine);
-            var imuOk = _udpService.IsModuleHelloOk(ModuleType.IMU);
-            var gpsOk = _gpsService.IsGpsDataOk();
-
-            // Update centralized state (single source of truth)
-            State.Connections.IsAutoSteerDataOk = steerOk;
-            State.Connections.IsMachineDataOk = machineOk;
-            State.Connections.IsImuDataOk = imuOk;
-            State.Connections.IsGpsDataOk = gpsOk;
-
-            // Legacy property updates (for existing bindings - will be removed in Phase 5)
-            IsAutoSteerDataOk = steerOk;
-            IsMachineDataOk = machineOk;
-            IsImuDataOk = imuOk;
-            IsGpsDataOk = gpsOk;
-
-            if (!gpsOk)
+            while (_udpService.IsConnected)
             {
-                StatusMessage = "GPS Timeout";
-                FixQuality = "No Fix";
-            }
-            else
-            {
-                UpdateStatusMessage();
-            }
+                // Send hello packet every second
+                _udpService.SendHelloPacket();
 
-            await System.Threading.Tasks.Task.Delay(100); // Check every 100ms for fast response
+                // Check module status using appropriate method for each:
+                // - AutoSteer: Data flow (sends PGN 250/253 regularly)
+                // - Machine: Hello only (receive-only, no data sent)
+                // - IMU: Hello only (only sends when active)
+                // - GPS: Data flow (sends NMEA regularly)
+
+                var steerOk = _udpService.IsModuleDataOk(ModuleType.AutoSteer);
+                var machineOk = _udpService.IsModuleHelloOk(ModuleType.Machine);
+                var imuOk = _udpService.IsModuleHelloOk(ModuleType.IMU);
+                var gpsOk = _gpsService.IsGpsDataOk();
+
+                // Update centralized state (single source of truth)
+                State.Connections.IsAutoSteerDataOk = steerOk;
+                State.Connections.IsMachineDataOk = machineOk;
+                State.Connections.IsImuDataOk = imuOk;
+                State.Connections.IsGpsDataOk = gpsOk;
+
+                // Legacy property updates (for existing bindings - will be removed in Phase 5)
+                IsAutoSteerDataOk = steerOk;
+                IsMachineDataOk = machineOk;
+                IsImuDataOk = imuOk;
+                IsGpsDataOk = gpsOk;
+
+                if (!gpsOk)
+                {
+                    StatusMessage = "GPS Timeout";
+                    FixQuality = "No Fix";
+                }
+                else
+                {
+                    UpdateStatusMessage();
+                }
+
+                await System.Threading.Tasks.Task.Delay(100); // Check every 100ms for fast response
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[HelloTimer] Error: {ex.Message}");
+            StatusMessage = "Module check error";
         }
     }
 

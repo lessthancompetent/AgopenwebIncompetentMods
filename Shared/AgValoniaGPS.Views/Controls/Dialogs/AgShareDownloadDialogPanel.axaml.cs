@@ -125,7 +125,15 @@ public partial class AgShareDownloadDialogPanel : UserControl
 
     private async void Refresh_Click(object? sender, RoutedEventArgs e)
     {
-        await LoadFieldsAsync();
+        try
+        {
+            await LoadFieldsAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusLabel.Text = $"Refresh failed: {ex.Message}";
+            StatusLabel.Foreground = new SolidColorBrush(Color.Parse("#E74C3C"));
+        }
     }
 
     private async void DownloadAll_Click(object? sender, RoutedEventArgs e)

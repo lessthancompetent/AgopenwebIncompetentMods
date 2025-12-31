@@ -293,57 +293,64 @@ public partial class BoundaryMapDialogPanel : UserControl
 
     private async void BtnSave_Click(object? sender, RoutedEventArgs e)
     {
-        if (_boundaryPoints.Count < 3)
-            return;
-
-        if (DataContext is not AgValoniaGPS.ViewModels.MainViewModel vm)
-            return;
-
-        var includeBackground = vm.BoundaryMapIncludeBackground;
-        string? backgroundPath = null;
-        double nwLat = 0, nwLon = 0, seLat = 0, seLon = 0;
-
-        // Capture background if requested
-        if (includeBackground)
+        try
         {
-            BtnSave.IsEnabled = false;
+            if (_boundaryPoints.Count < 3)
+                return;
 
-            try
+            if (DataContext is not AgValoniaGPS.ViewModels.MainViewModel vm)
+                return;
+
+            var includeBackground = vm.BoundaryMapIncludeBackground;
+            string? backgroundPath = null;
+            double nwLat = 0, nwLon = 0, seLat = 0, seLon = 0;
+
+            // Capture background if requested
+            if (includeBackground)
             {
-                var result = await CaptureBackgroundImageAsync();
-                if (result != null)
+                BtnSave.IsEnabled = false;
+
+                try
                 {
-                    backgroundPath = result.Value.Path;
-                    nwLat = result.Value.NwLat;
-                    nwLon = result.Value.NwLon;
-                    seLat = result.Value.SeLat;
-                    seLon = result.Value.SeLon;
+                    var result = await CaptureBackgroundImageAsync();
+                    if (result != null)
+                    {
+                        backgroundPath = result.Value.Path;
+                        nwLat = result.Value.NwLat;
+                        nwLon = result.Value.NwLon;
+                        seLat = result.Value.SeLat;
+                        seLon = result.Value.SeLon;
+                    }
+                }
+                finally
+                {
+                    BtnSave.IsEnabled = true;
                 }
             }
-            finally
+
+            // Copy boundary points to ViewModel
+            vm.BoundaryMapResultPoints.Clear();
+            foreach (var (lat, lon) in _boundaryPoints)
             {
-                BtnSave.IsEnabled = true;
+                vm.BoundaryMapResultPoints.Add((lat, lon));
             }
-        }
 
-        // Copy boundary points to ViewModel
-        vm.BoundaryMapResultPoints.Clear();
-        foreach (var (lat, lon) in _boundaryPoints)
+            vm.BoundaryMapResultBackgroundPath = backgroundPath;
+            vm.BoundaryMapResultNwLat = nwLat;
+            vm.BoundaryMapResultNwLon = nwLon;
+            vm.BoundaryMapResultSeLat = seLat;
+            vm.BoundaryMapResultSeLon = seLon;
+
+            // Execute confirm command
+            vm.ConfirmBoundaryMapDialogCommand?.Execute(null);
+
+            // Reset state for next use
+            ResetState();
+        }
+        catch (Exception ex)
         {
-            vm.BoundaryMapResultPoints.Add((lat, lon));
+            Console.WriteLine($"[BoundaryMap] Save failed: {ex.Message}");
         }
-
-        vm.BoundaryMapResultBackgroundPath = backgroundPath;
-        vm.BoundaryMapResultNwLat = nwLat;
-        vm.BoundaryMapResultNwLon = nwLon;
-        vm.BoundaryMapResultSeLat = seLat;
-        vm.BoundaryMapResultSeLon = seLon;
-
-        // Execute confirm command
-        vm.ConfirmBoundaryMapDialogCommand?.Execute(null);
-
-        // Reset state for next use
-        ResetState();
     }
 
     private async Task<(string Path, double NwLat, double NwLon, double SeLat, double SeLon)?> CaptureBackgroundImageAsync()
