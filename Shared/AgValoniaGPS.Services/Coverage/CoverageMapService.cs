@@ -174,13 +174,12 @@ public class CoverageMapService : ICoverageMapService
 
     public bool IsPointCovered(double easting, double northing)
     {
-        // Simple bounding box check for each patch
-        // TODO: Implement proper point-in-polygon for triangle strips
+        // Check each patch using actual triangle-strip geometry
         foreach (var patch in _patches)
         {
             if (!patch.IsRenderable) continue;
 
-            // Quick bounding box check
+            // Quick bounding box pre-check for performance
             double minE = double.MaxValue, maxE = double.MinValue;
             double minN = double.MaxValue, maxN = double.MinValue;
 
@@ -193,15 +192,81 @@ public class CoverageMapService : ICoverageMapService
                 if (v.Northing > maxN) maxN = v.Northing;
             }
 
-            if (easting >= minE && easting <= maxE && northing >= minN && northing <= maxN)
+            // Quick rejection if outside bounding box
+            if (easting < minE || easting > maxE || northing < minN || northing > maxN)
+                continue;
+
+            // Check actual triangles in the strip
+            // Triangle strip: vertices 1,2,3 form triangle 1; 2,3,4 form triangle 2; etc.
+            // (vertex 0 is color)
+            if (IsPointInTriangleStrip(patch.Vertices, easting, northing))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if a point is inside any triangle in a triangle strip.
+    /// Vertices[0] is color, actual geometry starts at index 1.
+    /// </summary>
+    private bool IsPointInTriangleStrip(List<Vec3> vertices, double easting, double northing)
+    {
+        // Need at least 3 geometry vertices (indices 1,2,3) to form a triangle
+        if (vertices.Count < 4) return false;
+
+        // Check each triangle in the strip
+        for (int i = 1; i < vertices.Count - 2; i++)
+        {
+            var v0 = vertices[i];
+            var v1 = vertices[i + 1];
+            var v2 = vertices[i + 2];
+
+            if (IsPointInTriangle(easting, northing,
+                v0.Easting, v0.Northing,
+                v1.Easting, v1.Northing,
+                v2.Easting, v2.Northing))
             {
-                // Point is in bounding box - for now, consider it covered
-                // A more precise check would test against actual triangles
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Check if point (px,py) is inside triangle (ax,ay)-(bx,by)-(cx,cy)
+    /// using barycentric coordinate method.
+    /// </summary>
+    private bool IsPointInTriangle(double px, double py,
+        double ax, double ay, double bx, double by, double cx, double cy)
+    {
+        // Compute vectors
+        double v0x = cx - ax;
+        double v0y = cy - ay;
+        double v1x = bx - ax;
+        double v1y = by - ay;
+        double v2x = px - ax;
+        double v2y = py - ay;
+
+        // Compute dot products
+        double dot00 = v0x * v0x + v0y * v0y;
+        double dot01 = v0x * v1x + v0y * v1y;
+        double dot02 = v0x * v2x + v0y * v2y;
+        double dot11 = v1x * v1x + v1y * v1y;
+        double dot12 = v1x * v2x + v1y * v2y;
+
+        // Compute barycentric coordinates
+        double denom = dot00 * dot11 - dot01 * dot01;
+        if (Math.Abs(denom) < 1e-10) return false; // Degenerate triangle
+
+        double invDenom = 1.0 / denom;
+        double u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        double v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+
+        // Check if point is in triangle (with small tolerance for edge cases)
+        const double tolerance = 0.001;
+        return (u >= -tolerance) && (v >= -tolerance) && (u + v <= 1.0 + tolerance);
     }
 
     public IReadOnlyList<CoveragePatch> GetPatches()
