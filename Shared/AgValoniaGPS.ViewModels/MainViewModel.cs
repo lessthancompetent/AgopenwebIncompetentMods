@@ -307,6 +307,13 @@ public class MainViewModel : ReactiveObject
         NtripUsername = settings.NtripUsername;
         NtripPassword = settings.NtripPassword;
 
+        // Auto-connect to NTRIP if configured
+        if (settings.NtripAutoConnect && !string.IsNullOrEmpty(settings.NtripCasterIp))
+        {
+            Console.WriteLine("[NTRIP] Auto-connecting at startup...");
+            _ = ConnectToNtripAsync(); // Fire and forget - don't await in RestoreSettings
+        }
+
         // Restore UI state (through _displaySettings service)
         _displaySettings.IsGridOn = settings.GridVisible;
 
