@@ -87,6 +87,9 @@ public static class ServiceCollectionExtensions
         // Vehicle profile service
         services.AddSingleton<IVehicleProfileService, VehicleProfileService>();
 
+        // NTRIP profile service
+        services.AddSingleton<INtripProfileService, NtripProfileService>();
+
         // Configuration service (single source of truth)
         services.AddSingleton<IConfigurationService, ConfigurationService>();
 

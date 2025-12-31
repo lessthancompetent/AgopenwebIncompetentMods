@@ -61,6 +61,12 @@
 
             <Separator Height="1" Background="#444" Margin="0,4"/>
 
+            <!-- NTRIP Profiles -->
+            <Button Classes="ModernButton" Content="NTRIP Profiles" HorizontalAlignment="Stretch" Margin="0,2" ClickMode="Press"
+                    Command="{Binding ShowNtripProfilesDialogCommand}"/>
+
+            <Separator Height="1" Background="#444" Margin="0,4"/>
+
             <!-- Simulator -->
             <Button Classes="ModernButton" Content="Simulator" HorizontalAlignment="Stretch" Margin="0,2" ClickMode="Press"
                     Command="{Binding ToggleSimulatorPanelCommand}"/>
