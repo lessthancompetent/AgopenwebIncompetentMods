@@ -7145,33 +7145,29 @@ public partial class MainViewModel : ObservableObject
         foreach (var dirPath in Directory.GetDirectories(fieldsDirectory))
         {
             var fieldName = Path.GetFileName(dirPath);
-            var item = new FieldSelectionItem
-            {
-                Name = fieldName,
-                DirectoryPath = dirPath
-            };
 
-            // Try to load boundary to calculate area
+            // Calculate area from boundary if available
+            double area = 0;
             var boundary = _boundaryFileService.LoadBoundary(dirPath);
             if (boundary?.OuterBoundary != null && boundary.OuterBoundary.IsValid)
             {
-                // Calculate area in hectares
-                item.Area = boundary.OuterBoundary.AreaHectares;
-                // Distance is not calculated - boundary points are in local coordinates
+                area = boundary.OuterBoundary.AreaHectares;
             }
 
             // Get NTRIP profile name for this field
+            string ntripProfileName = string.Empty;
             var ntripProfile = _ntripProfileService.GetProfileForField(fieldName);
             if (ntripProfile != null)
             {
                 // Show profile name, with "(Default)" suffix if it's the default profile
                 // and not specifically associated with this field
                 var isSpecificallyAssociated = ntripProfile.AssociatedFields.Contains(fieldName, StringComparer.OrdinalIgnoreCase);
-                item.NtripProfileName = isSpecificallyAssociated
+                ntripProfileName = isSpecificallyAssociated
                     ? ntripProfile.Name
                     : $"{ntripProfile.Name} (Default)";
             }
 
+            var item = new FieldSelectionItem(fieldName, dirPath, 0, area, ntripProfileName);
             AvailableFields.Add(item);
         }
     }
@@ -8475,16 +8471,19 @@ public class BoundaryListItem
 }
 
 /// <summary>
-/// View model item for field selection list display
+/// View model item for field selection list display.
 /// </summary>
-public class FieldSelectionItem
-{
-    public string Name { get; set; } = string.Empty;
-    public string DirectoryPath { get; set; } = string.Empty;
-    public double Distance { get; set; }
-    public double Area { get; set; }
-    public string NtripProfileName { get; set; } = string.Empty;
-}
+/// <param name="Name">Field name (directory name).</param>
+/// <param name="DirectoryPath">Full path to the field directory.</param>
+/// <param name="Distance">Distance to field (currently unused).</param>
+/// <param name="Area">Field area in hectares.</param>
+/// <param name="NtripProfileName">Associated NTRIP profile name.</param>
+public record FieldSelectionItem(
+    string Name,
+    string DirectoryPath,
+    double Distance,
+    double Area,
+    string NtripProfileName);
 
 /// <summary>
 /// View model item for KML file list display

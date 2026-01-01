@@ -50,19 +50,8 @@ public class CoveragePatch
 /// <summary>
 /// Coverage color with RGB components (0-255 range)
 /// </summary>
-public struct CoverageColor
+public readonly record struct CoverageColor(byte R, byte G, byte B)
 {
-    public byte R { get; set; }
-    public byte G { get; set; }
-    public byte B { get; set; }
-
-    public CoverageColor(byte r, byte g, byte b)
-    {
-        R = r;
-        G = g;
-        B = b;
-    }
-
     /// <summary>
     /// Default coverage color (green)
     /// </summary>

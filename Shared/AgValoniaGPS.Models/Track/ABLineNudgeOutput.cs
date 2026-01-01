@@ -1,20 +1,10 @@
 using AgValoniaGPS.Models.Base;
 
-namespace AgValoniaGPS.Models.Track
-{
-    /// <summary>
-    /// Output from AB line nudging calculation.
-    /// </summary>
-    public class ABLineNudgeOutput
-    {
-        /// <summary>
-        /// New Point A after nudging.
-        /// </summary>
-        public Vec2 NewPointA { get; set; }
+namespace AgValoniaGPS.Models.Track;
 
-        /// <summary>
-        /// New Point B after nudging.
-        /// </summary>
-        public Vec2 NewPointB { get; set; }
-    }
-}
+/// <summary>
+/// Output from AB line nudging calculation.
+/// </summary>
+/// <param name="NewPointA">New Point A after nudging.</param>
+/// <param name="NewPointB">New Point B after nudging.</param>
+public record ABLineNudgeOutput(Vec2 NewPointA, Vec2 NewPointB);

@@ -22,19 +22,15 @@ namespace AgValoniaGPS.Services.Track
             // Calculate perpendicular offset using heading + 90 degrees
             double perpHeading = input.Heading + GeometryMath.PIBy2;
 
-            return new ABLineNudgeOutput
-            {
-                NewPointA = new Vec2
-                {
-                    Easting = input.PointA.Easting + (Math.Sin(perpHeading) * input.Distance),
-                    Northing = input.PointA.Northing + (Math.Cos(perpHeading) * input.Distance)
-                },
-                NewPointB = new Vec2
-                {
-                    Easting = input.PointB.Easting + (Math.Sin(perpHeading) * input.Distance),
-                    Northing = input.PointB.Northing + (Math.Cos(perpHeading) * input.Distance)
-                }
-            };
+            var newPointA = new Vec2(
+                input.PointA.Easting + (Math.Sin(perpHeading) * input.Distance),
+                input.PointA.Northing + (Math.Cos(perpHeading) * input.Distance));
+
+            var newPointB = new Vec2(
+                input.PointB.Easting + (Math.Sin(perpHeading) * input.Distance),
+                input.PointB.Northing + (Math.Cos(perpHeading) * input.Distance));
+
+            return new ABLineNudgeOutput(newPointA, newPointB);
         }
 
         /// <summary>
@@ -44,14 +40,9 @@ namespace AgValoniaGPS.Services.Track
         /// <returns>New curve points</returns>
         public CurveNudgeOutput NudgeCurve(CurveNudgeInput input)
         {
-            var output = new CurveNudgeOutput
-            {
-                NewCurvePoints = new List<Vec3>()
-            };
-
             if (input.CurvePoints == null || input.CurvePoints.Count < 6)
             {
-                return output;
+                return new CurveNudgeOutput(new List<Vec3>());
             }
 
             List<Vec3> curList = new List<Vec3>();
@@ -99,7 +90,7 @@ namespace AgValoniaGPS.Services.Track
             int cnt = curList.Count;
             if (cnt < 6)
             {
-                return output;
+                return new CurveNudgeOutput(new List<Vec3>());
             }
 
             // Step 2: Recalculate headings for the nudged points
@@ -147,8 +138,7 @@ namespace AgValoniaGPS.Services.Track
             // Step 4: Final heading calculation for smoothed curve
             CalculateHeadings(ref curList);
 
-            output.NewCurvePoints = curList;
-            return output;
+            return new CurveNudgeOutput(curList);
         }
 
         /// <summary>

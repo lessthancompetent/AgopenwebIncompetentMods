@@ -86,10 +86,7 @@ namespace AgValoniaGPS.Services.Headland
                 }
 
                 // Section is in headland if both corners are NOT in work area
-                var status = new SectionHeadlandStatus
-                {
-                    IsInHeadlandArea = !isLeftInWk && !isRightInWk
-                };
+                var status = new SectionHeadlandStatus(!isLeftInWk && !isRightInWk, IsLookOnInHeadland: false);
                 output.SectionStatus.Add(status);
             }
 
@@ -137,7 +134,7 @@ namespace AgValoniaGPS.Services.Headland
                     input.Boundaries);
 
                 // Look-ahead is in headland if both look points are NOT in work area
-                output.SectionStatus[j].IsLookOnInHeadland = !isLookLeftIn && !isLookRightIn;
+                output.SectionStatus[j] = output.SectionStatus[j] with { IsLookOnInHeadland = !isLookLeftIn && !isLookRightIn };
             }
         }
 

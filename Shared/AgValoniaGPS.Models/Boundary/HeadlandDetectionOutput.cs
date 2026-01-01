@@ -44,19 +44,10 @@ namespace AgValoniaGPS.Models.Headland
         public bool ShouldTriggerWarning { get; set; }
     }
 
-    /// <summary>
-    /// Headland status for a single section.
-    /// </summary>
-    public class SectionHeadlandStatus
-    {
-        /// <summary>
-        /// Whether the section corners are in headland area.
-        /// </summary>
-        public bool IsInHeadlandArea { get; set; }
-
-        /// <summary>
-        /// Whether the look-ahead points are in headland area.
-        /// </summary>
-        public bool IsLookOnInHeadland { get; set; }
-    }
+/// <summary>
+/// Headland status for a single section.
+/// </summary>
+/// <param name="IsInHeadlandArea">Whether the section corners are in headland area.</param>
+/// <param name="IsLookOnInHeadland">Whether the look-ahead points are in headland area.</param>
+public record SectionHeadlandStatus(bool IsInHeadlandArea, bool IsLookOnInHeadland);
 }
