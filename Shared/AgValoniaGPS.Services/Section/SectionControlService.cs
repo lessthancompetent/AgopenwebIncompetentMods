@@ -344,8 +344,10 @@ public class SectionControlService : ISectionControlService
             section.IsMappingOn = true;
             section.MappingOnTimer = 0;
 
-            // Apply coverage margin with curve-following adjustment
-            var (expandedLeft, expandedRight) = ApplyCoverageMargin(leftEdge, rightEdge, toolHeading);
+            // For the FIRST point of a new patch, use straight perpendicular (no yaw adjustment).
+            // The yaw rate adjustment is meant to align consecutive points within a patch.
+            // Using it on the first point causes spikes when exiting turns.
+            var (expandedLeft, expandedRight) = ApplyCoverageMarginStraight(leftEdge, rightEdge, toolHeading);
 
             // Get zone index (for multi-colored sections or zones)
             int zoneIndex = GetZoneIndex(index);
@@ -372,6 +374,36 @@ public class SectionControlService : ISectionControlService
             int zoneIndex = GetZoneIndex(index);
             _coverageMapService.AddCoveragePoint(zoneIndex, expandedLeft, expandedRight);
         }
+    }
+
+    /// <summary>
+    /// Apply coverage margin with straight perpendicular (no yaw adjustment).
+    /// Used for the first point of a new coverage patch.
+    /// </summary>
+    private (Vec2 left, Vec2 right) ApplyCoverageMarginStraight(Vec2 leftEdge, Vec2 rightEdge, double toolHeading)
+    {
+        var tool = ConfigurationStore.Instance.Tool;
+        double margin = tool.CoverageMarginMeters;
+
+        if (margin <= 0)
+            return (leftEdge, rightEdge);
+
+        // Straight perpendicular direction (no yaw adjustment)
+        double perpHeading = toolHeading + Math.PI / 2.0;
+        double perpSin = Math.Sin(perpHeading);
+        double perpCos = Math.Cos(perpHeading);
+
+        // Expand left edge outward (negative direction)
+        var expandedLeft = new Vec2(
+            leftEdge.Easting - perpSin * margin,
+            leftEdge.Northing - perpCos * margin);
+
+        // Expand right edge outward (positive direction)
+        var expandedRight = new Vec2(
+            rightEdge.Easting + perpSin * margin,
+            rightEdge.Northing + perpCos * margin);
+
+        return (expandedLeft, expandedRight);
     }
 
     /// <summary>
