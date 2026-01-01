@@ -37,7 +37,7 @@ Check the entire section width (left edge to right edge) against coverage triang
 
 ## Proposed Approach: Coordinate Transform Method
 
-Credit: Approach suggested by Qt developer working on similar problem.
+Credit: Approach suggested by QtAOG developer Michael Torrie working on similar problem.
 
 ### Key Insight
 
@@ -49,13 +49,55 @@ Transform coverage triangles into a local coordinate system where:
 ```
 World Space:                    Local Space (transformed):
 
-    ◢████                           Y
+    ◢████                           Y (forward/heading direction)
    ◢█████  ←triangle                ↑
   ◢██████                           |    ◢██
-  [section]→                   ─────┼────◢██─────→ X (section)
+  [section]→                   ─────┼────◢██─────→ X (section width)
      ↑                             ━━━━━━━━━━
   heading                      -halfWidth  +halfWidth
 ```
+
+### Look-Ahead Optimization (Single Transform)
+
+**Credit: Michael Torrie**
+
+Instead of transforming twice (once for current position, once for look-ahead), use a single transform and offset the Y value:
+
+```
+Local Space:
+                                    Y
+                                    ↑
+    Look-ahead line: ──────────────────────────  Y = lookAheadDistance
+                                    |
+                                    |    ◢██
+    Current section: ───────────────┼────◢██───  Y = 0
+                                    |
+                               -halfWidth  +halfWidth
+```
+
+- Transform triangles once using current section center
+- Check Y=0 for current coverage
+- Check Y=lookAheadDistance for look-ahead coverage
+- Same transformed triangles, different Y threshold
+
+```csharp
+// Single transform, multiple Y checks:
+var transformed = TransformTriangle(triangle, sectionCenter, heading);
+
+// Current position coverage
+var currentCoverage = GetXIntervalsAtY(transformed, yThreshold: 0);
+
+// Look-ahead coverage (same transformed triangle!)
+var lookAheadCoverage = GetXIntervalsAtY(transformed, yThreshold: lookAheadDistance);
+
+// Look-off coverage
+var lookOffCoverage = GetXIntervalsAtY(transformed, yThreshold: lookOffDistance);
+```
+
+This means:
+- One transform per triangle (not 2-3 for current/look-on/look-off)
+- Same intersection math, just different Y value
+- Can check multiple distances with negligible extra cost
 
 ### Why This Is Fast
 
@@ -159,22 +201,30 @@ public static Vec2 ToLocalCoords(
 }
 ```
 
-#### Y-Axis Intercept Calculation
+#### Y-Threshold Intercept Calculation
 ```csharp
 /// <summary>
-/// Find X coordinate where edge from p1 to p2 crosses Y=0.
-/// Returns null if edge doesn't cross Y=0.
+/// Find X coordinate where edge from p1 to p2 crosses a given Y threshold.
+/// Returns null if edge doesn't cross the threshold.
 /// </summary>
-public static double? GetXInterceptAtYZero(Vec2 p1, Vec2 p2)
+/// <param name="yThreshold">Y value to check (0 = current, lookAheadDist = look-ahead)</param>
+public static double? GetXInterceptAtY(Vec2 p1, Vec2 p2, double yThreshold = 0)
 {
-    // Both above or both below Y=0?
-    if ((p1.Northing > 0) == (p2.Northing > 0))
+    double y1 = p1.Northing - yThreshold;
+    double y2 = p2.Northing - yThreshold;
+
+    // Both above or both below threshold?
+    if ((y1 > 0) == (y2 > 0))
         return null;
 
-    // Linear interpolation: find t where Y = 0
-    double t = -p1.Northing / (p2.Northing - p1.Northing);
+    // Linear interpolation: find t where Y = yThreshold
+    double t = -y1 / (y2 - y1);
     return p1.Easting + t * (p2.Easting - p1.Easting);
 }
+
+// Convenience overload for Y=0 (current section position)
+public static double? GetXInterceptAtYZero(Vec2 p1, Vec2 p2)
+    => GetXInterceptAtY(p1, p2, 0);
 ```
 
 ### Phase 3: Coverage Service Updates
@@ -188,14 +238,32 @@ public interface ICoverageMapService
     // Existing methods...
     bool IsPointCovered(double easting, double northing);
 
-    // NEW: Segment-based coverage check
+    // NEW: Segment-based coverage check with look-ahead support
     /// <summary>
     /// Calculate coverage for a section segment using transform method.
+    /// Uses single transform with Y-offset for look-ahead (Michael's optimization).
     /// </summary>
     /// <param name="sectionCenter">Center point of section in world coords</param>
     /// <param name="heading">Section heading in radians</param>
     /// <param name="halfWidth">Half the section width in meters</param>
-    CoverageResult GetSegmentCoverage(Vec2 sectionCenter, double heading, double halfWidth);
+    /// <param name="lookAheadDistance">Distance ahead to check (0 = current position)</param>
+    CoverageResult GetSegmentCoverage(
+        Vec2 sectionCenter,
+        double heading,
+        double halfWidth,
+        double lookAheadDistance = 0);
+
+    // NEW: Check current, look-on, and look-off in single pass
+    /// <summary>
+    /// Check coverage at multiple look-ahead distances with single transform.
+    /// Returns (current, lookOn, lookOff) coverage results.
+    /// </summary>
+    (CoverageResult Current, CoverageResult LookOn, CoverageResult LookOff) GetSegmentCoverageMulti(
+        Vec2 sectionCenter,
+        double heading,
+        double halfWidth,
+        double lookOnDistance,
+        double lookOffDistance);
 
     // NEW: Multi-section batch check (optimization)
     /// <summary>
@@ -452,6 +520,32 @@ Expected performance: <1ms for 16 sections with 1000+ coverage triangles.
 
 ## Future Enhancements
 
+### Curve-Aware Look-Ahead (Michael's Idea)
+Instead of straight look-ahead lines, apply yaw rate to "look around" curves:
+
+```
+Straight look-ahead:          Curve-aware look-ahead:
+        |                              ╱
+        |                            ╱
+        |                          ╱
+    [section]                  [section]
+                                   ↑
+                              yaw rate applied
+```
+
+Implementation:
+- Get current yaw rate (degrees/second or radians/meter)
+- For each Y increment in look-ahead, rotate the check line slightly
+- Results in arc-shaped look-ahead matching expected path
+- More accurate coverage prediction on curves
+
+```csharp
+// Curve-aware Y threshold
+double yawRatePerMeter = currentYawRate / speed;
+double rotatedHeading = heading + (lookAheadDistance * yawRatePerMeter);
+// Apply rotation to transform or adjust X intercept calculations
+```
+
 ### Tram Line Detection
 Same transform approach could detect:
 - Distance from wheel tracks
@@ -470,8 +564,10 @@ Detect when section partially enters headland zone, not just center point.
 
 ## References
 
-- Brian's feedback on points vs segments (AgOpenGPS architectural insight)
-- Qt developer's transform-based intersection approach
+- Brian Tischler's feedback on points vs segments (AgOpenGPS architectural insight)
+- Michael Torrie (QtAOG): Transform-based intersection approach
+- Michael Torrie (QtAOG): Single-transform Y-offset optimization for look-ahead
+- Michael Torrie (QtAOG): Curve-aware look-ahead using yaw rate
 - Current implementation: `CoverageMapService.IsPointCovered()`
 - Current section control: `SectionControlService.Update()`
 
