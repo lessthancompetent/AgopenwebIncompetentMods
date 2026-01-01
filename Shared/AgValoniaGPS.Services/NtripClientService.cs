@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Services.Interfaces;
 
@@ -36,13 +37,15 @@ public class NtripClientService : INtripClientService, IDisposable
     private readonly object _queueLock = new object();
     private const int RTCM_PACKET_SIZE = 256; // Match AgIO default
     private readonly IGpsService _gpsService;
+    private readonly ILogger<NtripClientService> _logger;
 
     public bool IsConnected { get; private set; }
     public ulong TotalBytesReceived { get; private set; }
 
-    public NtripClientService(IGpsService gpsService)
+    public NtripClientService(IGpsService gpsService, ILogger<NtripClientService> logger)
     {
         _gpsService = gpsService;
+        _logger = logger;
     }
 
     public async Task ConnectAsync(NtripConfiguration config)
@@ -215,7 +218,7 @@ public class NtripClientService : INtripClientService, IDisposable
                             _headerDumped = true;
                             int dumpSize = Math.Min(100, _headerBuffer.Count);
                             string headerPreview = Encoding.ASCII.GetString(_headerBuffer.Take(dumpSize).ToArray());
-                            Console.WriteLine($"NTRIP: Response header: {headerPreview.Replace("\r\n", " ")}");
+                            _logger.LogDebug("Response header: {Header}", headerPreview.Replace("\r\n", " "));
                         }
 
                         // Find header/body boundary
@@ -259,7 +262,7 @@ public class NtripClientService : INtripClientService, IDisposable
                             if (response.Contains("200 OK") || response.Contains("ICY 200"))
                             {
                                 headerReceived = true;
-                                Console.WriteLine("NTRIP: Connected and authorized, receiving RTCM data");
+                                _logger.LogInformation("Connected and authorized, receiving RTCM data");
 
                                 // Forward any RTCM data after header
                                 if (dataStart < _headerBuffer.Count)
@@ -275,7 +278,7 @@ public class NtripClientService : INtripClientService, IDisposable
                             }
                             else
                             {
-                                Console.WriteLine($"NTRIP: Authorization failed or bad response - {response}");
+                                _logger.LogWarning("Authorization failed or bad response: {Response}", response);
                                 await DisconnectAsync();
                                 return;
                             }
@@ -293,7 +296,7 @@ public class NtripClientService : INtripClientService, IDisposable
                 else
                 {
                     // Connection closed by server
-                    Console.WriteLine("NTRIP: Connection closed by caster (bytesReceived=0)");
+                    _logger.LogInformation("Connection closed by caster");
                     await DisconnectAsync();
                     return;
                 }
@@ -304,7 +307,7 @@ public class NtripClientService : INtripClientService, IDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"NTRIP: Receive error: {ex.Message}");
+                _logger.LogError(ex, "Receive error");
                 await DisconnectAsync();
                 break;
             }
@@ -359,13 +362,13 @@ public class NtripClientService : INtripClientService, IDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"NTRIP: Failed to forward RTCM data: {ex.Message}");
+                _logger.LogError(ex, "Failed to forward RTCM data");
             }
 
             // Clear queue if it gets too large (like AgIO does at 10000 bytes)
             if (_rtcmQueue.Count > 10000)
             {
-                Console.WriteLine($"NTRIP: Queue overflow, clearing {_rtcmQueue.Count} bytes");
+                _logger.LogWarning("Queue overflow, clearing {ByteCount} bytes", _rtcmQueue.Count);
                 _rtcmQueue.Clear();
             }
         }
@@ -434,7 +437,7 @@ public class NtripClientService : INtripClientService, IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"NTRIP: Failed to send GGA: {ex.Message}");
+            _logger.LogError(ex, "Failed to send GGA");
         }
     }
 

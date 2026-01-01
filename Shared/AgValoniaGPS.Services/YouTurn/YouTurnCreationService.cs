@@ -1,6 +1,7 @@
 using AgValoniaGPS.Models.Base;
 using AgValoniaGPS.Models.YouTurn;
 using AgValoniaGPS.Services.PathPlanning;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,6 +19,12 @@ namespace AgValoniaGPS.Services.YouTurn
 
         // Reusable service for Dubins path generation (radius updated per turn)
         private readonly DubinsPathService _dubinsService = new DubinsPathService(1.0);
+        private readonly ILogger<YouTurnCreationService> _logger;
+
+        public YouTurnCreationService(ILogger<YouTurnCreationService> logger)
+        {
+            _logger = logger;
+        }
 
         // Current input being processed (for helper methods)
         private YouTurnCreationInput _currentInput;
@@ -73,14 +80,14 @@ namespace AgValoniaGPS.Services.YouTurn
             {
                 // Use the pre-calculated offset (matches cyan next-track line exactly)
                 turnOffset = input.TurnOffset + (input.IsTurnLeft ? -input.ToolOffset * 2.0 : input.ToolOffset * 2.0);
-                Console.WriteLine($"[YouTurn] Using pre-calculated TurnOffset: {input.TurnOffset:F2}m -> turnOffset={turnOffset:F2}m");
+                _logger.LogDebug("Using pre-calculated TurnOffset: {InputOffset}m -> turnOffset={TurnOffset}m", input.TurnOffset, turnOffset);
             }
             else
             {
                 // Fallback: calculate from RowSkipsWidth (skip=0 means 1 width, skip=1 means 2 widths, etc.)
                 turnOffset = (input.ToolWidth - input.ToolOverlap) * (input.RowSkipsWidth + 1)
                     + (input.IsTurnLeft ? -input.ToolOffset * 2.0 : input.ToolOffset * 2.0);
-                Console.WriteLine($"[YouTurn] Fallback: TurnOffset was {input.TurnOffset:F2}m, calculated turnOffset={turnOffset:F2}m from RowSkipsWidth={input.RowSkipsWidth}");
+                _logger.LogDebug("Fallback: TurnOffset was {InputOffset}m, calculated turnOffset={TurnOffset}m from RowSkipsWidth={RowSkipsWidth}", input.TurnOffset, turnOffset, input.RowSkipsWidth);
             }
             pointSpacing = input.TurnRadius * 0.1;
 
@@ -948,14 +955,14 @@ namespace AgValoniaGPS.Services.YouTurn
             // Check if start and goal are in valid locations
             int goalResult = input.IsPointInsideTurnArea(goal);
 
-            Console.WriteLine($"[YouTurn] OmegaTurn: turnOffset={turnOffset:F2}m, skipRows={input.RowSkipsWidth}, goalResult={goalResult}");
-            Console.WriteLine($"[YouTurn] Goal position: E={goal.Easting:F2}, N={goal.Northing:F2}");
+            _logger.LogDebug("OmegaTurn: turnOffset={TurnOffset}m, skipRows={SkipRows}, goalResult={GoalResult}", turnOffset, input.RowSkipsWidth, goalResult);
+            _logger.LogDebug("Goal position: E={Easting}, N={Northing}", goal.Easting, goal.Northing);
 
             // If goal is outside boundary (-1), log it but proceed.
             // The goal being near the edge is OK - we'll check the arc path later.
             if (goalResult == -1)
             {
-                Console.WriteLine($"[YouTurn] Goal at turnOffset={turnOffset:F2}m is near/outside boundary edge");
+                _logger.LogDebug("Goal at turnOffset={TurnOffset}m is near/outside boundary edge", turnOffset);
             }
 
             // Generate the turn points
@@ -1084,7 +1091,7 @@ namespace AgValoniaGPS.Services.YouTurn
                         + (input.IsHeadingSameWay ? input.ToolOffset : -input.ToolOffset) + input.NudgeDistance;
 
                     distAway += (0.5 * widthMinusOverlap);
-                    Console.WriteLine($"[YouTurn] WideTurn case 1: turnOffset={turnOffset:F2}m, distAway={distAway:F2}m");
+                    _logger.LogDebug("WideTurn case 1: turnOffset={TurnOffset}m, distAway={DistAway}m", turnOffset, distAway);
 
                     nextCurve = BuildNewOffsetCurveList(input, distAway);
 

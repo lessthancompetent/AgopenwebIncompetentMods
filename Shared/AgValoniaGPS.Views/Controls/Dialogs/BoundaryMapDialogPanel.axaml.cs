@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -67,7 +68,7 @@ public partial class BoundaryMapDialogPanel : UserControl
                 googleSatelliteUrl,
                 name: "Google Satellite");
             map.Layers.Add(new TileLayer(googleTileSource) { Name = "Satellite" });
-            Console.WriteLine("[BoundaryMap] Using Google Satellite tiles");
+            Debug.WriteLine("[BoundaryMap] Using Google Satellite tiles");
         }
         else
         {
@@ -78,7 +79,7 @@ public partial class BoundaryMapDialogPanel : UserControl
                 esriSatelliteUrl,
                 name: "Esri World Imagery");
             map.Layers.Add(new TileLayer(esriTileSource) { Name = "Satellite" });
-            Console.WriteLine("[BoundaryMap] Using ESRI World Imagery tiles");
+            Debug.WriteLine("[BoundaryMap] Using ESRI World Imagery tiles");
         }
 
         // Create layer for polygon (drawn below points)
@@ -147,9 +148,9 @@ public partial class BoundaryMapDialogPanel : UserControl
             var worldPos = viewport.ScreenToWorldXY(point.Position.X, point.Position.Y);
 
             // DEBUG: Log click position vs viewport bounds
-            Console.WriteLine($"[Click] Screen: ({point.Position.X:F1}, {point.Position.Y:F1}), Viewport: {viewport.Width:F1}x{viewport.Height:F1}");
-            Console.WriteLine($"[Click] Screen Y as fraction of height: {point.Position.Y / viewport.Height:F3}");
-            Console.WriteLine($"[Click] World pos: ({worldPos.worldX:F2}, {worldPos.worldY:F2})");
+            Debug.WriteLine($"[Click] Screen: ({point.Position.X:F1}, {point.Position.Y:F1}), Viewport: {viewport.Width:F1}x{viewport.Height:F1}");
+            Debug.WriteLine($"[Click] Screen Y as fraction of height: {point.Position.Y / viewport.Height:F3}");
+            Debug.WriteLine($"[Click] World pos: ({worldPos.worldX:F2}, {worldPos.worldY:F2})");
 
             // Convert from SphericalMercator to WGS84
             var lonLat = SphericalMercator.ToLonLat(worldPos.worldX, worldPos.worldY);
@@ -178,7 +179,7 @@ public partial class BoundaryMapDialogPanel : UserControl
     private void AddBoundaryPoint(double lat, double lon)
     {
         _boundaryPoints.Add((lat, lon));
-        Console.WriteLine($"[BoundaryPoint] Added point #{_boundaryPoints.Count}: ({lat:F8}, {lon:F8})");
+        Debug.WriteLine($"[BoundaryPoint] Added point #{_boundaryPoints.Count}: ({lat:F8}, {lon:F8})");
 
         // Add point marker
         var mercator = SphericalMercator.FromLonLat(lon, lat);
@@ -349,7 +350,7 @@ public partial class BoundaryMapDialogPanel : UserControl
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[BoundaryMap] Save failed: {ex.Message}");
+            Debug.WriteLine($"[BoundaryMap] Save failed: {ex.Message}");
         }
     }
 
@@ -428,7 +429,7 @@ public partial class BoundaryMapDialogPanel : UserControl
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error capturing background: {ex.Message}");
+            Debug.WriteLine($"Error capturing background: {ex.Message}");
 
             // Re-enable drawing layers on error
             if (_pointsLayer != null) _pointsLayer.Enabled = true;

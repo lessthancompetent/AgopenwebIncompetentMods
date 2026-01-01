@@ -20,6 +20,7 @@ using AgValoniaGPS.Models.State;
 using AgValoniaGPS.Models.Communication;
 using AgValoniaGPS.Models.Ntrip;
 using Avalonia.Threading;
+using Microsoft.Extensions.Logging;
 
 namespace AgValoniaGPS.ViewModels;
 
@@ -53,6 +54,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ICoverageMapService _coverageMapService;
     private readonly ISectionControlService _sectionControlService;
     private readonly INtripProfileService _ntripProfileService;
+    private readonly ILogger<MainViewModel> _logger;
     private readonly ApplicationState _appState;
     private readonly DispatcherTimer _simulatorTimer;
     private AgValoniaGPS.Models.LocalPlane? _simulatorLocalPlane;
@@ -207,8 +209,10 @@ public partial class MainViewModel : ObservableObject
         ICoverageMapService coverageMapService,
         ISectionControlService sectionControlService,
         INtripProfileService ntripProfileService,
+        ILogger<MainViewModel> logger,
         ApplicationState appState)
     {
+        _logger = logger;
         _udpService = udpService;
         _gpsService = gpsService;
         _fieldService = fieldService;
@@ -318,7 +322,7 @@ public partial class MainViewModel : ObservableObject
         // Auto-connect to NTRIP if configured (legacy behavior, profiles will override when field loads)
         if (settings.NtripAutoConnect && !string.IsNullOrEmpty(settings.NtripCasterIp))
         {
-            Console.WriteLine("[NTRIP] Auto-connecting at startup (legacy settings)...");
+            _logger.LogInformation("NTRIP auto-connecting at startup (legacy settings)");
             _ = ConnectToNtripAsync(); // Fire and forget - don't await in RestoreSettings
         }
 
@@ -342,7 +346,7 @@ public partial class MainViewModel : ObservableObject
             Latitude = settings.SimulatorLatitude;
             Longitude = settings.SimulatorLongitude;
 
-            Console.WriteLine($"  Restored simulator: {settings.SimulatorLatitude},{settings.SimulatorLongitude}");
+            _logger.LogDebug("Restored simulator: {Lat},{Lon}", settings.SimulatorLatitude, settings.SimulatorLongitude);
         }
     }
 
@@ -353,7 +357,7 @@ public partial class MainViewModel : ObservableObject
             var profiles = _configurationService.GetAvailableProfiles();
             if (profiles.Count == 0)
             {
-                Console.WriteLine("No vehicle profiles found in Vehicles directory");
+                _logger.LogWarning("No vehicle profiles found in Vehicles directory");
                 return;
             }
 
@@ -364,24 +368,24 @@ public partial class MainViewModel : ObservableObject
             if (!string.IsNullOrEmpty(lastUsedProfile) && profiles.Contains(lastUsedProfile))
             {
                 profileToLoad = lastUsedProfile;
-                Console.WriteLine($"Loading last used vehicle profile: {profileToLoad}");
+                _logger.LogDebug("Loading last used vehicle profile: {ProfileName}", profileToLoad);
             }
             else
             {
                 // Fall back to first available profile
                 profileToLoad = profiles[0];
-                Console.WriteLine($"Loading first available vehicle profile: {profileToLoad}");
+                _logger.LogDebug("Loading first available vehicle profile: {ProfileName}", profileToLoad);
             }
 
             // Use ConfigurationService to load - this sets ConfigurationStore.ActiveProfileName
             if (_configurationService.LoadProfile(profileToLoad))
             {
                 var store = _configurationService.Store;
-                Console.WriteLine($"Loaded vehicle profile: {store.ActiveProfileName}");
-                Console.WriteLine($"  Tool width: {store.ActualToolWidth}m (from {store.NumSections} sections)");
-                Console.WriteLine($"  YouTurn radius: {store.Guidance.UTurnRadius}m");
-                Console.WriteLine($"  Wheelbase: {store.Vehicle.Wheelbase}m");
-                Console.WriteLine($"  Sections: {store.NumSections}");
+                _logger.LogInformation("Loaded vehicle profile: {ProfileName}", store.ActiveProfileName);
+                _logger.LogDebug("  Tool width: {ToolWidth}m (from {NumSections} sections)", store.ActualToolWidth, store.NumSections);
+                _logger.LogDebug("  YouTurn radius: {Radius}m", store.Guidance.UTurnRadius);
+                _logger.LogDebug("  Wheelbase: {Wheelbase}m", store.Vehicle.Wheelbase);
+                _logger.LogDebug("  Sections: {NumSections}", store.NumSections);
 
                 // Save as last used profile
                 _settingsService.Settings.LastUsedVehicleProfile = profileToLoad;
@@ -390,7 +394,7 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading vehicle profile: {ex.Message}");
+            _logger.LogError(ex, "Error loading vehicle profile");
         }
     }
 
@@ -436,20 +440,20 @@ public partial class MainViewModel : ObservableObject
 
             if (profile == null)
             {
-                Console.WriteLine($"[NTRIP Profile] No profile found for field '{fieldName}' (no default set)");
+                _logger.LogDebug("No NTRIP profile found for field '{FieldName}' (no default set)", fieldName);
                 return;
             }
 
             if (!profile.AutoConnectOnFieldLoad)
             {
-                Console.WriteLine($"[NTRIP Profile] Profile '{profile.Name}' has auto-connect disabled");
+                _logger.LogDebug("NTRIP profile '{ProfileName}' has auto-connect disabled", profile.Name);
                 return;
             }
 
             // Disconnect from current caster if connected
             if (_ntripService.IsConnected)
             {
-                Console.WriteLine($"[NTRIP Profile] Disconnecting from current caster...");
+                _logger.LogDebug("Disconnecting from current NTRIP caster");
                 await _ntripService.DisconnectAsync();
             }
 
@@ -461,12 +465,12 @@ public partial class MainViewModel : ObservableObject
             NtripPassword = profile.Password;
 
             // Connect to new caster
-            Console.WriteLine($"[NTRIP Profile] Connecting to '{profile.Name}' for field '{fieldName}'...");
+            _logger.LogInformation("Connecting to NTRIP profile '{ProfileName}' for field '{FieldName}'", profile.Name, fieldName);
             await ConnectToNtripAsync();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[NTRIP Profile] Error handling profile for field '{fieldName}': {ex.Message}");
+            _logger.LogError(ex, "Error handling NTRIP profile for field '{FieldName}'", fieldName);
         }
     }
 
@@ -535,7 +539,7 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[HelloTimer] Error: {ex.Message}");
+            _logger.LogError(ex, "HelloTimer error");
             StatusMessage = "Module check error";
         }
     }
@@ -1448,8 +1452,8 @@ public partial class MainViewModel : ObservableObject
         // Debug: log which offset we're following every second (30 frames at 30fps)
         if (_youTurnCounter % 30 == 0)
         {
-            Console.WriteLine($"[AutoSteer] Following path {_howManyPathsAway}, offset {distAway:F1}m, heading {(isHeadingSameWay ? "same" : "opposite")}");
-            Console.WriteLine($"[AutoSteer] Current line: A({currentPtAEasting:F1},{currentPtANorthing:F1}) B({currentPtBEasting:F1},{currentPtBNorthing:F1})");
+            _logger.LogDebug("AutoSteer: Following path {Path}, offset {Offset:F1}m, heading {Heading}", _howManyPathsAway, distAway, isHeadingSameWay ? "same" : "opposite");
+            _logger.LogDebug("AutoSteer: Current line A({Ax:F1},{Ay:F1}) B({Bx:F1},{By:F1})", currentPtAEasting, currentPtANorthing, currentPtBEasting, currentPtBNorthing);
         }
 
         // Calculate dynamic look-ahead distance based on speed
@@ -1606,7 +1610,7 @@ public partial class MainViewModel : ObservableObject
         // Debug: Log status periodically
         if (_youTurnPath == null && !_isInYouTurn && _youTurnCounter % 60 == 0)
         {
-            Console.WriteLine($"[YouTurn] Status: distToHeadland={_distanceToHeadland:F1}m, headlandAhead={headlandAhead}, aligned={isAlignedWithABLine}, counter={_youTurnCounter}");
+            _logger.LogDebug($"[YouTurn] Status: distToHeadland={_distanceToHeadland:F1}m, headlandAhead={headlandAhead}, aligned={isAlignedWithABLine}, counter={_youTurnCounter}");
         }
 
         if (_youTurnPath == null && _youTurnCounter >= 4 && !_isInYouTurn && headlandAhead)
@@ -1614,7 +1618,7 @@ public partial class MainViewModel : ObservableObject
             // First check if a U-turn would put us outside the boundary
             if (WouldNextLineBeInsideBoundary(track, abHeading))
             {
-                Console.WriteLine($"[YouTurn] Creating turn path - dist ahead: {_distanceToHeadland:F1}m");
+                _logger.LogDebug($"[YouTurn] Creating turn path - dist ahead: {_distanceToHeadland:F1}m");
                 // Determine turn direction BEFORE computing next track
                 // Same direction = turn left, opposite = turn right (for zig-zag pattern)
                 _isTurnLeft = _isHeadingSameWay;
@@ -1625,7 +1629,7 @@ public partial class MainViewModel : ObservableObject
             }
             else
             {
-                Console.WriteLine("[YouTurn] Next line would be outside boundary - stopping U-turns");
+                _logger.LogDebug("[YouTurn] Next line would be outside boundary - stopping U-turns");
                 StatusMessage = "End of field reached";
             }
         }
@@ -1647,7 +1651,7 @@ public partial class MainViewModel : ObservableObject
                 _isYouTurnTriggered = true;
                 _isInYouTurn = true;
                 StatusMessage = "YouTurn triggered!";
-                Console.WriteLine($"[YouTurn] Triggered at distance {distToTurnStart:F2}m from turn start");
+                _logger.LogDebug($"[YouTurn] Triggered at distance {distToTurnStart:F2}m from turn start");
                 // Note: ComputeNextTrack was already called when the path was created
             }
         }
@@ -1696,7 +1700,7 @@ public partial class MainViewModel : ObservableObject
         double actualWidth = ConfigStore.ActualToolWidth;
         double overlap = Tool.Overlap;
         double offsetDistance = (rowSkipWidth + 1) * (actualWidth - overlap);
-        Console.WriteLine($"[NextTrack] ActualToolWidth={actualWidth:F2}m, Overlap={overlap:F2}m, SkipWidth={rowSkipWidth}, OffsetDistance={offsetDistance:F2}m");
+        _logger.LogDebug($"[NextTrack] ActualToolWidth={actualWidth:F2}m, Overlap={overlap:F2}m, SkipWidth={rowSkipWidth}, OffsetDistance={offsetDistance:F2}m");
 
         // Perpendicular offset direction
         double perpAngle = abHeading + (_isHeadingSameWay ? -Math.PI / 2 : Math.PI / 2);
@@ -1782,8 +1786,8 @@ public partial class MainViewModel : ObservableObject
             new Vec3(refPointB.Easting + offsetEasting, refPointB.Northing + offsetNorthing, abHeading));
         _nextTrack.IsActive = false;
 
-        Console.WriteLine($"[YouTurn] Turn {(_isTurnLeft ? "LEFT" : "RIGHT")}, heading {(_isHeadingSameWay ? "SAME" : "OPPOSITE")} way");
-        Console.WriteLine($"[YouTurn] Offset {(positiveOffset ? "positive" : "negative")}: path {_howManyPathsAway} -> {nextPathsAway} ({nextDistAway:F1}m)");
+        _logger.LogDebug($"[YouTurn] Turn {(_isTurnLeft ? "LEFT" : "RIGHT")}, heading {(_isHeadingSameWay ? "SAME" : "OPPOSITE")} way");
+        _logger.LogDebug($"[YouTurn] Offset {(positiveOffset ? "positive" : "negative")}: path {_howManyPathsAway} -> {nextPathsAway} ({nextDistAway:F1}m)");
 
         // Update map visualization
         _mapService.SetNextTrack(_nextTrack);
@@ -1814,9 +1818,9 @@ public partial class MainViewModel : ObservableObject
         int offsetChange = positiveOffset ? pathsToMove : -pathsToMove;
         _howManyPathsAway += offsetChange;
 
-        Console.WriteLine($"[YouTurn] Turn complete! Turn was {(_isTurnLeft ? "LEFT" : "RIGHT")}, heading WAS {(_wasHeadingSameWayAtTurnStart ? "SAME" : "OPPOSITE")} at start");
-        Console.WriteLine($"[YouTurn] Offset {(positiveOffset ? "positive" : "negative")} by {offsetChange}, now on path {_howManyPathsAway}");
-        Console.WriteLine($"[YouTurn] Total offset: {(ConfigStore.ActualToolWidth - Tool.Overlap) * _howManyPathsAway:F1}m from reference line");
+        _logger.LogDebug($"[YouTurn] Turn complete! Turn was {(_isTurnLeft ? "LEFT" : "RIGHT")}, heading WAS {(_wasHeadingSameWayAtTurnStart ? "SAME" : "OPPOSITE")} at start");
+        _logger.LogDebug($"[YouTurn] Offset {(positiveOffset ? "positive" : "negative")} by {offsetChange}, now on path {_howManyPathsAway}");
+        _logger.LogDebug($"[YouTurn] Total offset: {(ConfigStore.ActualToolWidth - Tool.Overlap) * _howManyPathsAway:F1}m from reference line");
 
         // Remember this turn direction for alternating pattern
         _lastTurnWasLeft = _isTurnLeft;
@@ -1887,7 +1891,7 @@ public partial class MainViewModel : ObservableObject
         if (_youTurnCounter % 120 == 0)
         {
             double headingDeg = headingRadians * 180.0 / Math.PI;
-            Console.WriteLine($"[Headland] Raycast: pos=({pos.Easting:F1},{pos.Northing:F1}), heading={headingDeg:F0}°, intersections={intersectionCount}, minDist={minDistance:F1}m, isHeadingSameWay={_isHeadingSameWay}");
+            _logger.LogDebug($"[Headland] Raycast: pos=({pos.Easting:F1},{pos.Northing:F1}), heading={headingDeg:F0}°, intersections={intersectionCount}, minDist={minDistance:F1}m, isHeadingSameWay={_isHeadingSameWay}");
         }
 
         return minDistance;
@@ -1905,7 +1909,7 @@ public partial class MainViewModel : ObservableObject
         // Turn direction was already set before ComputeNextTrack was called
         bool turnLeft = _isTurnLeft;
 
-        Console.WriteLine($"[YouTurn] Creating turn with YouTurnCreationService: direction={(_isTurnLeft ? "LEFT" : "RIGHT")}, isHeadingSameWay={_isHeadingSameWay}, pathsAway={_howManyPathsAway}");
+        _logger.LogDebug($"[YouTurn] Creating turn with YouTurnCreationService: direction={(_isTurnLeft ? "LEFT" : "RIGHT")}, isHeadingSameWay={_isHeadingSameWay}, pathsAway={_howManyPathsAway}");
 
         try
         {
@@ -1913,7 +1917,7 @@ public partial class MainViewModel : ObservableObject
             var input = BuildYouTurnCreationInput(currentPosition, headingRadians, abHeading, turnLeft);
             if (input == null)
             {
-                Console.WriteLine($"[YouTurn] Failed to build creation input - using simple fallback");
+                _logger.LogDebug($"[YouTurn] Failed to build creation input - using simple fallback");
                 var earlyFallbackPath = CreateSimpleUTurnPath(currentPosition, headingRadians, abHeading, turnLeft);
                 if (earlyFallbackPath != null && earlyFallbackPath.Count > 10)
                 {
@@ -1937,7 +1941,7 @@ public partial class MainViewModel : ObservableObject
                     if (!IsPointInsideBoundary(pt.Easting, pt.Northing))
                     {
                         pathOutsideBoundary = true;
-                        Console.WriteLine($"[YouTurn] Path point ({pt.Easting:F1}, {pt.Northing:F1}) is outside boundary - rejecting path");
+                        _logger.LogDebug($"[YouTurn] Path point ({pt.Easting:F1}, {pt.Northing:F1}) is outside boundary - rejecting path");
                         break;
                     }
                 }
@@ -1948,7 +1952,7 @@ public partial class MainViewModel : ObservableObject
                     _youTurnPath = output.TurnPath;
                     _youTurnCounter = 0;
                     StatusMessage = $"YouTurn path created ({output.TurnPath.Count} points)";
-                    Console.WriteLine($"[YouTurn] Service path created with {output.TurnPath.Count} points, distToTurnLine={output.DistancePivotToTurnLine:F1}m");
+                    _logger.LogDebug($"[YouTurn] Service path created with {output.TurnPath.Count} points, distToTurnLine={output.DistancePivotToTurnLine:F1}m");
 
                     // Update map to show the turn path
                     _mapService.SetYouTurnPath(_youTurnPath.Select(p => (p.Easting, p.Northing)).ToList());
@@ -1956,11 +1960,11 @@ public partial class MainViewModel : ObservableObject
                 }
 
                 // Path extends outside boundary - clear and fall through to fallback
-                Console.WriteLine($"[YouTurn] Service path rejected - extends outside boundary, trying fallback");
+                _logger.LogDebug($"[YouTurn] Service path rejected - extends outside boundary, trying fallback");
             }
             else
             {
-                Console.WriteLine($"[YouTurn] Service creation failed: {output.FailureReason ?? "unknown"}, using simple fallback");
+                _logger.LogDebug($"[YouTurn] Service creation failed: {output.FailureReason ?? "unknown"}, using simple fallback");
             }
 
             // Fall back to simple geometric approach (with boundary checking built in)
@@ -1981,7 +1985,7 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[YouTurn] Exception creating path: {ex.Message}");
+            _logger.LogDebug($"[YouTurn] Exception creating path: {ex.Message}");
             // Fall back to simple geometric approach
             try
             {
@@ -2027,14 +2031,14 @@ public partial class MainViewModel : ObservableObject
         // Need boundary to create turn boundaries
         if (_currentBoundary?.OuterBoundary == null || !_currentBoundary.OuterBoundary.IsValid)
         {
-            Console.WriteLine($"[YouTurn] No valid outer boundary available");
+            _logger.LogDebug($"[YouTurn] No valid outer boundary available");
             return null;
         }
 
         var track = SelectedTrack;
         if (track == null)
         {
-            Console.WriteLine($"[YouTurn] No track selected");
+            _logger.LogDebug($"[YouTurn] No track selected");
             return null;
         }
 
@@ -2055,7 +2059,7 @@ public partial class MainViewModel : ObservableObject
         var turnBoundaryVec2 = _polygonOffsetService.CreateInwardOffset(outerPoints, toolWidth);
         if (turnBoundaryVec2 == null || turnBoundaryVec2.Count < 3)
         {
-            Console.WriteLine($"[YouTurn] Failed to create turn boundary (1 tool width offset)");
+            _logger.LogDebug($"[YouTurn] Failed to create turn boundary (1 tool width offset)");
             return null;
         }
         var turnBoundaryVec3 = _polygonOffsetService.CalculatePointHeadings(turnBoundaryVec2);
@@ -2065,7 +2069,7 @@ public partial class MainViewModel : ObservableObject
         var headlandBoundaryVec2 = _polygonOffsetService.CreateInwardOffset(outerPoints, totalHeadlandWidth);
         if (headlandBoundaryVec2 == null || headlandBoundaryVec2.Count < 3)
         {
-            Console.WriteLine($"[YouTurn] Failed to create headland boundary");
+            _logger.LogDebug($"[YouTurn] Failed to create headland boundary");
             return null;
         }
         var headlandBoundaryVec3 = _polygonOffsetService.CalculatePointHeadings(headlandBoundaryVec2);
@@ -2146,7 +2150,7 @@ public partial class MainViewModel : ObservableObject
             HeadlandWidth = headlandWidthForTurn
         };
 
-        Console.WriteLine($"[YouTurn] Input built: toolWidth={toolWidth:F1}m, totalHeadland={totalHeadlandWidth:F1}m, headlandWidthForTurn={headlandWidthForTurn:F1}m, turnBoundaryPoints={turnBoundaryVec3.Count}, headlandPoints={headlandBoundaryVec3.Count}");
+        _logger.LogDebug($"[YouTurn] Input built: toolWidth={toolWidth:F1}m, totalHeadland={totalHeadlandWidth:F1}m, headlandWidthForTurn={headlandWidthForTurn:F1}m, turnBoundaryPoints={turnBoundaryVec3.Count}, headlandPoints={headlandBoundaryVec3.Count}");
 
         return input;
     }
@@ -2175,7 +2179,7 @@ public partial class MainViewModel : ObservableObject
         double offsetEasting = baseEasting + Math.Sin(perpAngle) * offsetDistance;
         double offsetNorthing = baseNorthing + Math.Cos(perpAngle) * offsetDistance;
 
-        Console.WriteLine($"[YouTurn] Reference point: howManyPathsAway={_howManyPathsAway}, offset={offsetDistance:F2}m, perpAngle={perpAngle * 180 / Math.PI:F1}°");
+        _logger.LogDebug($"[YouTurn] Reference point: howManyPathsAway={_howManyPathsAway}, offset={offsetDistance:F2}m, perpAngle={perpAngle * 180 / Math.PI:F1}°");
 
         return new Vec2(offsetEasting, offsetNorthing);
     }
@@ -2244,9 +2248,9 @@ public partial class MainViewModel : ObservableObject
         // How far path extends into cultivated area (entry/exit legs) - use UTurnExtension from config
         double fieldLegLength = Guidance.UTurnExtension;
 
-        Console.WriteLine($"[YouTurn] HeadlandBoundary: E={headlandBoundaryEasting:F1}, N={headlandBoundaryNorthing:F1}");
-        Console.WriteLine($"[YouTurn] HeadlandDistance={HeadlandDistance:F1}m, headlandLegLength={headlandLegLength:F1}m, turnRadius={turnRadius:F1}m, turnOffset={turnOffset:F1}m");
-        Console.WriteLine($"[YouTurn] Arc will extend to {headlandLegLength + turnRadius:F1}m past headland boundary (headland zone is {HeadlandDistance:F1}m)");
+        _logger.LogDebug($"[YouTurn] HeadlandBoundary: E={headlandBoundaryEasting:F1}, N={headlandBoundaryNorthing:F1}");
+        _logger.LogDebug($"[YouTurn] HeadlandDistance={HeadlandDistance:F1}m, headlandLegLength={headlandLegLength:F1}m, turnRadius={turnRadius:F1}m, turnOffset={turnOffset:F1}m");
+        _logger.LogDebug($"[YouTurn] Arc will extend to {headlandLegLength + turnRadius:F1}m past headland boundary (headland zone is {HeadlandDistance:F1}m)");
 
         // ============================================
         // CALCULATE KEY WAYPOINTS IN ABSOLUTE COORDINATES
@@ -2284,7 +2288,7 @@ public partial class MainViewModel : ObservableObject
 
         if (!IsPointInsideBoundary(arcApexE, arcApexN))
         {
-            Console.WriteLine($"[YouTurn] Arc apex ({arcApexE:F1}, {arcApexN:F1}) is outside boundary - not creating U-turn");
+            _logger.LogDebug($"[YouTurn] Arc apex ({arcApexE:F1}, {arcApexN:F1}) is outside boundary - not creating U-turn");
             return path; // Return empty path - no valid U-turn possible
         }
 
@@ -2298,18 +2302,18 @@ public partial class MainViewModel : ObservableObject
         // BOUNDARY CHECK: Verify the exit end (next track) is inside boundary
         if (!IsPointInsideBoundary(exitEndE, exitEndN))
         {
-            Console.WriteLine($"[YouTurn] Exit end ({exitEndE:F1}, {exitEndN:F1}) is outside boundary - not creating U-turn");
+            _logger.LogDebug($"[YouTurn] Exit end ({exitEndE:F1}, {exitEndN:F1}) is outside boundary - not creating U-turn");
             return path; // Return empty path - next track is outside boundary
         }
 
-        Console.WriteLine($"[YouTurn] ExitEnd calc: entryStart({entryStartE:F1},{entryStartN:F1}) + perpAngle({perpAngle * 180 / Math.PI:F1}°) * {turnOffset:F1}m = ({exitEndE:F1},{exitEndN:F1})");
-        Console.WriteLine($"[YouTurn] perpAngle direction: turnLeft={turnLeft}, travelHeading={travelHeading * 180 / Math.PI:F1}°");
+        _logger.LogDebug($"[YouTurn] ExitEnd calc: entryStart({entryStartE:F1},{entryStartN:F1}) + perpAngle({perpAngle * 180 / Math.PI:F1}°) * {turnOffset:F1}m = ({exitEndE:F1},{exitEndN:F1})");
+        _logger.LogDebug($"[YouTurn] perpAngle direction: turnLeft={turnLeft}, travelHeading={travelHeading * 180 / Math.PI:F1}°");
 
-        Console.WriteLine($"[YouTurn] turnOffset={turnOffset:F1}m, arcDiameter={arcDiameter:F1}m (2*turnRadius)");
-        Console.WriteLine($"[YouTurn] EntryStart (green): E={entryStartE:F1}, N={entryStartN:F1}");
-        Console.WriteLine($"[YouTurn] ExitEnd (red): E={exitEndE:F1}, N={exitEndN:F1} = entryStart + perpOffset({turnOffset:F1}m)");
-        Console.WriteLine($"[YouTurn] ArcStart: E={arcStartE:F1}, N={arcStartN:F1}");
-        Console.WriteLine($"[YouTurn] ArcEnd: E={arcEndE:F1}, N={arcEndN:F1} = arcStart + perpOffset({arcDiameter:F1}m)");
+        _logger.LogDebug($"[YouTurn] turnOffset={turnOffset:F1}m, arcDiameter={arcDiameter:F1}m (2*turnRadius)");
+        _logger.LogDebug($"[YouTurn] EntryStart (green): E={entryStartE:F1}, N={entryStartN:F1}");
+        _logger.LogDebug($"[YouTurn] ExitEnd (red): E={exitEndE:F1}, N={exitEndN:F1} = entryStart + perpOffset({turnOffset:F1}m)");
+        _logger.LogDebug($"[YouTurn] ArcStart: E={arcStartE:F1}, N={arcStartN:F1}");
+        _logger.LogDebug($"[YouTurn] ArcEnd: E={arcEndE:F1}, N={arcEndN:F1} = arcStart + perpOffset({arcDiameter:F1}m)");
 
         // ============================================
         // BUILD PATH: Entry Leg
@@ -2423,9 +2427,9 @@ public partial class MainViewModel : ObservableObject
             path.Add(pt);
         }
 
-        Console.WriteLine($"[YouTurn] Path has {path.Count} points: {totalEntryPoints + 1} entry, {arcPoints} arc, {totalExitPoints} exit");
-        Console.WriteLine($"[YouTurn] Actual entry start: E={path[0].Easting:F1}, N={path[0].Northing:F1}");
-        Console.WriteLine($"[YouTurn] Actual exit end: E={path[path.Count - 1].Easting:F1}, N={path[path.Count - 1].Northing:F1}");
+        _logger.LogDebug($"[YouTurn] Path has {path.Count} points: {totalEntryPoints + 1} entry, {arcPoints} arc, {totalExitPoints} exit");
+        _logger.LogDebug($"[YouTurn] Actual entry start: E={path[0].Easting:F1}, N={path[0].Northing:F1}");
+        _logger.LogDebug($"[YouTurn] Actual exit end: E={path[path.Count - 1].Easting:F1}, N={path[path.Count - 1].Northing:F1}");
 
         // Apply smoothing passes from config (1-50)
         int smoothingPasses = Guidance.UTurnSmoothing;
@@ -2449,7 +2453,7 @@ public partial class MainViewModel : ObservableObject
                     };
                 }
             }
-            Console.WriteLine($"[YouTurn] Applied {smoothingPasses} smoothing passes");
+            _logger.LogDebug($"[YouTurn] Applied {smoothingPasses} smoothing passes");
         }
 
         return path;
@@ -2513,7 +2517,7 @@ public partial class MainViewModel : ObservableObject
         if (output.IsTurnComplete)
         {
             // Turn complete - switch to next line and reset state
-            Console.WriteLine("[YouTurn] Guidance detected turn complete, calling CompleteYouTurn");
+            _logger.LogDebug("[YouTurn] Guidance detected turn complete, calling CompleteYouTurn");
             CompleteYouTurn();
         }
         else
@@ -2828,11 +2832,11 @@ public partial class MainViewModel : ObservableObject
             try
             {
                 _coverageMapService.SaveToFile(previousField.DirectoryPath);
-                Console.WriteLine($"[Coverage] Saved coverage to {previousField.DirectoryPath}");
+                _logger.LogDebug($"[Coverage] Saved coverage to {previousField.DirectoryPath}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Coverage] Error saving coverage: {ex.Message}");
+                _logger.LogDebug($"[Coverage] Error saving coverage: {ex.Message}");
             }
         }
 
@@ -2879,14 +2883,14 @@ public partial class MainViewModel : ObservableObject
             try
             {
                 _coverageMapService.LoadFromFile(field.DirectoryPath);
-                Console.WriteLine($"[Coverage] Loaded coverage from {field.DirectoryPath}");
+                _logger.LogDebug($"[Coverage] Loaded coverage from {field.DirectoryPath}");
 
                 // Refresh coverage statistics and notify UI
                 RefreshCoverageStatistics();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Coverage] Error loading coverage: {ex.Message}");
+                _logger.LogDebug($"[Coverage] Error loading coverage: {ex.Message}");
             }
         }
     }
@@ -2928,7 +2932,7 @@ public partial class MainViewModel : ObservableObject
                 IsHeadlandOn = true;
                 HeadlandDistance = headlandLine.Tracks[0].MoveDistance;
 
-                Console.WriteLine($"[Headland] Loaded headland from {field.DirectoryPath} ({_currentHeadlandLine.Count} points)");
+                _logger.LogDebug($"[Headland] Loaded headland from {field.DirectoryPath} ({_currentHeadlandLine.Count} points)");
             }
             else
             {
@@ -2939,12 +2943,12 @@ public partial class MainViewModel : ObservableObject
                 _mapService.SetHeadlandLine(null);
                 HasHeadland = false;
                 IsHeadlandOn = false;
-                Console.WriteLine($"[Headland] No headland found in {field.DirectoryPath}");
+                _logger.LogDebug($"[Headland] No headland found in {field.DirectoryPath}");
             }
         }
         catch (System.Exception ex)
         {
-            Console.WriteLine($"[Headland] Failed to load headland: {ex.Message}");
+            _logger.LogDebug($"[Headland] Failed to load headland: {ex.Message}");
             State.Field.HeadlandLine = null;
             State.Field.HeadlandDistance = 0;
 
@@ -3124,7 +3128,7 @@ public partial class MainViewModel : ObservableObject
                 HasActiveTrack = value != null;
                 IsAutoSteerAvailable = value != null;
 
-                Console.WriteLine($"[SelectedTrack] Changed to: {value?.Name ?? "None"}");
+                _logger.LogDebug($"[SelectedTrack] Changed to: {value?.Name ?? "None"}");
             }
         }
     }
@@ -3585,7 +3589,7 @@ public partial class MainViewModel : ObservableObject
         _settingsService.Save();
 
         StatusMessage = "NTRIP settings saved";
-        Console.WriteLine("[DataIO] NTRIP settings saved");
+        _logger.LogDebug("[DataIO] NTRIP settings saved");
     }
 
     // iOS Modal Sheet Visibility Properties
@@ -4858,7 +4862,7 @@ public partial class MainViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Field] Could not load Field.txt origin: {ex.Message}");
+                _logger.LogDebug($"[Field] Could not load Field.txt origin: {ex.Message}");
             }
 
             // Try to load boundary from field
@@ -5448,16 +5452,16 @@ public partial class MainViewModel : ObservableObject
 
         ConfirmBoundaryMapDialogCommand = new RelayCommand(() =>
         {
-            Console.WriteLine($"[BoundaryMap] ConfirmBoundaryMapDialogCommand called");
-            Console.WriteLine($"[BoundaryMap] Points: {BoundaryMapResultPoints.Count}, IsFieldOpen: {IsFieldOpen}, CurrentFieldName: {CurrentFieldName}");
+            _logger.LogDebug($"[BoundaryMap] ConfirmBoundaryMapDialogCommand called");
+            _logger.LogDebug($"[BoundaryMap] Points: {BoundaryMapResultPoints.Count}, IsFieldOpen: {IsFieldOpen}, CurrentFieldName: {CurrentFieldName}");
 
             if (BoundaryMapResultPoints.Count >= 3 && IsFieldOpen && !string.IsNullOrEmpty(CurrentFieldName))
             {
                 try
                 {
                     var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-                    Console.WriteLine($"[BoundaryMap] Field path: {fieldPath}");
-                    Console.WriteLine($"[BoundaryMap] Directory exists: {Directory.Exists(fieldPath)}");
+                    _logger.LogDebug($"[BoundaryMap] Field path: {fieldPath}");
+                    _logger.LogDebug($"[BoundaryMap] Directory exists: {Directory.Exists(fieldPath)}");
 
                     // Load existing boundary or create new one
                     var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
@@ -5473,14 +5477,14 @@ public partial class MainViewModel : ObservableObject
                         // Use image (viewport) center as origin - this is where the user was looking when drawing
                         centerLat = (BoundaryMapResultNwLat + BoundaryMapResultSeLat) / 2;
                         centerLon = (BoundaryMapResultNwLon + BoundaryMapResultSeLon) / 2;
-                        Console.WriteLine($"[BoundaryMap] Using image center as origin: ({centerLat:F8}, {centerLon:F8})");
+                        _logger.LogDebug($"[BoundaryMap] Using image center as origin: ({centerLat:F8}, {centerLon:F8})");
                     }
                     else
                     {
                         // No background image - use boundary center as origin
                         centerLat = BoundaryMapResultPoints.Average(p => p.Latitude);
                         centerLon = BoundaryMapResultPoints.Average(p => p.Longitude);
-                        Console.WriteLine($"[BoundaryMap] Using boundary center as origin: ({centerLat:F8}, {centerLon:F8})");
+                        _logger.LogDebug($"[BoundaryMap] Using boundary center as origin: ({centerLat:F8}, {centerLon:F8})");
                     }
 
                     // Convert WGS84 boundary points to local coordinates
@@ -5490,13 +5494,13 @@ public partial class MainViewModel : ObservableObject
 
                     var outerPolygon = new BoundaryPolygon();
 
-                    Console.WriteLine($"[BoundaryMap] Converting boundary points with origin ({centerLat:F8}, {centerLon:F8})");
+                    _logger.LogDebug($"[BoundaryMap] Converting boundary points with origin ({centerLat:F8}, {centerLon:F8})");
                     foreach (var (lat, lon) in BoundaryMapResultPoints)
                     {
                         var wgs84 = new Wgs84(lat, lon);
                         var geoCoord = localPlane.ConvertWgs84ToGeoCoord(wgs84);
                         outerPolygon.Points.Add(new BoundaryPoint(geoCoord.Easting, geoCoord.Northing, 0));
-                        Console.WriteLine($"[BoundaryMap]   WGS84 ({lat:F8}, {lon:F8}) -> Local E={geoCoord.Easting:F1}, N={geoCoord.Northing:F1}");
+                        _logger.LogDebug($"[BoundaryMap]   WGS84 ({lat:F8}, {lon:F8}) -> Local E={geoCoord.Easting:F1}, N={geoCoord.Northing:F1}");
                     }
 
                     boundary.OuterBoundary = outerPolygon;
@@ -5513,11 +5517,11 @@ public partial class MainViewModel : ObservableObject
                         var fieldInfo = _fieldPlaneFileService.LoadField(fieldPath);
                         fieldInfo.Origin = new Position { Latitude = centerLat, Longitude = centerLon };
                         _fieldPlaneFileService.SaveField(fieldInfo, fieldPath);
-                        Console.WriteLine($"[BoundaryMap] Updated Field.txt origin to ({centerLat:F8}, {centerLon:F8})");
+                        _logger.LogDebug($"[BoundaryMap] Updated Field.txt origin to ({centerLat:F8}, {centerLon:F8})");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[BoundaryMap] Could not update Field.txt: {ex.Message}");
+                        _logger.LogDebug($"[BoundaryMap] Could not update Field.txt: {ex.Message}");
                     }
 
                     // Update map
@@ -5555,8 +5559,8 @@ public partial class MainViewModel : ObservableObject
                             _mapService.SetCamera(centerE, centerN, newZoom, 0);
                         }
 
-                        Console.WriteLine($"[BoundaryMap] Saved boundary with {outerPolygon.Points.Count} points");
-                        Console.WriteLine($"[BoundaryMap] Center: ({centerE:F1}, {centerN:F1}), Extent: {maxExtent:F1}m");
+                        _logger.LogDebug($"[BoundaryMap] Saved boundary with {outerPolygon.Points.Count} points");
+                        _logger.LogDebug($"[BoundaryMap] Center: ({centerE:F1}, {centerN:F1}), Extent: {maxExtent:F1}m");
                     }
 
                     // Handle background image if captured
@@ -6139,11 +6143,11 @@ public partial class MainViewModel : ObservableObject
         // For DrawAB mode: uses the tapped map coordinates (passed as parameter)
         SetABPointCommand = new RelayCommand<object?>(param =>
         {
-            System.Console.WriteLine($"[SetABPointCommand] Called with param={param?.GetType().Name ?? "null"}, Mode={CurrentABCreationMode}, Step={CurrentABPointStep}");
+            _logger.LogDebug($"[SetABPointCommand] Called with param={param?.GetType().Name ?? "null"}, Mode={CurrentABCreationMode}, Step={CurrentABPointStep}");
 
             if (CurrentABCreationMode == ABCreationMode.None)
             {
-                System.Console.WriteLine("[SetABPointCommand] Mode is None, returning");
+                _logger.LogDebug("[SetABPointCommand] Mode is None, returning");
                 return;
             }
 
@@ -6160,17 +6164,17 @@ public partial class MainViewModel : ObservableObject
                     Northing = Northing,
                     Heading = Heading
                 };
-                System.Console.WriteLine($"[SetABPointCommand] DriveAB - GPS position: E={Easting:F2}, N={Northing:F2}");
+                _logger.LogDebug($"[SetABPointCommand] DriveAB - GPS position: E={Easting:F2}, N={Northing:F2}");
             }
             else if (CurrentABCreationMode == ABCreationMode.DrawAB && param is Position mapPos)
             {
                 // Use the tapped map position
                 pointToSet = mapPos;
-                System.Console.WriteLine($"[SetABPointCommand] DrawAB - Map position: E={mapPos.Easting:F2}, N={mapPos.Northing:F2}");
+                _logger.LogDebug($"[SetABPointCommand] DrawAB - Map position: E={mapPos.Easting:F2}, N={mapPos.Northing:F2}");
             }
             else
             {
-                System.Console.WriteLine($"[SetABPointCommand] Invalid state - returning");
+                _logger.LogDebug($"[SetABPointCommand] Invalid state - returning");
                 return; // Invalid state
             }
 
@@ -6180,7 +6184,7 @@ public partial class MainViewModel : ObservableObject
                 PendingPointA = pointToSet;
                 CurrentABPointStep = ABPointStep.SettingPointB;
                 StatusMessage = ABCreationInstructions;
-                System.Console.WriteLine($"[SetABPointCommand] Set Point A: E={pointToSet.Easting:F2}, N={pointToSet.Northing:F2}");
+                _logger.LogDebug($"[SetABPointCommand] Set Point A: E={pointToSet.Easting:F2}, N={pointToSet.Northing:F2}");
             }
             else if (CurrentABPointStep == ABPointStep.SettingPointB)
             {
@@ -6200,7 +6204,7 @@ public partial class MainViewModel : ObservableObject
                     HasActiveTrack = true;
                     IsAutoSteerAvailable = true;
                     StatusMessage = $"Created AB line: {newTrack.Name} ({heading:F1}°)";
-                    System.Console.WriteLine($"[SetABPointCommand] Created AB Line: {newTrack.Name}, A=({PendingPointA.Easting:F2},{PendingPointA.Northing:F2}), B=({pointToSet.Easting:F2},{pointToSet.Northing:F2}), Heading={heading:F1}°");
+                    _logger.LogDebug($"[SetABPointCommand] Created AB Line: {newTrack.Name}, A=({PendingPointA.Easting:F2},{PendingPointA.Northing:F2}), B=({pointToSet.Easting:F2},{pointToSet.Northing:F2}), Heading={heading:F1}°");
 
                     // Reset state
                     CurrentABCreationMode = ABCreationMode.None;
@@ -6335,11 +6339,11 @@ public partial class MainViewModel : ObservableObject
                     try
                     {
                         System.IO.File.Delete(sectionsFile);
-                        Console.WriteLine($"[Coverage] Deleted {sectionsFile}");
+                        _logger.LogDebug($"[Coverage] Deleted {sectionsFile}");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[Coverage] Error deleting Sections.txt: {ex.Message}");
+                        _logger.LogDebug($"[Coverage] Error deleting Sections.txt: {ex.Message}");
                     }
                 }
             }
@@ -6515,7 +6519,7 @@ public partial class MainViewModel : ObservableObject
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Field] Could not load Field.txt origin: {ex.Message}");
+                    _logger.LogDebug($"[Field] Could not load Field.txt origin: {ex.Message}");
                 }
 
                 // Load boundary from field (same pattern as ConfirmFieldSelectionDialogCommand)
@@ -6533,7 +6537,7 @@ public partial class MainViewModel : ObservableObject
                         double maxE = pts.Max(p => p.Easting);
                         double minN = pts.Min(p => p.Northing);
                         double maxN = pts.Max(p => p.Northing);
-                        Console.WriteLine($"[Boundary] Extents (local): E({minE:F1} to {maxE:F1}), N({minN:F1} to {maxN:F1})");
+                        _logger.LogDebug($"[Boundary] Extents (local): E({minE:F1} to {maxE:F1}), N({minN:F1} to {maxN:F1})");
                     }
                 }
 
@@ -6850,11 +6854,11 @@ public partial class MainViewModel : ObservableObject
                             var fieldInfo = _fieldPlaneFileService.LoadField(fieldPath);
                             fieldInfo.Origin = new Position { Latitude = originLat, Longitude = originLon };
                             _fieldPlaneFileService.SaveField(fieldInfo, fieldPath);
-                            Console.WriteLine($"[MapBoundary] Updated Field.txt origin to ({originLat:F8}, {originLon:F8})");
+                            _logger.LogDebug($"[MapBoundary] Updated Field.txt origin to ({originLat:F8}, {originLon:F8})");
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[MapBoundary] Could not update Field.txt: {ex.Message}");
+                            _logger.LogDebug($"[MapBoundary] Could not update Field.txt: {ex.Message}");
                         }
 
                         // Update map
@@ -6999,7 +7003,7 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LoadBackgroundImage] Error loading background image: {ex.Message}");
+            _logger.LogDebug($"[LoadBackgroundImage] Error loading background image: {ex.Message}");
         }
     }
 
@@ -7462,7 +7466,7 @@ public partial class MainViewModel : ObservableObject
         var boundary = CurrentBoundary;
         if (boundary?.OuterBoundary == null || !boundary.OuterBoundary.IsValid)
         {
-            Console.WriteLine($"[Headland] No valid boundary for point selection");
+            _logger.LogDebug($"[Headland] No valid boundary for point selection");
             return;
         }
 
@@ -7520,7 +7524,7 @@ public partial class MainViewModel : ObservableObject
             nearestSegmentIndex = headlandSegmentIndex;
             nearestT = headlandT;
 
-            Console.WriteLine($"[Headland] Curve mode - Clicked ({easting:F1}, {northing:F1}), nearest headland segment: {headlandSegmentIndex}, t: {headlandT:F2}, pos: ({nearestX:F1}, {nearestY:F1}), dist: {Math.Sqrt(minDistSq):F2}m");
+            _logger.LogDebug($"[Headland] Curve mode - Clicked ({easting:F1}, {northing:F1}), nearest headland segment: {headlandSegmentIndex}, t: {headlandT:F2}, pos: ({nearestX:F1}, {nearestY:F1}), dist: {Math.Sqrt(minDistSq):F2}m");
         }
         else
         {
@@ -7562,7 +7566,7 @@ public partial class MainViewModel : ObservableObject
                 }
             }
 
-            Console.WriteLine($"[Headland] Line mode - Clicked ({easting:F1}, {northing:F1}), nearest boundary segment: {nearestSegmentIndex}, t: {nearestT:F2}, pos: ({nearestX:F1}, {nearestY:F1}), dist: {Math.Sqrt(minDistSq):F2}m");
+            _logger.LogDebug($"[Headland] Line mode - Clicked ({easting:F1}, {northing:F1}), nearest boundary segment: {nearestSegmentIndex}, t: {nearestT:F2}, pos: ({nearestX:F1}, {nearestY:F1}), dist: {Math.Sqrt(minDistSq):F2}m");
         }
 
         var nearestPosition = new Models.Base.Vec2(nearestX, nearestY);
@@ -7710,7 +7714,7 @@ public partial class MainViewModel : ObservableObject
 
         var segmentPoints = forwardLen <= backwardLen ? forwardPath : backwardPath;
 
-        Console.WriteLine($"[Headland] Creating headland from {segmentPoints.Count} boundary points (forward: {forwardPath.Count}, backward: {backwardPath.Count}), distance: {HeadlandDistance:F1}m");
+        _logger.LogDebug($"[Headland] Creating headland from {segmentPoints.Count} boundary points (forward: {forwardPath.Count}, backward: {backwardPath.Count}), distance: {HeadlandDistance:F1}m");
 
         if (segmentPoints.Count < 2)
         {
@@ -7792,7 +7796,7 @@ public partial class MainViewModel : ObservableObject
                 segmentPoints[i].Northing + perpY));
         }
 
-        Console.WriteLine($"[Headland] Created {headlandPoints.Count} headland points");
+        _logger.LogDebug($"[Headland] Created {headlandPoints.Count} headland points");
 
         // Convert to Vec3 with headings
         var headlandWithHeadings = new List<Models.Base.Vec3>();
@@ -8019,7 +8023,7 @@ public partial class MainViewModel : ObservableObject
         var clipStart = _headlandPoint1Position.Value;
         var clipEnd = _headlandPoint2Position.Value;
 
-        Console.WriteLine($"[Headland] Clipping at line from ({clipStart.Easting:F1}, {clipStart.Northing:F1}) to ({clipEnd.Easting:F1}, {clipEnd.Northing:F1})");
+        _logger.LogDebug($"[Headland] Clipping at line from ({clipStart.Easting:F1}, {clipStart.Northing:F1}) to ({clipEnd.Easting:F1}, {clipEnd.Northing:F1})");
 
         // Find where the clip line intersects the headland polygon
         var intersections = new List<(int segmentIndex, double t, Models.Base.Vec2 point)>();
@@ -8037,7 +8041,7 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
-        Console.WriteLine($"[Headland] Found {intersections.Count} intersections with clip line");
+        _logger.LogDebug($"[Headland] Found {intersections.Count} intersections with clip line");
 
         if (intersections.Count < 2)
         {
@@ -8068,13 +8072,13 @@ public partial class MainViewModel : ObservableObject
         {
             // Curve mode: take the longer path
             clippedHeadland = forwardPath.Count >= backwardPath.Count ? forwardPath : backwardPath;
-            Console.WriteLine($"[Headland] Curve mode: taking longer path ({clippedHeadland.Count} points)");
+            _logger.LogDebug($"[Headland] Curve mode: taking longer path ({clippedHeadland.Count} points)");
         }
         else
         {
             // Line mode: take the shorter path
             clippedHeadland = forwardPath.Count <= backwardPath.Count ? forwardPath : backwardPath;
-            Console.WriteLine($"[Headland] Line mode: taking shorter path ({clippedHeadland.Count} points)");
+            _logger.LogDebug($"[Headland] Line mode: taking shorter path ({clippedHeadland.Count} points)");
         }
 
         // Recalculate headings for the clipped line
@@ -8106,7 +8110,7 @@ public partial class MainViewModel : ObservableObject
             clippedHeadland[i] = new Models.Base.Vec3(clippedHeadland[i].Easting, clippedHeadland[i].Northing, heading);
         }
 
-        Console.WriteLine($"[Headland] Clipped headland has {clippedHeadland.Count} points");
+        _logger.LogDebug($"[Headland] Clipped headland has {clippedHeadland.Count} points");
 
         // Set the clipped headland
         CurrentHeadlandLine = clippedHeadland;
@@ -8245,7 +8249,7 @@ public partial class MainViewModel : ObservableObject
         // End with cut2 intersection point
         path.Add(new Models.Base.Vec3(cut2.point.Easting, cut2.point.Northing, 0));
 
-        Console.WriteLine($"[Headland] BuildClipPath(forward={forward}): {path.Count} points, cut1 seg={cut1.segmentIndex}, cut2 seg={cut2.segmentIndex}");
+        _logger.LogDebug($"[Headland] BuildClipPath(forward={forward}): {path.Count} points, cut1 seg={cut1.segmentIndex}, cut2 seg={cut2.segmentIndex}");
 
         return path;
     }
@@ -8279,11 +8283,11 @@ public partial class MainViewModel : ObservableObject
             }
 
             HeadlandLineSerializer.Save(activeField.DirectoryPath, headlandLine);
-            Console.WriteLine($"[Headland] Saved headland to {activeField.DirectoryPath} ({headlandPoints?.Count ?? 0} points)");
+            _logger.LogDebug($"[Headland] Saved headland to {activeField.DirectoryPath} ({headlandPoints?.Count ?? 0} points)");
         }
         catch (System.Exception ex)
         {
-            Console.WriteLine($"[Headland] Failed to save headland: {ex.Message}");
+            _logger.LogDebug($"[Headland] Failed to save headland: {ex.Message}");
         }
     }
 
@@ -8302,11 +8306,11 @@ public partial class MainViewModel : ObservableObject
         try
         {
             Services.TrackFilesService.SaveTracks(activeField.DirectoryPath, SavedTracks.ToList());
-            Console.WriteLine($"[TrackFiles] Saved {SavedTracks.Count} tracks to TrackLines.txt");
+            _logger.LogDebug($"[TrackFiles] Saved {SavedTracks.Count} tracks to TrackLines.txt");
         }
         catch (System.Exception ex)
         {
-            Console.WriteLine($"[TrackFiles] Failed to save tracks: {ex.Message}");
+            _logger.LogDebug($"[TrackFiles] Failed to save tracks: {ex.Message}");
         }
     }
 
@@ -8352,7 +8356,7 @@ public partial class MainViewModel : ObservableObject
 
         if (field == null || string.IsNullOrEmpty(field.DirectoryPath))
         {
-            Console.WriteLine("[TrackFiles] No field directory to load from");
+            _logger.LogDebug("[TrackFiles] No field directory to load from");
             return;
         }
 
@@ -8379,7 +8383,7 @@ public partial class MainViewModel : ObservableObject
                     loadedCount++;
                 }
 
-                Console.WriteLine($"[TrackFiles] Loaded {loadedCount} tracks from TrackLines.txt");
+                _logger.LogDebug($"[TrackFiles] Loaded {loadedCount} tracks from TrackLines.txt");
 
                 // Don't auto-activate any track - user must explicitly select one
                 // HasActiveTrack and IsAutoSteerAvailable stay false until user selects
@@ -8390,7 +8394,7 @@ public partial class MainViewModel : ObservableObject
             var legacyFilePath = System.IO.Path.Combine(field.DirectoryPath, "ABLines.txt");
             if (System.IO.File.Exists(legacyFilePath))
             {
-                Console.WriteLine($"[TrackFiles] TrackLines.txt not found, trying legacy ABLines.txt");
+                _logger.LogDebug($"[TrackFiles] TrackLines.txt not found, trying legacy ABLines.txt");
                 var lines = System.IO.File.ReadAllLines(legacyFilePath);
                 int loadedCount = 0;
 
@@ -8440,19 +8444,19 @@ public partial class MainViewModel : ObservableObject
                     }
                 }
 
-                Console.WriteLine($"[TrackFiles] Loaded {loadedCount} tracks from legacy ABLines.txt");
+                _logger.LogDebug($"[TrackFiles] Loaded {loadedCount} tracks from legacy ABLines.txt");
 
                 // Don't auto-activate any track - user must explicitly select one
                 // HasActiveTrack and IsAutoSteerAvailable stay false until user selects
             }
             else
             {
-                Console.WriteLine($"[TrackFiles] No track files found in {field.DirectoryPath}");
+                _logger.LogDebug($"[TrackFiles] No track files found in {field.DirectoryPath}");
             }
         }
         catch (System.Exception ex)
         {
-            Console.WriteLine($"[TrackFiles] Failed to load tracks: {ex.Message}");
+            _logger.LogDebug($"[TrackFiles] Failed to load tracks: {ex.Message}");
         }
     }
 }

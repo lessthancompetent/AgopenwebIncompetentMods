@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using AgValoniaGPS.Services;
 using AgValoniaGPS.Services.AutoSteer;
 using AgValoniaGPS.Services.Interfaces;
@@ -22,6 +23,14 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddAgValoniaServices(this IServiceCollection services)
     {
+        // Configure structured logging
+        services.AddLogging(builder =>
+        {
+            builder.AddConsole();
+            builder.AddDebug();
+            builder.SetMinimumLevel(LogLevel.Debug);
+        });
+
         // Centralized application state (single source of truth)
         services.AddSingleton<ApplicationState>();
 

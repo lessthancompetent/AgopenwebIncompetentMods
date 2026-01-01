@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Xml.Linq;
+using Microsoft.Extensions.Logging;
 using AgValoniaGPS.Models;
 using AgValoniaGPS.Models.Tool;
 using AgValoniaGPS.Services.Interfaces;
@@ -11,6 +12,7 @@ namespace AgValoniaGPS.Services;
 /// </summary>
 public class VehicleProfileService : IVehicleProfileService
 {
+    private readonly ILogger<VehicleProfileService> _logger;
     private VehicleProfile? _activeProfile;
 
     public string VehiclesDirectory { get; }
@@ -19,8 +21,9 @@ public class VehicleProfileService : IVehicleProfileService
 
     public event EventHandler<VehicleProfile?>? ActiveProfileChanged;
 
-    public VehicleProfileService()
+    public VehicleProfileService(ILogger<VehicleProfileService> logger)
     {
+        _logger = logger;
         var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         VehiclesDirectory = Path.Combine(documentsPath, "AgValoniaGPS", "Vehicles");
 
@@ -73,7 +76,7 @@ public class VehicleProfileService : IVehicleProfileService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading vehicle profile '{profileName}': {ex.Message}");
+            _logger.LogError(ex, "Error loading vehicle profile '{ProfileName}'", profileName);
             return null;
         }
     }

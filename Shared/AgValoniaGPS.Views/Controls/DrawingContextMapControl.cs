@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using Avalonia;
 using Avalonia.Controls;
@@ -243,7 +244,7 @@ public class DrawingContextMapControl : Control, ISharedMapControl
 
     public DrawingContextMapControl()
     {
-        Console.WriteLine("[DrawingContextMapControl] Constructor starting...");
+        Debug.WriteLine("[DrawingContextMapControl] Constructor starting...");
 
         // Make control focusable for input
         Focusable = true;
@@ -637,11 +638,11 @@ public class DrawingContextMapControl : Control, ISharedMapControl
             var uri = new Uri("avares://AgValoniaGPS.Views/Assets/Images/TractorAoG.png");
             using var stream = AssetLoader.Open(uri);
             _vehicleImage = new Bitmap(stream);
-            Console.WriteLine("[DrawingContextMapControl] Loaded tractor image successfully");
+            Debug.WriteLine("[DrawingContextMapControl] Loaded tractor image successfully");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DrawingContextMapControl] Failed to load tractor image: {ex.Message}");
+            Debug.WriteLine($"[DrawingContextMapControl] Failed to load tractor image: {ex.Message}");
             // Fallback to triangle drawing if image fails to load
         }
     }
@@ -1385,17 +1386,17 @@ public class DrawingContextMapControl : Control, ISharedMapControl
             try
             {
                 _backgroundImage = new Bitmap(imagePath);
-                Console.WriteLine($"[DrawingContextMapControl] Loaded background image: {imagePath} ({_backgroundImage.PixelSize.Width}x{_backgroundImage.PixelSize.Height})");
-                Console.WriteLine($"  Bounds: minX={minX:F1}, maxY={maxY:F1}, maxX={maxX:F1}, minY={minY:F1}");
+                Debug.WriteLine($"[DrawingContextMapControl] Loaded background image: {imagePath} ({_backgroundImage.PixelSize.Width}x{_backgroundImage.PixelSize.Height})");
+                Debug.WriteLine($"  Bounds: minX={minX:F1}, maxY={maxY:F1}, maxX={maxX:F1}, minY={minY:F1}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DrawingContextMapControl] Failed to load background image: {ex.Message}");
+                Debug.WriteLine($"[DrawingContextMapControl] Failed to load background image: {ex.Message}");
             }
         }
         else
         {
-            Console.WriteLine($"[DrawingContextMapControl] Background image path invalid or not found: {imagePath}");
+            Debug.WriteLine($"[DrawingContextMapControl] Background image path invalid or not found: {imagePath}");
         }
     }
 

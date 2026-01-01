@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Input;
 using AgValoniaGPS.Models.Track;
@@ -36,7 +37,7 @@ public partial class TracksDialogPanel : UserControl
         // Mark event as handled to prevent ListBox from overriding our changes
         e.Handled = true;
 
-        Console.WriteLine($"[Track] PointerReleased on: {clickedTrack.Name}, IsActive={clickedTrack.IsActive}, SelectedTrack={vm.SelectedTrack?.Name ?? "null"}");
+        Debug.WriteLine($"[Track] PointerReleased on: {clickedTrack.Name}, IsActive={clickedTrack.IsActive}, SelectedTrack={vm.SelectedTrack?.Name ?? "null"}");
 
         // Check if this track is the currently active one (compare by reference or name)
         bool isCurrentlyActive = vm.SelectedTrack == clickedTrack;
@@ -44,13 +45,13 @@ public partial class TracksDialogPanel : UserControl
         if (isCurrentlyActive)
         {
             // Deactivate
-            Console.WriteLine($"[Track] Deactivating: {clickedTrack.Name}");
+            Debug.WriteLine($"[Track] Deactivating: {clickedTrack.Name}");
             vm.SelectedTrack = null;
         }
         else
         {
             // Activate
-            Console.WriteLine($"[Track] Activating: {clickedTrack.Name}");
+            Debug.WriteLine($"[Track] Activating: {clickedTrack.Name}");
             vm.SelectedTrack = clickedTrack;
         }
     }
