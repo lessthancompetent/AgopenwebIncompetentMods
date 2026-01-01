@@ -361,5 +361,118 @@ namespace AgValoniaGPS.Models.Base
         }
 
         #endregion
+
+        #region Coordinate Transform (for Segment-Based Coverage)
+
+        /// <summary>
+        /// Transform a world point to local coordinates where the section
+        /// center is at origin and section heading aligns with positive Y-axis.
+        /// X-axis represents the section width (left = negative, right = positive).
+        /// </summary>
+        /// <param name="worldPoint">Point in world coordinates.</param>
+        /// <param name="sectionCenter">Center of the section in world coordinates.</param>
+        /// <param name="sectionHeading">Section heading in radians.</param>
+        /// <returns>Point in local coordinates (X = across section, Y = along heading).</returns>
+        public static Vec2 ToLocalCoords(Vec2 worldPoint, Vec2 sectionCenter, double sectionHeading)
+        {
+            double cos = Math.Cos(-sectionHeading);
+            double sin = Math.Sin(-sectionHeading);
+
+            double dx = worldPoint.Easting - sectionCenter.Easting;
+            double dy = worldPoint.Northing - sectionCenter.Northing;
+
+            return new Vec2(
+                dx * cos - dy * sin,  // X in local coords (across section)
+                dx * sin + dy * cos   // Y in local coords (along heading)
+            );
+        }
+
+        /// <summary>
+        /// Optimized transform using precomputed sin/cos values.
+        /// Use this when transforming many points with the same heading.
+        /// </summary>
+        public static Vec2 ToLocalCoords(Vec2 worldPoint, Vec2 sectionCenter, double cos, double sin)
+        {
+            double dx = worldPoint.Easting - sectionCenter.Easting;
+            double dy = worldPoint.Northing - sectionCenter.Northing;
+
+            return new Vec2(dx * cos - dy * sin, dx * sin + dy * cos);
+        }
+
+        /// <summary>
+        /// Find X coordinate where edge from p1 to p2 crosses a given Y threshold.
+        /// Returns null if edge doesn't cross the threshold.
+        /// Points are in local coordinates where Y is the heading direction.
+        /// </summary>
+        /// <param name="p1">First point of edge (in local coords).</param>
+        /// <param name="p2">Second point of edge (in local coords).</param>
+        /// <param name="yThreshold">Y value to check (0 = current position, positive = look-ahead).</param>
+        /// <returns>X intercept or null if edge doesn't cross threshold.</returns>
+        public static double? GetXInterceptAtY(Vec2 p1, Vec2 p2, double yThreshold = 0)
+        {
+            // Shift Y values relative to threshold
+            double y1 = p1.Northing - yThreshold;
+            double y2 = p2.Northing - yThreshold;
+
+            // Both above or both below threshold? No crossing.
+            if ((y1 > 0) == (y2 > 0) && y1 != 0 && y2 != 0)
+                return null;
+
+            // Avoid division by zero for horizontal edges
+            double dy = y2 - y1;
+            if (Math.Abs(dy) < 1e-10)
+                return null;
+
+            // Linear interpolation: find t where Y = yThreshold
+            double t = -y1 / dy;
+            return p1.Easting + t * (p2.Easting - p1.Easting);
+        }
+
+        /// <summary>
+        /// Convenience overload for Y=0 (current section position).
+        /// </summary>
+        public static double? GetXInterceptAtYZero(Vec2 p1, Vec2 p2)
+            => GetXInterceptAtY(p1, p2, 0);
+
+        #endregion
+
+        #region Interval Merging
+
+        /// <summary>
+        /// Merge overlapping or adjacent intervals into non-overlapping set.
+        /// </summary>
+        /// <param name="intervals">List of (start, end) intervals.</param>
+        /// <returns>Merged non-overlapping intervals sorted by start.</returns>
+        public static List<(double Start, double End)> MergeIntervals(List<(double Start, double End)> intervals)
+        {
+            if (intervals.Count == 0)
+                return new List<(double, double)>();
+
+            // Sort by start position
+            intervals.Sort((a, b) => a.Start.CompareTo(b.Start));
+
+            var merged = new List<(double Start, double End)>();
+            var current = intervals[0];
+
+            for (int i = 1; i < intervals.Count; i++)
+            {
+                if (intervals[i].Start <= current.End)
+                {
+                    // Overlapping or adjacent - extend current
+                    current.End = Math.Max(current.End, intervals[i].End);
+                }
+                else
+                {
+                    // Gap - save current, start new
+                    merged.Add(current);
+                    current = intervals[i];
+                }
+            }
+
+            merged.Add(current);
+            return merged;
+        }
+
+        #endregion
     }
 }

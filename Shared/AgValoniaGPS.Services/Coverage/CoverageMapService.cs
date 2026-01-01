@@ -198,6 +198,210 @@ public class CoverageMapService(IWorkedAreaService workedAreaService) : ICoverag
         return false;
     }
 
+    public CoverageResult GetSegmentCoverage(Vec2 sectionCenter, double heading, double halfWidth, double lookAheadDistance = 0)
+    {
+        // Precompute transform for heading
+        double cos = Math.Cos(-heading);
+        double sin = Math.Sin(-heading);
+
+        // Adjust center for look-ahead
+        Vec2 checkCenter = lookAheadDistance == 0
+            ? sectionCenter
+            : new Vec2(
+                sectionCenter.Easting + Math.Sin(heading) * lookAheadDistance,
+                sectionCenter.Northing + Math.Cos(heading) * lookAheadDistance);
+
+        // Collect coverage intervals along X-axis
+        var intervals = new List<(double Start, double End)>();
+
+        // Frustum culling radius (section width + margin)
+        double cullRadiusSq = (halfWidth + 5.0) * (halfWidth + 5.0);
+
+        foreach (var patch in _patches)
+        {
+            if (!patch.IsRenderable) continue;
+
+            // Quick rejection based on distance to patch center (approximated)
+            if (!IsPatchNearPointSq(patch, checkCenter, cullRadiusSq))
+                continue;
+
+            // Check each triangle in the strip (skip color vertex at index 0)
+            for (int i = 1; i < patch.Vertices.Count - 2; i++)
+            {
+                var interval = GetTriangleXInterval(
+                    patch.Vertices[i],
+                    patch.Vertices[i + 1],
+                    patch.Vertices[i + 2],
+                    checkCenter, cos, sin, halfWidth);
+
+                if (interval.HasValue)
+                    intervals.Add(interval.Value);
+            }
+        }
+
+        return CalculateCoverageFromIntervals(intervals, halfWidth);
+    }
+
+    public (CoverageResult Current, CoverageResult LookOn, CoverageResult LookOff) GetSegmentCoverageMulti(
+        Vec2 sectionCenter, double heading, double halfWidth,
+        double lookOnDistance, double lookOffDistance)
+    {
+        // Precompute transform for heading
+        double cos = Math.Cos(-heading);
+        double sin = Math.Sin(-heading);
+
+        // Calculate all three check centers
+        Vec2 currentCenter = sectionCenter;
+        Vec2 lookOnCenter = new Vec2(
+            sectionCenter.Easting + Math.Sin(heading) * lookOnDistance,
+            sectionCenter.Northing + Math.Cos(heading) * lookOnDistance);
+        Vec2 lookOffCenter = new Vec2(
+            sectionCenter.Easting + Math.Sin(heading) * lookOffDistance,
+            sectionCenter.Northing + Math.Cos(heading) * lookOffDistance);
+
+        // Max radius to consider for any of the three positions
+        double maxLookDist = Math.Max(lookOnDistance, lookOffDistance);
+        double cullRadiusSq = (halfWidth + maxLookDist + 5.0) * (halfWidth + maxLookDist + 5.0);
+
+        var currentIntervals = new List<(double Start, double End)>();
+        var lookOnIntervals = new List<(double Start, double End)>();
+        var lookOffIntervals = new List<(double Start, double End)>();
+
+        foreach (var patch in _patches)
+        {
+            if (!patch.IsRenderable) continue;
+
+            // Quick rejection based on distance to section center
+            if (!IsPatchNearPointSq(patch, sectionCenter, cullRadiusSq))
+                continue;
+
+            // Check each triangle in the strip
+            for (int i = 1; i < patch.Vertices.Count - 2; i++)
+            {
+                var v0 = patch.Vertices[i];
+                var v1 = patch.Vertices[i + 1];
+                var v2 = patch.Vertices[i + 2];
+
+                // Check current position
+                var currInterval = GetTriangleXInterval(v0, v1, v2, currentCenter, cos, sin, halfWidth);
+                if (currInterval.HasValue)
+                    currentIntervals.Add(currInterval.Value);
+
+                // Check look-on position
+                var onInterval = GetTriangleXInterval(v0, v1, v2, lookOnCenter, cos, sin, halfWidth);
+                if (onInterval.HasValue)
+                    lookOnIntervals.Add(onInterval.Value);
+
+                // Check look-off position
+                var offInterval = GetTriangleXInterval(v0, v1, v2, lookOffCenter, cos, sin, halfWidth);
+                if (offInterval.HasValue)
+                    lookOffIntervals.Add(offInterval.Value);
+            }
+        }
+
+        return (
+            CalculateCoverageFromIntervals(currentIntervals, halfWidth),
+            CalculateCoverageFromIntervals(lookOnIntervals, halfWidth),
+            CalculateCoverageFromIntervals(lookOffIntervals, halfWidth)
+        );
+    }
+
+    /// <summary>
+    /// Get X interval where a triangle crosses Y=0 in local coordinates.
+    /// </summary>
+    private (double Start, double End)? GetTriangleXInterval(
+        Vec3 v0, Vec3 v1, Vec3 v2,
+        Vec2 center, double cos, double sin, double halfWidth)
+    {
+        // Transform to local coords
+        var a = GeometryMath.ToLocalCoords(new Vec2(v0.Easting, v0.Northing), center, cos, sin);
+        var b = GeometryMath.ToLocalCoords(new Vec2(v1.Easting, v1.Northing), center, cos, sin);
+        var c = GeometryMath.ToLocalCoords(new Vec2(v2.Easting, v2.Northing), center, cos, sin);
+
+        // Quick reject: all above or all below X-axis (Y=0)?
+        if ((a.Northing > 0 && b.Northing > 0 && c.Northing > 0) ||
+            (a.Northing < 0 && b.Northing < 0 && c.Northing < 0))
+            return null;
+
+        // Find X intercepts where edges cross Y=0
+        var xIntercepts = new List<double>(6);
+
+        var x1 = GeometryMath.GetXInterceptAtYZero(a, b);
+        var x2 = GeometryMath.GetXInterceptAtYZero(b, c);
+        var x3 = GeometryMath.GetXInterceptAtYZero(c, a);
+
+        if (x1.HasValue) xIntercepts.Add(x1.Value);
+        if (x2.HasValue) xIntercepts.Add(x2.Value);
+        if (x3.HasValue) xIntercepts.Add(x3.Value);
+
+        // Handle vertices exactly on the axis
+        const double epsilon = 0.001;
+        if (Math.Abs(a.Northing) < epsilon) xIntercepts.Add(a.Easting);
+        if (Math.Abs(b.Northing) < epsilon) xIntercepts.Add(b.Easting);
+        if (Math.Abs(c.Northing) < epsilon) xIntercepts.Add(c.Easting);
+
+        if (xIntercepts.Count < 2)
+            return null;
+
+        double xMin = xIntercepts.Min();
+        double xMax = xIntercepts.Max();
+
+        // Clip to section bounds
+        xMin = Math.Max(xMin, -halfWidth);
+        xMax = Math.Min(xMax, halfWidth);
+
+        if (xMax <= xMin)
+            return null;
+
+        return (xMin, xMax);
+    }
+
+    /// <summary>
+    /// Calculate coverage result from X intervals.
+    /// </summary>
+    private CoverageResult CalculateCoverageFromIntervals(List<(double Start, double End)> intervals, double halfWidth)
+    {
+        if (intervals.Count == 0)
+            return new CoverageResult(0, false, false, halfWidth * 2);
+
+        // Merge overlapping intervals
+        var merged = GeometryMath.MergeIntervals(intervals);
+
+        // Calculate total coverage
+        double totalWidth = halfWidth * 2;
+        double coveredWidth = merged.Sum(i => i.End - i.Start);
+        double coveragePercent = Math.Min(1.0, coveredWidth / totalWidth);
+
+        return new CoverageResult(
+            CoveragePercent: coveragePercent,
+            HasAnyOverlap: coveredWidth > 0.001,
+            IsFullyCovered: coveragePercent > 0.99,
+            UncoveredLength: totalWidth - coveredWidth
+        );
+    }
+
+    /// <summary>
+    /// Quick bounding box check if patch is near a point (squared distance).
+    /// </summary>
+    private bool IsPatchNearPointSq(CoveragePatch patch, Vec2 point, double radiusSq)
+    {
+        // Calculate approximate center and check distance
+        if (patch.Vertices.Count < 4) return false;
+
+        // Use first and last geometry vertices to approximate center
+        var first = patch.Vertices[1];
+        var last = patch.Vertices[patch.Vertices.Count - 1];
+        double centerE = (first.Easting + last.Easting) / 2;
+        double centerN = (first.Northing + last.Northing) / 2;
+
+        double dx = point.Easting - centerE;
+        double dy = point.Northing - centerN;
+
+        // Use larger radius to account for patch extent
+        double patchExtentSq = GeometryMath.DistanceSquared(first, last) / 4;
+        return (dx * dx + dy * dy) < (radiusSq + patchExtentSq);
+    }
+
     /// <summary>
     /// Check if a point is inside any triangle in a triangle strip.
     /// Vertices[0] is color, actual geometry starts at index 1.

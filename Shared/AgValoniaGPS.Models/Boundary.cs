@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using AgValoniaGPS.Models.Base;
+using AgValoniaGPS.Models.Headland;
 
 namespace AgValoniaGPS.Models;
 
@@ -78,5 +80,48 @@ public class Boundary
     public bool IsPointInside(Position position)
     {
         return IsPointInside(position.Easting, position.Northing);
+    }
+
+    /// <summary>
+    /// Get segment-based boundary status for a section.
+    /// Checks if section segment is inside outer boundary and outside inner holes.
+    /// </summary>
+    /// <param name="sectionCenter">Center point of section in world coords.</param>
+    /// <param name="heading">Section heading in radians.</param>
+    /// <param name="halfWidth">Half the section width in meters.</param>
+    /// <returns>Boundary result with inside percentage.</returns>
+    public BoundaryResult GetSegmentBoundaryStatus(Vec2 sectionCenter, double heading, double halfWidth)
+    {
+        // Check outer boundary first
+        if (OuterBoundary == null || !OuterBoundary.IsValid)
+            return BoundaryResult.FullyInside; // No boundary = always in
+
+        var outerResult = OuterBoundary.GetSegmentBoundaryStatus(sectionCenter, heading, halfWidth);
+
+        // If fully outside outer boundary, we're done
+        if (outerResult.IsFullyOutside)
+            return outerResult;
+
+        // Check inner boundaries (holes) - subtract their inside portions
+        double effectiveInsidePercent = outerResult.InsidePercent;
+
+        foreach (var innerBoundary in InnerBoundaries)
+        {
+            if (innerBoundary.IsDriveThrough) continue; // Skip drive-through boundaries
+
+            var innerResult = innerBoundary.GetSegmentBoundaryStatus(sectionCenter, heading, halfWidth);
+
+            // Portion inside inner boundary is "outside" the usable area
+            effectiveInsidePercent -= innerResult.InsidePercent;
+        }
+
+        effectiveInsidePercent = System.Math.Max(0, effectiveInsidePercent);
+
+        return new BoundaryResult(
+            IsFullyInside: effectiveInsidePercent > 0.99,
+            IsFullyOutside: effectiveInsidePercent < 0.01,
+            CrossesBoundary: outerResult.CrossesBoundary || effectiveInsidePercent != outerResult.InsidePercent,
+            InsidePercent: effectiveInsidePercent
+        );
     }
 }

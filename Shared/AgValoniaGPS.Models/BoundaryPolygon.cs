@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using AgValoniaGPS.Models.Base;
+using AgValoniaGPS.Models.Headland;
 
 namespace AgValoniaGPS.Models;
 
@@ -85,6 +87,116 @@ public class BoundaryPolygon
         }
 
         return isInside;
+    }
+
+    /// <summary>
+    /// Check boundary status for a section segment using coordinate transform method.
+    /// More accurate than point-based check as it detects when section edges cross boundary.
+    /// </summary>
+    /// <param name="sectionCenter">Center point of section in world coords.</param>
+    /// <param name="heading">Section heading in radians.</param>
+    /// <param name="halfWidth">Half the section width in meters.</param>
+    /// <returns>Boundary result with inside percentage and crossing info.</returns>
+    public BoundaryResult GetSegmentBoundaryStatus(Vec2 sectionCenter, double heading, double halfWidth)
+    {
+        if (Points.Count < 3)
+            return BoundaryResult.FullyInside; // No boundary = always inside
+
+        // Precompute transform
+        double cos = Math.Cos(-heading);
+        double sin = Math.Sin(-heading);
+
+        // Find where boundary edges cross Y=0 (the section line) in local coords
+        var crossings = new List<double>();
+
+        for (int i = 0; i < Points.Count; i++)
+        {
+            int j = (i + 1) % Points.Count;
+
+            // Transform boundary points to local coordinates
+            var p1 = GeometryMath.ToLocalCoords(
+                new Vec2(Points[i].Easting, Points[i].Northing),
+                sectionCenter, cos, sin);
+            var p2 = GeometryMath.ToLocalCoords(
+                new Vec2(Points[j].Easting, Points[j].Northing),
+                sectionCenter, cos, sin);
+
+            // Find X intercept where edge crosses Y=0
+            var intercept = GeometryMath.GetXInterceptAtYZero(p1, p2);
+            if (intercept.HasValue)
+            {
+                // Only count crossings within section width (with margin)
+                if (intercept.Value >= -halfWidth - 1.0 && intercept.Value <= halfWidth + 1.0)
+                {
+                    crossings.Add(intercept.Value);
+                }
+            }
+        }
+
+        // Check endpoints
+        bool leftInside = IsPointInside(
+            sectionCenter.Easting - Math.Cos(heading) * halfWidth + Math.Sin(heading) * 0,
+            sectionCenter.Northing + Math.Sin(heading) * halfWidth + Math.Cos(heading) * 0);
+        // Correct: perpendicular to heading
+        double perpHeading = heading + Math.PI / 2.0;
+        bool leftEdgeInside = IsPointInside(
+            sectionCenter.Easting + Math.Sin(perpHeading) * (-halfWidth),
+            sectionCenter.Northing + Math.Cos(perpHeading) * (-halfWidth));
+        bool rightEdgeInside = IsPointInside(
+            sectionCenter.Easting + Math.Sin(perpHeading) * halfWidth,
+            sectionCenter.Northing + Math.Cos(perpHeading) * halfWidth);
+
+        // No crossings - entire segment is either inside or outside
+        if (crossings.Count == 0)
+        {
+            // Check center point to determine
+            bool centerInside = IsPointInside(sectionCenter.Easting, sectionCenter.Northing);
+            if (centerInside)
+                return BoundaryResult.FullyInside;
+            else
+                return BoundaryResult.FullyOutside;
+        }
+
+        // Sort crossings from left to right
+        crossings.Sort();
+
+        // Calculate inside percentage by walking along section
+        // Start from left edge, toggle inside/outside at each crossing
+        double totalWidth = halfWidth * 2;
+        double insideLength = 0;
+
+        // Determine starting state (is left edge inside?)
+        bool currentlyInside = leftEdgeInside;
+        double lastX = -halfWidth;
+
+        foreach (double crossX in crossings)
+        {
+            // Clip to section bounds
+            double clippedX = Math.Max(-halfWidth, Math.Min(halfWidth, crossX));
+
+            if (currentlyInside)
+            {
+                insideLength += clippedX - lastX;
+            }
+
+            lastX = clippedX;
+            currentlyInside = !currentlyInside;
+        }
+
+        // Handle final segment to right edge
+        if (currentlyInside)
+        {
+            insideLength += halfWidth - lastX;
+        }
+
+        double insidePercent = Math.Max(0, Math.Min(1, insideLength / totalWidth));
+
+        return new BoundaryResult(
+            IsFullyInside: insidePercent > 0.99,
+            IsFullyOutside: insidePercent < 0.01,
+            CrossesBoundary: crossings.Count > 0,
+            InsidePercent: insidePercent
+        );
     }
 }
 

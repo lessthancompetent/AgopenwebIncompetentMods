@@ -4,7 +4,7 @@
 
 Replace point-based coverage detection with segment-based detection using coordinate transformation. This addresses a fundamental architectural flaw identified by Brian (AgOpenGPS creator) where checking single points misses coverage gaps and edge cases.
 
-## Status: NOT STARTED
+## Status: IN PROGRESS (Phases 1-5 Complete)
 
 ---
 
@@ -575,31 +575,34 @@ Detect when section partially enters headland zone, not just center point.
 
 ## Checklist
 
-### Phase 1: Data Structures
-- [ ] Create CoverageResult record
-- [ ] Create BoundaryResult record
+### Phase 1: Data Structures ✅
+- [x] Create CoverageResult record
+- [x] Create BoundaryResult record
 
-### Phase 2: Geometry Utilities
-- [ ] Add ToLocalCoords to GeometryMath
-- [ ] Add GetXInterceptAtYZero to GeometryMath
-- [ ] Add interval merging utility
+### Phase 2: Geometry Utilities ✅
+- [x] Add ToLocalCoords to GeometryMath
+- [x] Add GetXInterceptAtY / GetXInterceptAtYZero to GeometryMath
+- [x] Add interval merging utility (MergeIntervals)
 
-### Phase 3: Coverage Service
-- [ ] Add GetSegmentCoverage to interface
-- [ ] Implement GetSegmentCoverage
-- [ ] Add frustum culling
+### Phase 3: Coverage Service ✅
+- [x] Add GetSegmentCoverage to interface
+- [x] Add GetSegmentCoverageMulti to interface
+- [x] Implement GetSegmentCoverage with frustum culling
+- [x] Implement GetSegmentCoverageMulti for single-pass multi-distance check
 - [ ] Unit tests for coverage calculation
 
-### Phase 4: Section Control Integration
-- [ ] Add overlap threshold configuration
-- [ ] Update SectionControlService to use segment checks
-- [ ] Add comparison logging (debug)
+### Phase 4: Section Control Integration ✅
+- [x] Add overlap threshold configuration (COVERAGE_OVERLAP_THRESHOLD = 70%)
+- [x] Update SectionControlService to use segment checks (GetSegmentCoverageMulti)
+- [x] Add CoveragePercent property to SectionControlState for UI display
+- [ ] Add comparison logging (debug) - optional
 - [ ] Integration tests
 
-### Phase 5: Boundary Checks (Optional)
-- [ ] Add GetSegmentBoundaryStatus to interface
-- [ ] Implement boundary segment checks
-- [ ] Update section control to use segment boundary checks
+### Phase 5: Boundary Checks ✅
+- [x] Add GetSegmentBoundaryStatus to BoundaryPolygon model
+- [x] Implement boundary segment checks with coordinate transform
+- [x] Add GetSegmentBoundaryStatus to Boundary wrapper (handles outer + inner holes)
+- [x] Update SectionControlService to use segment boundary checks (50% threshold)
 
 ### Phase 6: Migration
 - [ ] Add UseSegmentBasedCoverage toggle

@@ -174,6 +174,9 @@ public class SectionControlState
     /// <summary>Whether look-ahead point is in headland</summary>
     public bool IsLookOnInHeadland { get; set; }
 
+    /// <summary>Current coverage percentage at section position (0.0 to 1.0)</summary>
+    public double CoveragePercent { get; set; }
+
     /// <summary>Reset timers and request flags</summary>
     public void Reset()
     {
@@ -189,6 +192,7 @@ public class SectionControlState
         IsInBoundary = true;
         IsInHeadland = false;
         IsLookOnInHeadland = false;
+        CoveragePercent = 0;
     }
 }
 

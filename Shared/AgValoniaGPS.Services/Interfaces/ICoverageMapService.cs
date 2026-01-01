@@ -74,6 +74,38 @@ public interface ICoverageMapService
     bool IsPointCovered(double easting, double northing);
 
     /// <summary>
+    /// Calculate coverage for a section segment using coordinate transform method.
+    /// More accurate than point-based check as it detects partial overlaps and gaps.
+    /// </summary>
+    /// <param name="sectionCenter">Center point of section in world coords.</param>
+    /// <param name="heading">Section heading in radians.</param>
+    /// <param name="halfWidth">Half the section width in meters.</param>
+    /// <param name="lookAheadDistance">Distance ahead to check (0 = current position).</param>
+    /// <returns>Coverage result with percentage and overlap info.</returns>
+    CoverageResult GetSegmentCoverage(
+        Vec2 sectionCenter,
+        double heading,
+        double halfWidth,
+        double lookAheadDistance = 0);
+
+    /// <summary>
+    /// Check coverage at multiple look-ahead distances with single transform pass.
+    /// More efficient than calling GetSegmentCoverage multiple times.
+    /// </summary>
+    /// <param name="sectionCenter">Center point of section in world coords.</param>
+    /// <param name="heading">Section heading in radians.</param>
+    /// <param name="halfWidth">Half the section width in meters.</param>
+    /// <param name="lookOnDistance">Look-ahead distance for section on check.</param>
+    /// <param name="lookOffDistance">Look-ahead distance for section off check.</param>
+    /// <returns>Tuple of (Current, LookOn, LookOff) coverage results.</returns>
+    (CoverageResult Current, CoverageResult LookOn, CoverageResult LookOff) GetSegmentCoverageMulti(
+        Vec2 sectionCenter,
+        double heading,
+        double halfWidth,
+        double lookOnDistance,
+        double lookOffDistance);
+
+    /// <summary>
     /// Get all coverage patches for rendering
     /// </summary>
     /// <returns>Read-only list of coverage patches</returns>

@@ -4,6 +4,7 @@ using AgValoniaGPS.Models;
 using AgValoniaGPS.Models.Base;
 using AgValoniaGPS.Models.Configuration;
 using AgValoniaGPS.Models.Coverage;
+using AgValoniaGPS.Models.Headland;
 using AgValoniaGPS.Models.State;
 using AgValoniaGPS.Services.Interfaces;
 
@@ -28,6 +29,9 @@ public class SectionControlService : ISectionControlService
     private const int SECTION_ON_DELAY = 2;   // ~200ms delay before turning on
     private const int MAPPING_ON_DELAY = 2;   // ~200ms delay before recording coverage
     private const int MAPPING_OFF_DELAY = 2;  // ~200ms delay before stopping coverage
+
+    // Coverage overlap threshold - section considered "covered" if this percentage is already painted
+    private const double COVERAGE_OVERLAP_THRESHOLD = 0.70; // 70%
 
     public IReadOnlyList<SectionControlState> SectionStates => _sectionStates;
     public SectionMasterState MasterState
@@ -156,25 +160,46 @@ public class SectionControlService : ISectionControlService
         double lookAheadOnDist = speed * tool.LookAheadOnSetting;
         double lookAheadOffDist = speed * tool.LookAheadOffSetting;
 
+        // Calculate section half-width for segment-based checks
+        double halfWidth = (section.PositionRight - section.PositionLeft) / 2.0;
+
         // Project forward for ON check
         var onCheckPoint = ProjectForward(sectionCenter, toolHeading, lookAheadOnDist);
 
         // Project forward for OFF check
         var offCheckPoint = ProjectForward(sectionCenter, toolHeading, lookAheadOffDist);
 
-        // Check boundary conditions
-        bool isInBoundary = IsPointInBoundary(sectionCenter);
-        bool lookOnInBoundary = IsPointInBoundary(onCheckPoint);
-        bool lookOffInBoundary = IsPointInBoundary(offCheckPoint);
+        // Check boundary conditions using segment-based detection
+        var currentBoundaryResult = GetSegmentBoundaryStatus(sectionCenter, toolHeading, halfWidth);
+        var lookOnBoundaryResult = GetSegmentBoundaryStatus(onCheckPoint, toolHeading, halfWidth);
+        var lookOffBoundaryResult = GetSegmentBoundaryStatus(offCheckPoint, toolHeading, halfWidth);
 
-        // Check headland conditions
+        // Section is "in boundary" if majority of segment is inside
+        const double BOUNDARY_THRESHOLD = 0.50; // 50% inside = in boundary
+        bool isInBoundary = currentBoundaryResult.InsidePercent >= BOUNDARY_THRESHOLD;
+        bool lookOnInBoundary = lookOnBoundaryResult.InsidePercent >= BOUNDARY_THRESHOLD;
+        bool lookOffInBoundary = lookOffBoundaryResult.InsidePercent >= BOUNDARY_THRESHOLD;
+
+        // Check headland conditions (still point-based for now)
         bool isInHeadland = IsPointInHeadland(sectionCenter);
         bool lookOnInHeadland = IsPointInHeadland(onCheckPoint);
         bool lookOffInHeadland = IsPointInHeadland(offCheckPoint);
 
-        // Check coverage
-        bool lookOnCovered = _coverageMapService.IsPointCovered(onCheckPoint.Easting, onCheckPoint.Northing);
-        bool lookOffCovered = _coverageMapService.IsPointCovered(offCheckPoint.Easting, offCheckPoint.Northing);
+        // Check coverage using segment-based detection
+        // This checks the entire section width, not just center point
+        var (currentCoverage, lookOnCoverage, lookOffCoverage) = _coverageMapService.GetSegmentCoverageMulti(
+            sectionCenter,
+            toolHeading,
+            halfWidth,
+            lookAheadOnDist,
+            lookAheadOffDist);
+
+        // Section is "covered" if coverage exceeds threshold
+        bool lookOnCovered = lookOnCoverage.CoveragePercent >= COVERAGE_OVERLAP_THRESHOLD;
+        bool lookOffCovered = lookOffCoverage.CoveragePercent >= COVERAGE_OVERLAP_THRESHOLD;
+
+        // Store coverage percentage for potential UI display
+        section.CoveragePercent = currentCoverage.CoveragePercent;
 
         // Update section state tracking
         section.IsInBoundary = isInBoundary;
@@ -380,6 +405,18 @@ public class SectionControlService : ISectionControlService
             return true; // No boundary = always in
 
         return boundary.IsPointInside(point.Easting, point.Northing);
+    }
+
+    /// <summary>
+    /// Get segment-based boundary status for a section
+    /// </summary>
+    private BoundaryResult GetSegmentBoundaryStatus(Vec2 sectionCenter, double heading, double halfWidth)
+    {
+        var boundary = _state.Field.CurrentBoundary;
+        if (boundary == null || !boundary.IsValid)
+            return BoundaryResult.FullyInside; // No boundary = always in
+
+        return boundary.GetSegmentBoundaryStatus(sectionCenter, heading, halfWidth);
     }
 
     /// <summary>
