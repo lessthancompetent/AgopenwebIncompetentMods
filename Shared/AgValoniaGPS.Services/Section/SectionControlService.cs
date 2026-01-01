@@ -36,6 +36,7 @@ public class SectionControlService : ISectionControlService
     // Yaw rate tracking for curve-following coverage margin
     private double _previousHeading = double.NaN;
     private double _yawRate = 0; // smoothed yaw rate in radians per update cycle (positive = turning right)
+    private double _instantYawRate = 0; // instantaneous (unsmoothed) yaw rate for threshold checks
     private const double YAW_RATE_SMOOTHING = 0.3; // Smoothing factor (0-1, lower = smoother)
 
     public IReadOnlyList<SectionControlState> SectionStates => _sectionStates;
@@ -106,8 +107,9 @@ public class SectionControlService : ISectionControlService
         var tool = ConfigurationStore.Instance.Tool;
         int numSections = NumSections;
 
-        // Calculate yaw rate (smoothed, for curve-following)
-        // Smoothing prevents spikes during turn-to-straight transitions
+        // Calculate yaw rate (both instantaneous and smoothed)
+        // Instantaneous is used for threshold checks (especially for trailed implements)
+        // Smoothed is used for curve-following adjustments
         if (!double.IsNaN(_previousHeading))
         {
             double headingDelta = toolHeading - _previousHeading;
@@ -117,7 +119,10 @@ public class SectionControlService : ISectionControlService
             else if (headingDelta < -Math.PI)
                 headingDelta += 2 * Math.PI;
 
-            // Exponential smoothing: new = old * (1-α) + measured * α
+            // Store instantaneous rate for threshold checks
+            _instantYawRate = headingDelta;
+
+            // Exponential smoothing for curve-following: new = old * (1-α) + measured * α
             _yawRate = _yawRate * (1 - YAW_RATE_SMOOTHING) + headingDelta * YAW_RATE_SMOOTHING;
         }
         _previousHeading = toolHeading;
@@ -130,6 +135,7 @@ public class SectionControlService : ISectionControlService
                 UpdateSectionOff(i);
             }
             _yawRate = 0; // Reset when stopped
+            _instantYawRate = 0;
             return;
         }
 
@@ -344,8 +350,9 @@ public class SectionControlService : ISectionControlService
             section.IsMappingOn = true;
             section.MappingOnTimer = 0;
 
-            // Reset yaw rate when starting a new patch to prevent turn influence
+            // Reset yaw rates when starting a new patch to prevent turn influence
             _yawRate = 0;
+            _instantYawRate = 0;
 
             // For the FIRST point of a new patch, use straight perpendicular (no yaw adjustment).
             // The yaw rate adjustment is meant to align consecutive points within a patch.
@@ -425,8 +432,10 @@ public class SectionControlService : ISectionControlService
         // Only apply margin during relatively straight driving.
         // During turns (high yaw rate), the margin causes spiky artifacts.
         // The margin is primarily needed for parallel passes, not turns.
+        // Use INSTANTANEOUS yaw rate for this check - critical for trailed implements
+        // where the tool yaws rapidly during "catch up" after tractor turns.
         const double MAX_YAW_FOR_MARGIN = 0.02; // ~1.1 degrees per update
-        if (Math.Abs(_yawRate) > MAX_YAW_FOR_MARGIN)
+        if (Math.Abs(_instantYawRate) > MAX_YAW_FOR_MARGIN)
             return (leftEdge, rightEdge);
 
         // For straight/gentle curves, use slight yaw adjustment for smoother alignment
