@@ -3,7 +3,7 @@
 ## Overview
 Modernize the codebase to follow Microsoft's recommended .NET and MVVM best practices. All changes are cross-platform compatible.
 
-## Status: IN PROGRESS (Phases 1, 2 & 5 Complete)
+## Status: IN PROGRESS (Phases 1, 2, 3 & 5 Complete)
 
 ---
 
@@ -439,11 +439,13 @@ Services with constructor-only DI injection:
 - [x] Convert non-event async void to async Task
 - [x] Test error handling
 
-### Phase 3: Records
-- [ ] Identify DTO candidates
-- [ ] Convert FieldSelectionItem
-- [ ] Convert other DTOs
-- [ ] Test functionality
+### Phase 3: Records ✅
+- [x] Identify DTO candidates
+- [x] Convert FieldSelectionItem to record
+- [x] Convert CoverageColor to readonly record struct
+- [x] Convert ABLineNudgeOutput, CurveNudgeOutput, SectionHeadlandStatus to records
+- [x] Update consuming services to use record constructors
+- [x] Test functionality (build passes)
 
 ### Phase 4: IOptions (Optional)
 - [ ] Define options classes
