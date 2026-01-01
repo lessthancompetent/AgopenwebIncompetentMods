@@ -35,7 +35,8 @@ public class SectionControlService : ISectionControlService
 
     // Yaw rate tracking for curve-following coverage margin
     private double _previousHeading = double.NaN;
-    private double _yawRate = 0; // radians per update cycle (positive = turning right)
+    private double _yawRate = 0; // smoothed yaw rate in radians per update cycle (positive = turning right)
+    private const double YAW_RATE_SMOOTHING = 0.3; // Smoothing factor (0-1, lower = smoother)
 
     public IReadOnlyList<SectionControlState> SectionStates => _sectionStates;
     public SectionMasterState MasterState
@@ -105,7 +106,8 @@ public class SectionControlService : ISectionControlService
         var tool = ConfigurationStore.Instance.Tool;
         int numSections = NumSections;
 
-        // Calculate yaw rate (continuous, for curve-following)
+        // Calculate yaw rate (smoothed, for curve-following)
+        // Smoothing prevents spikes during turn-to-straight transitions
         if (!double.IsNaN(_previousHeading))
         {
             double headingDelta = toolHeading - _previousHeading;
@@ -114,7 +116,9 @@ public class SectionControlService : ISectionControlService
                 headingDelta -= 2 * Math.PI;
             else if (headingDelta < -Math.PI)
                 headingDelta += 2 * Math.PI;
-            _yawRate = headingDelta; // rad per update cycle
+
+            // Exponential smoothing: new = old * (1-α) + measured * α
+            _yawRate = _yawRate * (1 - YAW_RATE_SMOOTHING) + headingDelta * YAW_RATE_SMOOTHING;
         }
         _previousHeading = toolHeading;
 
