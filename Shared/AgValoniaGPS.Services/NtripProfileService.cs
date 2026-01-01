@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using AgValoniaGPS.Models.Ntrip;
 using AgValoniaGPS.Services.Interfaces;
 
@@ -10,6 +11,7 @@ namespace AgValoniaGPS.Services;
 public class NtripProfileService : INtripProfileService
 {
     private readonly ISettingsService _settingsService;
+    private readonly ILogger<NtripProfileService> _logger;
     private readonly List<NtripProfile> _profiles = new();
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -25,9 +27,10 @@ public class NtripProfileService : INtripProfileService
 
     public event EventHandler? ProfilesChanged;
 
-    public NtripProfileService(ISettingsService settingsService)
+    public NtripProfileService(ISettingsService settingsService, ILogger<NtripProfileService> logger)
     {
         _settingsService = settingsService;
+        _logger = logger;
 
         var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         if (string.IsNullOrEmpty(documentsPath))
@@ -80,7 +83,7 @@ public class NtripProfileService : INtripProfileService
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error loading NTRIP profile from '{file}': {ex.Message}");
+                _logger.LogError(ex, "Error loading NTRIP profile from '{File}'", file);
             }
         }
 
@@ -106,11 +109,11 @@ public class NtripProfileService : INtripProfileService
         // Only migrate if there are legacy settings
         if (string.IsNullOrEmpty(settings.NtripCasterIp))
         {
-            Console.WriteLine("[NTRIP Profiles] No legacy settings to migrate");
+            _logger.LogDebug("No legacy settings to migrate");
             return;
         }
 
-        Console.WriteLine("[NTRIP Profiles] Migrating legacy NTRIP settings to default profile...");
+        _logger.LogInformation("Migrating legacy NTRIP settings to default profile...");
 
         var defaultProfile = new NtripProfile
         {
@@ -125,7 +128,8 @@ public class NtripProfileService : INtripProfileService
         };
 
         await SaveProfileAsync(defaultProfile);
-        Console.WriteLine($"[NTRIP Profiles] Created default profile from legacy settings: {defaultProfile.CasterHost}:{defaultProfile.CasterPort}/{defaultProfile.MountPoint}");
+        _logger.LogInformation("Created default profile from legacy settings: {Host}:{Port}/{MountPoint}",
+            defaultProfile.CasterHost, defaultProfile.CasterPort, defaultProfile.MountPoint);
     }
 
     public async Task SaveProfileAsync(NtripProfile profile)

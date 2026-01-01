@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 using AgValoniaGPS.Models.Base;
 using AgValoniaGPS.Models.Configuration;
 using AgValoniaGPS.Services.Interfaces;
@@ -16,6 +17,7 @@ namespace AgValoniaGPS.Services.Tram;
 /// </summary>
 public class TramLineService : ITramLineService
 {
+    private readonly ILogger<TramLineService> _logger;
     private readonly ITramLineOffsetService _offsetService;
 
     private readonly List<Vec2> _outerBoundaryTrack = new();
@@ -48,9 +50,10 @@ public class TramLineService : ITramLineService
 
     public event EventHandler? TramLinesUpdated;
 
-    public TramLineService(ITramLineOffsetService offsetService)
+    public TramLineService(ITramLineOffsetService offsetService, ILogger<TramLineService> logger)
     {
         _offsetService = offsetService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -332,7 +335,7 @@ public class TramLineService : ITramLineService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[TramLineService] Failed to save tram lines: {ex.Message}");
+            _logger.LogError(ex, "Failed to save tram lines");
         }
     }
 
@@ -395,7 +398,7 @@ public class TramLineService : ITramLineService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[TramLineService] Failed to load tram lines: {ex.Message}");
+            _logger.LogError(ex, "Failed to load tram lines");
         }
     }
 

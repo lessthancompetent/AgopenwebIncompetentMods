@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -28,7 +29,7 @@ public partial class HeadlandDialogPanel : UserControl
     private void OnAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
         _mapControl = this.FindControl<DrawingContextMapControl>("HeadlandMapControl");
-        Console.WriteLine($"[HeadlandDialogPanel] AttachedToVisualTree - MapControl found: {_mapControl != null}");
+        Debug.WriteLine($"[HeadlandDialogPanel] AttachedToVisualTree - MapControl found: {_mapControl != null}");
 
         // Subscribe to map click events for point selection
         if (_mapControl != null)
@@ -45,7 +46,7 @@ public partial class HeadlandDialogPanel : UserControl
 
     private void OnMapClicked(object? sender, MapClickEventArgs e)
     {
-        Console.WriteLine($"[HeadlandDialogPanel] Map clicked at ({e.Easting:F1}, {e.Northing:F1})");
+        Debug.WriteLine($"[HeadlandDialogPanel] Map clicked at ({e.Easting:F1}, {e.Northing:F1})");
         _viewModel?.HandleHeadlandMapClick(e.Easting, e.Northing);
     }
 
@@ -61,7 +62,7 @@ public partial class HeadlandDialogPanel : UserControl
 
         if (_viewModel != null)
         {
-            Console.WriteLine($"[HeadlandDialogPanel] DataContext set to MainViewModel");
+            Debug.WriteLine($"[HeadlandDialogPanel] DataContext set to MainViewModel");
 
             // Subscribe to property changes
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -97,7 +98,7 @@ public partial class HeadlandDialogPanel : UserControl
     {
         if (_mapControl == null)
         {
-            Console.WriteLine($"[HeadlandDialogPanel] SyncMapWithViewModel - MapControl is null!");
+            Debug.WriteLine($"[HeadlandDialogPanel] SyncMapWithViewModel - MapControl is null!");
             return;
         }
 
@@ -107,7 +108,7 @@ public partial class HeadlandDialogPanel : UserControl
         var headlandPreview = vm.HeadlandPreviewLine;
         var selectionMarkers = vm.HeadlandSelectedMarkers;
 
-        Console.WriteLine($"[HeadlandDialogPanel] SyncMapWithViewModel - Boundary: {boundary != null}, OuterPoints: {boundary?.OuterBoundary?.Points.Count ?? 0}, HeadlandLine: {headlandLine?.Count ?? 0}, Preview: {headlandPreview?.Count ?? 0}, Markers: {selectionMarkers?.Count ?? 0}");
+        Debug.WriteLine($"[HeadlandDialogPanel] SyncMapWithViewModel - Boundary: {boundary != null}, OuterPoints: {boundary?.OuterBoundary?.Points.Count ?? 0}, HeadlandLine: {headlandLine?.Count ?? 0}, Preview: {headlandPreview?.Count ?? 0}, Markers: {selectionMarkers?.Count ?? 0}");
 
         _mapControl.SetBoundary(boundary);
         _mapControl.SetHeadlandLine(headlandLine);
@@ -143,14 +144,14 @@ public partial class HeadlandDialogPanel : UserControl
     {
         if (_mapControl == null)
         {
-            Console.WriteLine($"[HeadlandDialogPanel] CenterViewOnBoundary - MapControl is null!");
+            Debug.WriteLine($"[HeadlandDialogPanel] CenterViewOnBoundary - MapControl is null!");
             return;
         }
 
         var boundary = vm.CurrentBoundary;
         if (boundary?.OuterBoundary == null || !boundary.OuterBoundary.IsValid)
         {
-            Console.WriteLine($"[HeadlandDialogPanel] CenterViewOnBoundary - No valid boundary");
+            Debug.WriteLine($"[HeadlandDialogPanel] CenterViewOnBoundary - No valid boundary");
             return;
         }
 
@@ -180,7 +181,7 @@ public partial class HeadlandDialogPanel : UserControl
         double zoom = viewSize > 0 ? 200.0 / viewSize : 1.0;
         zoom = Math.Clamp(zoom, 0.1, 10.0);
 
-        Console.WriteLine($"[HeadlandDialogPanel] CenterViewOnBoundary - Center: ({centerX:F1}, {centerY:F1}), Zoom: {zoom:F2}");
+        Debug.WriteLine($"[HeadlandDialogPanel] CenterViewOnBoundary - Center: ({centerX:F1}, {centerY:F1}), Zoom: {zoom:F2}");
         _mapControl.SetCamera(centerX, centerY, zoom, 0);
     }
 
