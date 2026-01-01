@@ -1243,7 +1243,7 @@ public partial class ConfigurationViewModel : ObservableObject
         EditUTurnDistanceCommand = new RelayCommand(() =>
             ShowNumericInput("Distance from Boundary", Guidance.UTurnDistanceFromBoundary,
                 v => Guidance.UTurnDistanceFromBoundary = v,
-                "m", integerOnly: false, allowNegative: false, min: 0, max: 10));
+                "m", integerOnly: false, allowNegative: true, min: -10, max: 10));
 
         EditUTurnSkipWidthCommand = new RelayCommand(() =>
             ShowNumericInput("Skip Width", Guidance.UTurnSkipWidth,

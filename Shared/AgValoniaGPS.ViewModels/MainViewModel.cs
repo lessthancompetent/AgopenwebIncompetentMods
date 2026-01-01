@@ -1934,33 +1934,43 @@ public partial class MainViewModel : ObservableObject
 
             if (output.Success && output.TurnPath != null && output.TurnPath.Count > 10)
             {
-                // Check if any path points are outside the outer boundary
-                bool pathOutsideBoundary = false;
-                foreach (var pt in output.TurnPath)
+                // User controls how far the turn extends via distanceFromBoundary setting
+                // Don't reject paths that go past the outer boundary - that may be intentional
+                var path = output.TurnPath;
+
+                // Apply smoothing passes from config (1-50)
+                int smoothingPasses = Guidance.UTurnSmoothing;
+                if (smoothingPasses > 1 && path.Count > 4)
                 {
-                    if (!IsPointInsideBoundary(pt.Easting, pt.Northing))
+                    for (int pass = 0; pass < smoothingPasses; pass++)
                     {
-                        pathOutsideBoundary = true;
-                        _logger.LogDebug($"[YouTurn] Path point ({pt.Easting:F1}, {pt.Northing:F1}) is outside boundary - rejecting path");
-                        break;
+                        // Smooth interior points only (preserve start and end)
+                        for (int i = 2; i < path.Count - 2; i++)
+                        {
+                            var prev = path[i - 1];
+                            var curr = path[i];
+                            var next = path[i + 1];
+
+                            path[i] = new Vec3
+                            {
+                                Easting = (prev.Easting + curr.Easting + next.Easting) / 3.0,
+                                Northing = (prev.Northing + curr.Northing + next.Northing) / 3.0,
+                                Heading = curr.Heading
+                            };
+                        }
                     }
+                    _logger.LogDebug($"[YouTurn] Applied {smoothingPasses} smoothing passes to service path");
                 }
 
-                if (!pathOutsideBoundary)
-                {
-                    State.YouTurn.TurnPath = output.TurnPath;
-                    _youTurnPath = output.TurnPath;
-                    _youTurnCounter = 0;
-                    StatusMessage = $"YouTurn path created ({output.TurnPath.Count} points)";
-                    _logger.LogDebug($"[YouTurn] Service path created with {output.TurnPath.Count} points, distToTurnLine={output.DistancePivotToTurnLine:F1}m");
+                State.YouTurn.TurnPath = path;
+                _youTurnPath = path;
+                _youTurnCounter = 0;
+                StatusMessage = $"YouTurn path created ({path.Count} points)";
+                _logger.LogDebug($"[YouTurn] Service path created with {path.Count} points, distToTurnLine={output.DistancePivotToTurnLine:F1}m");
 
-                    // Update map to show the turn path
-                    _mapService.SetYouTurnPath(_youTurnPath.Select(p => (p.Easting, p.Northing)).ToList());
-                    return; // Path is valid, we're done
-                }
-
-                // Path extends outside boundary - clear and fall through to fallback
-                _logger.LogDebug($"[YouTurn] Service path rejected - extends outside boundary, trying fallback");
+                // Update map to show the turn path
+                _mapService.SetYouTurnPath(_youTurnPath.Select(p => (p.Easting, p.Northing)).ToList());
+                return; // Path is valid, we're done
             }
             else
             {
@@ -2054,13 +2064,34 @@ public partial class MainViewModel : ObservableObject
             .ToList();
         var outerBoundaryVec3 = _polygonOffsetService.CalculatePointHeadings(outerPoints);
 
-        // Create turn boundary: outer boundary offset inward by 1 tool width
-        // This is the line that the turn arc should tangent
-        var turnBoundaryVec2 = _polygonOffsetService.CreateInwardOffset(outerPoints, toolWidth);
+        // Create turn boundary: controls where the outermost point of the turn can reach
+        // distanceFromBoundary = 0 means turn can reach the outer boundary
+        // distanceFromBoundary > 0 means turn stays that far inside
+        // distanceFromBoundary < 0 means turn can extend past the outer boundary
+        double distanceFromBoundary = Guidance.UTurnDistanceFromBoundary;
+        double turnBoundaryOffset = distanceFromBoundary;
+        _logger.LogDebug($"[YouTurn] distanceFromBoundary={distanceFromBoundary:F1}m, turnBoundaryOffset={turnBoundaryOffset:F1}m");
+
+        List<Vec2>? turnBoundaryVec2;
+        if (turnBoundaryOffset > 0.1)
+        {
+            // Positive: offset inward
+            turnBoundaryVec2 = _polygonOffsetService.CreateInwardOffset(outerPoints, turnBoundaryOffset);
+        }
+        else if (turnBoundaryOffset < -0.1)
+        {
+            // Negative: offset outward (turn starts outside boundary)
+            turnBoundaryVec2 = _polygonOffsetService.CreateOutwardOffset(outerPoints, -turnBoundaryOffset);
+        }
+        else
+        {
+            // Near zero: use outer boundary directly
+            turnBoundaryVec2 = outerPoints;
+        }
         if (turnBoundaryVec2 == null || turnBoundaryVec2.Count < 3)
         {
-            _logger.LogDebug($"[YouTurn] Failed to create turn boundary (1 tool width offset)");
-            return null;
+            _logger.LogDebug($"[YouTurn] Offset failed, using outer boundary directly");
+            turnBoundaryVec2 = outerPoints;
         }
         var turnBoundaryVec3 = _polygonOffsetService.CalculatePointHeadings(turnBoundaryVec2);
 
@@ -2088,23 +2119,21 @@ public partial class MainViewModel : ObservableObject
         double headlandWidthForTurn = Math.Max(totalHeadlandWidth - toolWidth, toolWidth);
 
         // Create IsPointInsideTurnArea delegate
-        // Returns: 0 = inside field (OK), != 0 = in turn area or out of bounds
+        // Returns: 0 = OK to place turn here, != 0 = out of allowed zone
+        // The user controls how far into headland via distanceFromBoundary setting
+        // We allow turns up to (or past) the configured boundary
         Func<Vec3, int> isPointInsideTurnArea = (point) =>
         {
-            // Check if outside outer boundary (completely out of bounds)
-            if (!GeometryMath.IsPointInPolygon(outerBoundaryVec3, point))
+            // Use the turn boundary (which accounts for distanceFromBoundary) as the limit
+            // Points inside the turn boundary are OK (return 0)
+            // Points outside the turn boundary are in the restricted zone (return 1)
+            if (GeometryMath.IsPointInPolygon(turnBoundaryVec3, point))
             {
-                return -1; // Outside field entirely
+                return 0; // Inside allowed zone
             }
 
-            // Check if inside headland boundary (in the working field)
-            if (GeometryMath.IsPointInPolygon(headlandBoundaryVec3, point))
-            {
-                return 0; // In the field - safe to drive
-            }
-
-            // Point is between outer and headland = in the turn zone
-            return 1; // In turn area
+            // Point is outside the configured turn boundary
+            return 1; // In restricted area
         };
 
         // Build the input
@@ -2145,8 +2174,9 @@ public partial class MainViewModel : ObservableObject
             // State machine
             MakeUTurnCounter = _youTurnCounter + 10, // Ensure we pass the throttle check
 
-            // Leg extension - this is key for proper leg length through headland
-            YouTurnLegExtensionMultiplier = 2.5,
+            // Leg length - use user's UTurnExtension setting directly
+            LegLength = Guidance.UTurnExtension,
+            YouTurnLegExtensionMultiplier = 2.5, // Fallback if LegLength not set
             HeadlandWidth = headlandWidthForTurn
         };
 
@@ -2239,11 +2269,11 @@ public partial class MainViewModel : ObservableObject
         // Leg lengths - use config values
         // The arc extends turnRadius beyond the arc start (toward the outer boundary)
         // So: arc_top_position = headlandLegLength + turnRadius
-        // We want arc_top to be at HeadlandDistance (at the outer boundary)
-        // Therefore: headlandLegLength = HeadlandDistance - turnRadius
-        // But ensure arc start is at least a small margin past the headland boundary
+        // We want arc_top to be at HeadlandDistance - distanceFromBoundary
+        // Therefore: headlandLegLength = HeadlandDistance - turnRadius - distanceFromBoundary
+        // Negative distanceFromBoundary pushes arc PAST the outer boundary (useful for trailing implements)
         double distanceFromBoundary = Guidance.UTurnDistanceFromBoundary;
-        double headlandLegLength = Math.Max(HeadlandDistance - turnRadius - distanceFromBoundary, 2.0);
+        double headlandLegLength = HeadlandDistance - turnRadius - distanceFromBoundary;
 
         // How far path extends into cultivated area (entry/exit legs) - use UTurnExtension from config
         double fieldLegLength = Guidance.UTurnExtension;

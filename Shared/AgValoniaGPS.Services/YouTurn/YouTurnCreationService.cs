@@ -1690,12 +1690,19 @@ namespace AgValoniaGPS.Services.YouTurn
 
         private bool AddCurveSequenceLines(YouTurnCreationInput input)
         {
-            // Calculate leg length - use headland width as the base
-            double legLength = input.HeadlandWidth * input.YouTurnLegExtensionMultiplier;
+            // Calculate leg length - use direct LegLength if set, otherwise calculate
+            double legLength;
+            if (input.LegLength > 0)
+            {
+                legLength = input.LegLength;
+            }
+            else
+            {
+                legLength = input.HeadlandWidth * input.YouTurnLegExtensionMultiplier;
 
-            // Ensure minimum leg length based on turn diameter
-            double minLegLength = input.TurnRadius * 2.0;
-            if (legLength < minLegLength) legLength = minLegLength;
+                double minLegLength = input.TurnRadius * 2.0;
+                if (legLength < minLegLength) legLength = minLegLength;
+            }
 
             // For curves, we add points from the curve itself
             // Estimate how many curve points we need based on leg length and typical curve point spacing (~1m)
@@ -1746,14 +1753,22 @@ namespace AgValoniaGPS.Services.YouTurn
             if (outhead > TWO_PI) outhead -= TWO_PI;
             if (outhead < 0) outhead += TWO_PI;
 
-            // Calculate leg length - use headland width as the base
-            // The legs need to extend at least the headland width to guide through the turn
-            // Plus some extra to ensure smooth entry/exit
-            double legLength = input.HeadlandWidth * input.YouTurnLegExtensionMultiplier;
+            // Calculate leg length - use direct LegLength if set, otherwise calculate
+            double legLength;
+            if (input.LegLength > 0)
+            {
+                // User specified leg length directly (UTurnExtension setting)
+                legLength = input.LegLength;
+            }
+            else
+            {
+                // Fallback: calculate from headland width
+                legLength = input.HeadlandWidth * input.YouTurnLegExtensionMultiplier;
 
-            // Ensure minimum leg length based on turn diameter
-            double minLegLength = input.TurnRadius * 2.0;
-            if (legLength < minLegLength) legLength = minLegLength;
+                // Ensure minimum leg length based on turn diameter
+                double minLegLength = input.TurnRadius * 2.0;
+                if (legLength < minLegLength) legLength = minLegLength;
+            }
 
             // Use 1 meter spacing for leg points
             double legPointSpacing = 1.0;

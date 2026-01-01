@@ -99,6 +99,7 @@ namespace AgValoniaGPS.Models.YouTurn
         /// U-turn leg extension multiplier. The straight legs before/after the turn arc
         /// are extended by this factor times the turn diameter.
         /// Typical values are 2-3 (default 2.5).
+        /// Only used if LegLength is not set.
         /// </summary>
         public double YouTurnLegExtensionMultiplier { get; set; } = 2.5;
 
@@ -107,5 +108,12 @@ namespace AgValoniaGPS.Models.YouTurn
         /// far enough to guide the tractor through the entire headland area.
         /// </summary>
         public double HeadlandWidth { get; set; } = 20.0;
+
+        /// <summary>
+        /// Direct leg length in meters. If > 0, this is used directly for the
+        /// entry/exit legs instead of calculating from HeadlandWidth * Multiplier.
+        /// This is the user's UTurnExtension setting.
+        /// </summary>
+        public double LegLength { get; set; } = 0;
     }
 }
