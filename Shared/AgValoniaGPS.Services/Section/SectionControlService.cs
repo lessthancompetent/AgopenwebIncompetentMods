@@ -344,6 +344,9 @@ public class SectionControlService : ISectionControlService
             section.IsMappingOn = true;
             section.MappingOnTimer = 0;
 
+            // Reset yaw rate when starting a new patch to prevent turn influence
+            _yawRate = 0;
+
             // For the FIRST point of a new patch, use straight perpendicular (no yaw adjustment).
             // The yaw rate adjustment is meant to align consecutive points within a patch.
             // Using it on the first point causes spikes when exiting turns.
@@ -409,7 +412,7 @@ public class SectionControlService : ISectionControlService
     /// <summary>
     /// Apply coverage margin to expand section edges outward.
     /// This creates slight overlap between passes to prevent gaps from GPS drift.
-    /// Uses yaw rate to adjust expansion direction for curve-following.
+    /// Only applies margin during straight driving to avoid spikes during turns.
     /// </summary>
     private (Vec2 left, Vec2 right) ApplyCoverageMargin(Vec2 leftEdge, Vec2 rightEdge, double toolHeading)
     {
@@ -419,11 +422,14 @@ public class SectionControlService : ISectionControlService
         if (margin <= 0)
             return (leftEdge, rightEdge);
 
-        // Adjust expansion direction to follow the curve using yaw rate.
-        // The expansion should be perpendicular to the average heading between
-        // this update and the next. Using half the yaw rate achieves this.
-        // This prevents spiky artifacts during turns by aligning the expansion
-        // with the actual curved path rather than the instantaneous heading.
+        // Only apply margin during relatively straight driving.
+        // During turns (high yaw rate), the margin causes spiky artifacts.
+        // The margin is primarily needed for parallel passes, not turns.
+        const double MAX_YAW_FOR_MARGIN = 0.02; // ~1.1 degrees per update
+        if (Math.Abs(_yawRate) > MAX_YAW_FOR_MARGIN)
+            return (leftEdge, rightEdge);
+
+        // For straight/gentle curves, use slight yaw adjustment for smoother alignment
         double curveAdjustedHeading = toolHeading + _yawRate * 0.5;
 
         // Perpendicular direction (rotated 90° from adjusted heading)
