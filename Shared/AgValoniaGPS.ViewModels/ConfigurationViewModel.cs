@@ -18,7 +18,6 @@ namespace AgValoniaGPS.ViewModels;
 public partial class ConfigurationViewModel : ObservableObject
 {
     private readonly IConfigurationService _configService;
-    private readonly INtripClientService? _ntripService;
 
     #region Dialog Visibility
 
@@ -468,109 +467,6 @@ public partial class ConfigurationViewModel : ObservableObject
         OnPropertyChanged(nameof(SectionColor14));
         OnPropertyChanged(nameof(SectionColor15));
         OnPropertyChanged(nameof(SectionColor16));
-    }
-
-    #endregion
-
-    #region NTRIP Connection State
-
-    private bool _isNtripConnected;
-    public bool IsNtripConnected
-    {
-        get => _isNtripConnected;
-        set => SetProperty(ref _isNtripConnected, value);
-    }
-
-    private string _ntripStatus = "Not Connected";
-    public string NtripStatus
-    {
-        get => _ntripStatus;
-        set => SetProperty(ref _ntripStatus, value);
-    }
-
-    private string _ntripBytesReceived = "0";
-    public string NtripBytesReceived
-    {
-        get => _ntripBytesReceived;
-        set => SetProperty(ref _ntripBytesReceived, value);
-    }
-
-    public ICommand ConnectNtripCommand { get; private set; } = null!;
-    public ICommand DisconnectNtripCommand { get; private set; } = null!;
-
-    private async Task ConnectToNtripAsync()
-    {
-        if (_ntripService == null) return;
-
-        try
-        {
-            NtripStatus = "Connecting...";
-            var config = new NtripConfiguration
-            {
-                CasterAddress = Connections.NtripCasterHost,
-                CasterPort = Connections.NtripCasterPort,
-                MountPoint = Connections.NtripMountPoint,
-                Username = Connections.NtripUsername,
-                Password = Connections.NtripPassword,
-                SubnetAddress = "192.168.5",
-                UdpForwardPort = 2233,
-                GgaIntervalSeconds = 10,
-                UseManualPosition = false
-            };
-
-            await _ntripService.ConnectAsync(config);
-        }
-        catch (Exception ex)
-        {
-            NtripStatus = $"Error: {ex.Message}";
-        }
-    }
-
-    private async Task DisconnectFromNtripAsync()
-    {
-        if (_ntripService == null) return;
-
-        try
-        {
-            await _ntripService.DisconnectAsync();
-        }
-        catch (Exception ex)
-        {
-            NtripStatus = $"Error: {ex.Message}";
-        }
-    }
-
-    private void InitializeNtripConnectionCommands()
-    {
-        ConnectNtripCommand = new AsyncRelayCommand(ConnectToNtripAsync);
-        DisconnectNtripCommand = new AsyncRelayCommand(DisconnectFromNtripAsync);
-
-        // Subscribe to NTRIP events if service is available
-        if (_ntripService != null)
-        {
-            _ntripService.ConnectionStatusChanged += (s, e) =>
-            {
-                IsNtripConnected = e.IsConnected;
-                NtripStatus = e.Message ?? (e.IsConnected ? "Connected" : "Not Connected");
-            };
-
-            _ntripService.RtcmDataReceived += (s, e) =>
-            {
-                NtripBytesReceived = FormatBytes(_ntripService.TotalBytesReceived);
-            };
-
-            // Initialize state from service
-            IsNtripConnected = _ntripService.IsConnected;
-            NtripStatus = _ntripService.IsConnected ? "Connected" : "Not Connected";
-            NtripBytesReceived = FormatBytes(_ntripService.TotalBytesReceived);
-        }
-    }
-
-    private static string FormatBytes(ulong bytes)
-    {
-        if (bytes < 1024) return $"{bytes} B";
-        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
-        return $"{bytes / (1024.0 * 1024.0):F2} MB";
     }
 
     #endregion
@@ -1033,14 +929,6 @@ public partial class ConfigurationViewModel : ObservableObject
     public ICommand ToggleSectionsSoundCommand { get; private set; } = null!;
     public ICommand ToggleHardwareMessagesCommand { get; private set; } = null!;
 
-    // NTRIP Tab Commands
-    public ICommand EditNtripCasterHostCommand { get; private set; } = null!;
-    public ICommand EditNtripCasterPortCommand { get; private set; } = null!;
-    public ICommand EditNtripMountPointCommand { get; private set; } = null!;
-    public ICommand EditNtripUsernameCommand { get; private set; } = null!;
-    public ICommand EditNtripPasswordCommand { get; private set; } = null!;
-    public ICommand ToggleNtripAutoConnectCommand { get; private set; } = null!;
-
     #endregion
 
     #region Events
@@ -1050,10 +938,9 @@ public partial class ConfigurationViewModel : ObservableObject
 
     #endregion
 
-    public ConfigurationViewModel(IConfigurationService configService, INtripClientService? ntripService = null)
+    public ConfigurationViewModel(IConfigurationService configService)
     {
         _configService = configService;
-        _ntripService = ntripService;
 
         // Initialize commands
         LoadProfileCommand = new RelayCommand<string>(LoadProfile);
@@ -1081,8 +968,6 @@ public partial class ConfigurationViewModel : ObservableObject
         InitializeMachineCommands();
         InitializeDisplayCommands();
         InitializeAdditionalOptionsCommands();
-        InitializeNtripCommands();
-        InitializeNtripConnectionCommands();
 
         // Subscribe to config changes for HasUnsavedChanges notification
         Config.PropertyChanged += (_, e) =>
@@ -1755,61 +1640,6 @@ public partial class ConfigurationViewModel : ObservableObject
         ToggleHardwareMessagesCommand = new RelayCommand(() =>
         {
             Display.HardwareMessagesEnabled = !Display.HardwareMessagesEnabled;
-            Config.MarkChanged();
-        });
-    }
-
-    private void InitializeNtripCommands()
-    {
-        EditNtripCasterHostCommand = new RelayCommand(() =>
-        {
-            ShowTextInput("Caster Host", Connections.NtripCasterHost, value =>
-            {
-                Connections.NtripCasterHost = value;
-                Config.MarkChanged();
-            });
-        });
-
-        EditNtripCasterPortCommand = new RelayCommand(() =>
-        {
-            ShowNumericInput("Caster Port", Connections.NtripCasterPort,
-                value =>
-                {
-                    Connections.NtripCasterPort = (int)value;
-                    Config.MarkChanged();
-                }, "", true, false, 1, 65535);
-        });
-
-        EditNtripMountPointCommand = new RelayCommand(() =>
-        {
-            ShowTextInput("Mount Point", Connections.NtripMountPoint, value =>
-            {
-                Connections.NtripMountPoint = value;
-                Config.MarkChanged();
-            });
-        });
-
-        EditNtripUsernameCommand = new RelayCommand(() =>
-        {
-            ShowTextInput("Username", Connections.NtripUsername, value =>
-            {
-                Connections.NtripUsername = value;
-                Config.MarkChanged();
-            });
-        });
-
-        EditNtripPasswordCommand = new RelayCommand(() =>
-        {
-            ShowTextInput("Password", Connections.NtripPassword, value =>
-            {
-                Connections.NtripPassword = value;
-                Config.MarkChanged();
-            }, isPassword: true);
-        });
-
-        ToggleNtripAutoConnectCommand = new RelayCommand(() =>
-        {
-            Connections.NtripAutoConnect = !Connections.NtripAutoConnect;
             Config.MarkChanged();
         });
     }

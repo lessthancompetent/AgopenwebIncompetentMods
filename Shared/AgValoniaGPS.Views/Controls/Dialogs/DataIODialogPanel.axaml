@@ -3,7 +3,6 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:AgValoniaGPS.ViewModels"
-             xmlns:controls="using:AgValoniaGPS.Views.Controls"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="900"
              x:Class="AgValoniaGPS.Views.Controls.Dialogs.DataIODialogPanel"
              x:DataType="vm:MainViewModel"
@@ -90,7 +89,7 @@
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel>
                             <TextBlock Text="Data I/O Configuration" Foreground="White" FontSize="20" FontWeight="Bold"/>
-                            <TextBlock Text="Network, NTRIP, and GPS settings" Foreground="#BDC3C7" FontSize="13" Margin="0,5,0,0"/>
+                            <TextBlock Text="Network and GPS settings" Foreground="#BDC3C7" FontSize="13" Margin="0,5,0,0"/>
                         </StackPanel>
                         <Button Grid.Column="1" Background="Transparent" BorderThickness="0"
                                 Command="{Binding CloseDataIODialogCommand}" Cursor="Hand" VerticalAlignment="Top">
@@ -148,87 +147,6 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- NTRIP Configuration Section -->
-                        <Border Classes="Panel">
-                            <StackPanel Spacing="12">
-                                <TextBlock Classes="Header" Text="RTK Corrections (NTRIP)"/>
-
-                                <!-- Caster and Port -->
-                                <Grid ColumnDefinitions="*,100" RowDefinitions="Auto,Auto">
-                                    <StackPanel>
-                                        <TextBlock Classes="Label" Text="Caster Address" Margin="0,0,0,4"/>
-                                        <Button Classes="DataIOInput" HorizontalContentAlignment="Left"
-                                                Command="{Binding SetActiveDataIOFieldCommand}"
-                                                CommandParameter="CasterAddress">
-                                            <TextBlock Text="{Binding NtripCasterAddress}" Foreground="White"/>
-                                        </Button>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                        <TextBlock Classes="Label" Text="Port" Margin="0,0,0,4"/>
-                                        <Button Classes="DataIOInput" HorizontalContentAlignment="Left"
-                                                Command="{Binding SetActiveDataIOFieldCommand}"
-                                                CommandParameter="CasterPort">
-                                            <TextBlock Text="{Binding NtripCasterPort}" Foreground="White"/>
-                                        </Button>
-                                    </StackPanel>
-                                </Grid>
-
-                                <!-- Mount Point -->
-                                <StackPanel>
-                                    <TextBlock Classes="Label" Text="Mount Point" Margin="0,0,0,4"/>
-                                    <Button Classes="DataIOInput" HorizontalContentAlignment="Left"
-                                            Command="{Binding SetActiveDataIOFieldCommand}"
-                                            CommandParameter="MountPoint">
-                                        <TextBlock Text="{Binding NtripMountPoint}" Foreground="White"/>
-                                    </Button>
-                                </StackPanel>
-
-                                <!-- Username -->
-                                <StackPanel>
-                                    <TextBlock Classes="Label" Text="Username" Margin="0,0,0,4"/>
-                                    <Button Classes="DataIOInput" HorizontalContentAlignment="Left"
-                                            Command="{Binding SetActiveDataIOFieldCommand}"
-                                            CommandParameter="Username">
-                                        <TextBlock Text="{Binding NtripUsername}" Foreground="White"/>
-                                    </Button>
-                                </StackPanel>
-
-                                <!-- Password -->
-                                <StackPanel>
-                                    <TextBlock Classes="Label" Text="Password" Margin="0,0,0,4"/>
-                                    <Button Classes="DataIOInput" HorizontalContentAlignment="Left"
-                                            Command="{Binding SetActiveDataIOFieldCommand}"
-                                            CommandParameter="Password">
-                                        <TextBlock Text="{Binding NtripPassword}" Foreground="White"/>
-                                    </Button>
-                                </StackPanel>
-
-                                <!-- Connect/Disconnect Buttons -->
-                                <Grid ColumnDefinitions="*,*" Margin="0,5,0,0">
-                                    <Button Classes="ModernButton" Content="Connect"
-                                            Command="{Binding ConnectToNtripCommand}" Margin="0,0,5,0"/>
-                                    <Button Grid.Column="1" Classes="ModernButton" Content="Disconnect"
-                                            Command="{Binding DisconnectFromNtripCommand}" Margin="5,0,0,0"
-                                            Background="#E67E22"/>
-                                </Grid>
-
-                                <Separator Background="#4A5F73" Height="1" Margin="0,5"/>
-
-                                <!-- NTRIP Status -->
-                                <Grid ColumnDefinitions="Auto,Auto,*">
-                                    <TextBlock Classes="Label" Text="Status:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                    <Ellipse Grid.Column="1" Width="12" Height="12" Margin="0,0,8,0"
-                                             Fill="{Binding State.Connections.IsNtripConnected, Converter={StaticResource BoolToColorConverter}}"/>
-                                    <TextBlock Grid.Column="2" Text="{Binding State.Connections.NtripStatus}" Foreground="White" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                </Grid>
-
-                                <Grid ColumnDefinitions="Auto,*">
-                                    <TextBlock Classes="Label" Text="RTCM Received:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding State.Connections.NtripBytesReceived}" Foreground="White" VerticalAlignment="Center"/>
-                                </Grid>
-                            </StackPanel>
-                        </Border>
-
                         <!-- GPS Data Section -->
                         <Border Classes="Panel">
                             <StackPanel Spacing="8">
@@ -258,23 +176,11 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <!-- Footer with Keyboard and Buttons -->
+                <!-- Footer -->
                 <Border Grid.Row="2" Background="#34495E" CornerRadius="0,0,12,12" Padding="15">
-                    <StackPanel Spacing="10">
-                        <!-- Alphanumeric Keyboard -->
-                        <controls:AlphanumericKeyboardPanel IsVisible="{Binding IsDataIOKeyboardVisible}"
-                                                            Text="{Binding DataIOKeyboardText, Mode=TwoWay}"/>
-
-                        <!-- Button Row -->
-                        <Grid ColumnDefinitions="*,*">
-                            <Button Classes="ModernButton" Content="Save Settings"
-                                    Command="{Binding SaveNtripSettingsCommand}"
-                                    HorizontalAlignment="Stretch" Background="#3498DB" Margin="0,0,5,0"/>
-                            <Button Grid.Column="1" Classes="ModernButton" Content="Close"
-                                    Command="{Binding CloseDataIODialogCommand}"
-                                    HorizontalAlignment="Stretch" Background="#27AE60" Margin="5,0,0,0"/>
-                        </Grid>
-                    </StackPanel>
+                    <Button Classes="ModernButton" Content="Close"
+                            Command="{Binding CloseDataIODialogCommand}"
+                            HorizontalAlignment="Stretch" Background="#27AE60"/>
                 </Border>
             </Grid>
         </Border>

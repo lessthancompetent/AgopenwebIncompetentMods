@@ -3485,111 +3485,13 @@ public partial class MainViewModel : ObservableObject
     // AgShare Download Dialog (visibility managed by State.UI)
     public ICommand? CancelAgShareDownloadDialogCommand { get; private set; }
 
-    // Data I/O Dialog properties (visibility managed by State.UI)
-    private bool _isDataIOKeyboardVisible;
-    public bool IsDataIOKeyboardVisible
-    {
-        get => _isDataIOKeyboardVisible;
-        set => SetProperty(ref _isDataIOKeyboardVisible, value);
-    }
-
-    private string _dataIOKeyboardText = "";
-    public string DataIOKeyboardText
-    {
-        get => _dataIOKeyboardText;
-        set
-        {
-            var oldValue = _dataIOKeyboardText;
-            SetProperty(ref _dataIOKeyboardText, value);
-            if (oldValue != value && !string.IsNullOrEmpty(_activeDataIOField))
-            {
-                // Update the appropriate field based on active field
-                UpdateActiveDataIOField(value);
-            }
-        }
-    }
-
-    private string _activeDataIOField = "";
-    public string ActiveDataIOField
-    {
-        get => _activeDataIOField;
-        set => SetProperty(ref _activeDataIOField, value);
-    }
-
     // Data I/O Commands
     public ICommand? ShowDataIODialogCommand { get; private set; }
     public ICommand? CloseDataIODialogCommand { get; private set; }
-    public ICommand? ConnectToNtripCommand { get; private set; }
-    public ICommand? DisconnectFromNtripCommand { get; private set; }
-    public ICommand? SaveNtripSettingsCommand { get; private set; }
-    public ICommand? SetActiveDataIOFieldCommand { get; private set; }
-
-    private void UpdateActiveDataIOField(string value)
-    {
-        switch (_activeDataIOField)
-        {
-            case "CasterAddress":
-                NtripCasterAddress = value;
-                break;
-            case "CasterPort":
-                if (int.TryParse(value, out int port))
-                    NtripCasterPort = port;
-                break;
-            case "MountPoint":
-                NtripMountPoint = value;
-                break;
-            case "Username":
-                NtripUsername = value;
-                break;
-            case "Password":
-                NtripPassword = value;
-                break;
-        }
-    }
-
-    private void SetActiveDataIOField(string? fieldName)
-    {
-        if (string.IsNullOrEmpty(fieldName))
-        {
-            IsDataIOKeyboardVisible = false;
-            ActiveDataIOField = "";
-            return;
-        }
-
-        ActiveDataIOField = fieldName;
-
-        // Set current value for the keyboard
-        DataIOKeyboardText = fieldName switch
-        {
-            "CasterAddress" => NtripCasterAddress,
-            "CasterPort" => NtripCasterPort.ToString(),
-            "MountPoint" => NtripMountPoint,
-            "Username" => NtripUsername,
-            "Password" => NtripPassword,
-            _ => ""
-        };
-
-        IsDataIOKeyboardVisible = true;
-    }
 
     private void CloseDataIODialog()
     {
-        IsDataIOKeyboardVisible = false;
         State.UI.CloseDialog();
-    }
-
-    private void SaveNtripSettings()
-    {
-        var settings = _settingsService.Settings;
-        settings.NtripCasterIp = NtripCasterAddress;
-        settings.NtripCasterPort = NtripCasterPort;
-        settings.NtripMountPoint = NtripMountPoint;
-        settings.NtripUsername = NtripUsername;
-        settings.NtripPassword = NtripPassword;
-        _settingsService.Save();
-
-        StatusMessage = "NTRIP settings saved";
-        _logger.LogDebug("[DataIO] NTRIP settings saved");
     }
 
     // iOS Modal Sheet Visibility Properties
@@ -4708,15 +4610,11 @@ public partial class MainViewModel : ObservableObject
         });
 
         CloseDataIODialogCommand = new RelayCommand(CloseDataIODialog);
-        ConnectToNtripCommand = new AsyncRelayCommand(ConnectToNtripAsync);
-        DisconnectFromNtripCommand = new AsyncRelayCommand(DisconnectFromNtripAsync);
-        SaveNtripSettingsCommand = new RelayCommand(SaveNtripSettings);
-        SetActiveDataIOFieldCommand = new RelayCommand<string>(SetActiveDataIOField);
 
         // Configuration Dialog Commands
         ShowConfigurationDialogCommand = new RelayCommand(() =>
         {
-            ConfigurationViewModel = new ConfigurationViewModel(_configurationService, _ntripService);
+            ConfigurationViewModel = new ConfigurationViewModel(_configurationService);
             ConfigurationViewModel.CloseRequested += (s, e) =>
             {
                 ConfigurationViewModel.IsDialogVisible = false;
