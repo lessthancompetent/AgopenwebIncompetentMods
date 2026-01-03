@@ -3718,8 +3718,17 @@ public partial class MainViewModel : ObservableObject
         set => SetProperty(ref _configurationViewModel, value);
     }
 
+    // AutoSteer Configuration Panel
+    private AutoSteerConfigViewModel? _autoSteerConfigViewModel;
+    public AutoSteerConfigViewModel? AutoSteerConfigViewModel
+    {
+        get => _autoSteerConfigViewModel;
+        set => SetProperty(ref _autoSteerConfigViewModel, value);
+    }
+
     public ICommand? ShowConfigurationDialogCommand { get; private set; }
     public ICommand? CancelConfigurationDialogCommand { get; private set; }
+    public ICommand? ShowAutoSteerConfigCommand { get; private set; }
     public ICommand? ShowLoadProfileDialogCommand { get; private set; }
     public ICommand? ShowNewProfileDialogCommand { get; private set; }
     public ICommand? LoadSelectedProfileCommand { get; private set; }

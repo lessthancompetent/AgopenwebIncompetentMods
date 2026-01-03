@@ -1,0 +1,1207 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:AgValoniaGPS.ViewModels;assembly=AgValoniaGPS.ViewModels"
+             xmlns:converters="clr-namespace:AgValoniaGPS.Views.Converters;assembly=AgValoniaGPS.Views"
+             mc:Ignorable="d" d:DesignWidth="920" d:DesignHeight="680"
+             x:Class="AgValoniaGPS.Views.Controls.Dialogs.AutoSteerConfigPanel"
+             x:DataType="vm:AutoSteerConfigViewModel"
+             IsVisible="{Binding IsPanelVisible, FallbackValue=False}">
+
+    <UserControl.Styles>
+        <!-- Tab styling for compact mode (top tabs) -->
+        <Style Selector="TabControl.SteerTabs > TabItem">
+            <Setter Property="Background" Value="#DD34495E"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Margin" Value="2,0"/>
+            <Setter Property="MinWidth" Value="56"/>
+            <Setter Property="MinHeight" Value="56"/>
+        </Style>
+        <Style Selector="TabControl.SteerTabs > TabItem:selected">
+            <Setter Property="Background" Value="#DD4A9A7E"/>
+        </Style>
+        <Style Selector="TabControl.SteerTabs > TabItem:pointerover">
+            <Setter Property="Background" Value="#DD475A6E"/>
+        </Style>
+
+        <!-- Tappable Value Button -->
+        <Style Selector="Button.TappableValue">
+            <Setter Property="Background" Value="#DD1E2A38"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="MinWidth" Value="80"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.TappableValue:pointerover">
+            <Setter Property="Background" Value="#DD2A3A4A"/>
+            <Setter Property="BorderBrush" Value="#4A9A7E"/>
+        </Style>
+
+        <!-- Toggle Button -->
+        <Style Selector="Button.ToggleButton">
+            <Setter Property="Background" Value="#DD34495E"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.ToggleButton:pointerover">
+            <Setter Property="Background" Value="#DD475A6E"/>
+        </Style>
+
+        <!-- Icon Toggle Button - preserves background binding on hover -->
+        <Style Selector="Button.IconToggle">
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.IconToggle:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Opacity" Value="0.85"/>
+        </Style>
+
+        <!-- Parameter Card -->
+        <Style Selector="Border.ParamCard">
+            <Setter Property="Background" Value="#DD253545"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+
+        <!-- Slider styling -->
+        <Style Selector="Slider.SteerSlider">
+            <Setter Property="Minimum" Value="0"/>
+            <Setter Property="Maximum" Value="100"/>
+        </Style>
+
+        <!-- Status label -->
+        <Style Selector="TextBlock.StatusLabel">
+            <Setter Property="Foreground" Value="#AAA"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="TextBlock.StatusValue">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+    </UserControl.Styles>
+
+    <!-- Full screen modal overlay -->
+    <Grid Background="#80000000">
+        <!-- Main dialog container -->
+        <Border Background="#DD1E2A38"
+                CornerRadius="8"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                BorderBrush="#444"
+                BorderThickness="1"
+                BoxShadow="0 8 32 #80000000">
+
+            <Grid RowDefinitions="Auto,*,Auto">
+                <!-- Header -->
+                <Border Grid.Row="0" Background="#DD2C3E50" Padding="12,8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Auto Steer Configuration" FontSize="16" FontWeight="Bold" Foreground="White"/>
+                        <Button Grid.Column="1" Command="{Binding ClosePanelCommand}"
+                                Background="Transparent" BorderThickness="0" Padding="8,4" Cursor="Hand">
+                            <TextBlock Text="X" FontSize="16" Foreground="#AAA"/>
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <!-- Main Content -->
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <!-- Left side: 4 main tabs (always visible) -->
+                        <ColumnDefinition Width="380"/>
+                        <!-- Right side: 5 additional tabs (full mode only) -->
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- LEFT SIDE: Compact Mode Tabs -->
+                    <Border Grid.Column="0" Background="#DD253545" Padding="8">
+                        <Grid RowDefinitions="*,Auto">
+                            <!-- Tab Headers -->
+                            <TabControl Grid.Row="0" Classes="SteerTabs"
+                                        SelectedIndex="{Binding SelectedTabIndex}"
+                                        Background="Transparent" Padding="0">
+
+                                <!-- Tab 1: Pure Pursuit / Stanley (icon changes with algorithm) -->
+                                <TabItem ToolTip.Tip="Pure Pursuit / Stanley">
+                                    <TabItem.Header>
+                                        <Grid>
+                                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ModePurePursuit.png"
+                                                   Width="40" Height="40" Stretch="Uniform"
+                                                   IsVisible="{Binding !AutoSteer.IsStanleyMode}"/>
+                                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ModeStanley.png"
+                                                   Width="40" Height="40" Stretch="Uniform"
+                                                   IsVisible="{Binding AutoSteer.IsStanleyMode}"/>
+                                        </Grid>
+                                    </TabItem.Header>
+                                    <!-- Tab 1 Content: Pure Pursuit / Stanley -->
+                                    <ScrollViewer Padding="8">
+                                        <Grid>
+                                            <!-- Pure Pursuit Controls -->
+                                            <StackPanel Spacing="12" IsVisible="{Binding !AutoSteer.IsStanleyMode}">
+                                                <!-- Algorithm Label -->
+                                                <TextBlock Text="Pure Pursuit" FontSize="18" FontWeight="Bold" Foreground="#4A9A7E"
+                                                           HorizontalAlignment="Center"/>
+
+                                                <!-- Steer Response -->
+                                                <Border Classes="ParamCard">
+                                                    <StackPanel Spacing="8">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                                            <TextBlock Text="Fast" Foreground="#4A9A7E" FontSize="12"/>
+                                                            <TextBlock Grid.Column="1" Text="Steer Response" Foreground="White"
+                                                                       HorizontalAlignment="Center" FontWeight="SemiBold"/>
+                                                            <TextBlock Grid.Column="2" Text="Slow" Foreground="#E74C3C" FontSize="12"/>
+                                                        </Grid>
+                                                        <Grid ColumnDefinitions="Auto,*">
+                                                            <Button Classes="TappableValue" Command="{Binding EditSteerResponseCommand}"
+                                                                    Margin="0,0,8,0">
+                                                                <TextBlock Text="{Binding AutoSteer.SteerResponseHold, StringFormat='{}{0:F1}'}"
+                                                                           Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                            </Button>
+                                                            <Slider Grid.Column="1" Minimum="1" Maximum="10"
+                                                                    Value="{Binding AutoSteer.SteerResponseHold}"
+                                                                    VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <!-- Integral (Pure Pursuit) -->
+                                                <Border Classes="ParamCard">
+                                                    <StackPanel Spacing="8">
+                                                        <TextBlock Text="Integral" Foreground="White" FontWeight="SemiBold"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Grid ColumnDefinitions="Auto,*">
+                                                            <Button Classes="TappableValue" Command="{Binding EditIntegralGainCommand}"
+                                                                    Margin="0,0,8,0">
+                                                                <TextBlock Text="{Binding AutoSteer.IntegralGain, StringFormat='{}{0:P0}'}"
+                                                                           Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                            </Button>
+                                                            <Slider Grid.Column="1" Minimum="0" Maximum="1"
+                                                                    Value="{Binding AutoSteer.IntegralGain}"
+                                                                    VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                        <TextBlock Text="Slowly increases steer angle to reduce cross track error"
+                                                                   Foreground="#777" FontSize="10" TextWrapping="Wrap"
+                                                                   HorizontalAlignment="Center" TextAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+
+                                            <!-- Stanley Controls -->
+                                            <StackPanel Spacing="12" IsVisible="{Binding AutoSteer.IsStanleyMode}">
+                                                <!-- Algorithm Label -->
+                                                <TextBlock Text="Stanley Gains" FontSize="18" FontWeight="Bold" Foreground="#E67E22"
+                                                           HorizontalAlignment="Center"/>
+
+                                                <!-- Aggressiveness -->
+                                                <Border Classes="ParamCard">
+                                                    <StackPanel Spacing="8">
+                                                        <TextBlock Text="Aggressiveness" Foreground="White" FontWeight="SemiBold"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Grid ColumnDefinitions="Auto,*">
+                                                            <Button Classes="TappableValue" Command="{Binding EditStanleyAggressivenessCommand}"
+                                                                    Margin="0,0,8,0">
+                                                                <TextBlock Text="{Binding AutoSteer.StanleyAggressiveness, StringFormat='{}{0:F1}'}"
+                                                                           Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                            </Button>
+                                                            <Slider Grid.Column="1" Minimum="0" Maximum="10"
+                                                                    Value="{Binding AutoSteer.StanleyAggressiveness}"
+                                                                    VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <!-- Overshoot Reduction -->
+                                                <Border Classes="ParamCard">
+                                                    <StackPanel Spacing="8">
+                                                        <TextBlock Text="Overshoot Reduction" Foreground="White" FontWeight="SemiBold"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Grid ColumnDefinitions="Auto,*">
+                                                            <Button Classes="TappableValue" Command="{Binding EditStanleyOvershootCommand}"
+                                                                    Margin="0,0,8,0">
+                                                                <TextBlock Text="{Binding AutoSteer.StanleyOvershootReduction, StringFormat='{}{0:F1}'}"
+                                                                           Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                            </Button>
+                                                            <Slider Grid.Column="1" Minimum="0" Maximum="10"
+                                                                    Value="{Binding AutoSteer.StanleyOvershootReduction}"
+                                                                    VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <!-- Integral (Stanley) -->
+                                                <Border Classes="ParamCard">
+                                                    <StackPanel Spacing="8">
+                                                        <TextBlock Text="Integral" Foreground="White" FontWeight="SemiBold"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Grid ColumnDefinitions="Auto,*">
+                                                            <Button Classes="TappableValue" Command="{Binding EditStanleyIntegralCommand}"
+                                                                    Margin="0,0,8,0">
+                                                                <TextBlock Text="{Binding AutoSteer.IntegralGain, StringFormat='{}{0:F1}'}"
+                                                                           Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                            </Button>
+                                                            <Slider Grid.Column="1" Minimum="0" Maximum="1"
+                                                                    Value="{Binding AutoSteer.IntegralGain}"
+                                                                    VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </Grid>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <!-- Tab 2: Steering Sensor (steering wheel icon) -->
+                                <TabItem ToolTip.Tip="Steering Sensor">
+                                    <TabItem.Header>
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ST_SteerTab.png"
+                                               Width="40" Height="40" Stretch="Uniform"/>
+                                    </TabItem.Header>
+                                    <!-- Tab 2 Content: Sensor Calibration -->
+                                    <ScrollViewer Padding="8">
+                                        <StackPanel Spacing="12">
+                                            <!-- WAS Zero -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="8" HorizontalAlignment="Center">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                                                        <TextBlock Text="-->" Foreground="#4A9A7E"/>
+                                                        <TextBlock Text="{Binding AutoSteer.WasOffset}" Foreground="White"
+                                                                   FontWeight="Bold" FontSize="18"/>
+                                                        <TextBlock Text="&lt;--" Foreground="#4A9A7E"/>
+                                                    </StackPanel>
+                                                    <TextBlock Text="Was Zero" Foreground="#AAA" HorizontalAlignment="Center"/>
+                                                    <Button Content="Zero WAS" Command="{Binding ZeroWasCommand}"
+                                                            HorizontalAlignment="Center" Padding="16,6"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Counts Per Degree -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditCountsPerDegreeCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.CountsPerDegree, StringFormat='{}{0:F2}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="0.01" Maximum="1"
+                                                                Value="{Binding AutoSteer.CountsPerDegree}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                    <TextBlock Text="Counts Per Degree" Foreground="#AAA" FontSize="11"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Ackermann -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditAckermannCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.Ackermann}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="0" Maximum="200"
+                                                                Value="{Binding AutoSteer.Ackermann}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                    <TextBlock Text="Ackermann" Foreground="#AAA" FontSize="11"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Max Steer Angle -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditMaxSteerAngleCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.MaxSteerAngle, StringFormat='{}{0}°'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="10" Maximum="90"
+                                                                Value="{Binding AutoSteer.MaxSteerAngle}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                    <TextBlock Text="Max Steer Angle" Foreground="#AAA" FontSize="11"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <!-- Tab 3: Deadzone/Timing -->
+                                <TabItem ToolTip.Tip="Deadzone / Timing">
+                                    <TabItem.Header>
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ST_NerdAdv.png"
+                                               Width="40" Height="40" Stretch="Uniform"/>
+                                    </TabItem.Header>
+                                    <!-- Tab 3 Content -->
+                                    <ScrollViewer Padding="8">
+                                        <StackPanel Spacing="12">
+                                            <!-- Deadzone Header -->
+                                            <TextBlock Text="---Deadzone---" FontSize="14" FontWeight="Bold" Foreground="White"
+                                                       HorizontalAlignment="Center"/>
+
+                                            <!-- Deadzone values in a row -->
+                                            <Grid ColumnDefinitions="*,*">
+                                                <Border Grid.Column="0" Classes="ParamCard" Margin="0,0,4,0">
+                                                    <StackPanel HorizontalAlignment="Center">
+                                                        <Button Classes="TappableValue" Command="{Binding EditDeadzoneHeadingCommand}"
+                                                                HorizontalAlignment="Center">
+                                                            <TextBlock Text="{Binding AutoSteer.DeadzoneHeading, StringFormat='{}{0:F1}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <TextBlock Text="Heading" Foreground="#AAA" FontSize="11"
+                                                                   HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <Border Grid.Column="1" Classes="ParamCard" Margin="4,0,0,0">
+                                                    <StackPanel HorizontalAlignment="Center">
+                                                        <Button Classes="TappableValue" Command="{Binding EditDeadzoneDelayCommand}"
+                                                                HorizontalAlignment="Center">
+                                                            <TextBlock Text="{Binding AutoSteer.DeadzoneDelay}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <TextBlock Text="On-Delay" Foreground="#AAA" FontSize="11"
+                                                                   HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </Grid>
+
+                                            <!-- Speed Factor -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Text="Speed Factor" Foreground="White" FontWeight="SemiBold"
+                                                               HorizontalAlignment="Center"/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditSpeedFactorCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.SpeedFactor, StringFormat='{}{0:F1}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="0.5" Maximum="3"
+                                                                Value="{Binding AutoSteer.SpeedFactor}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Acquire Factor -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Text="Acquire Factor" Foreground="White" FontWeight="SemiBold"
+                                                               HorizontalAlignment="Center"/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditAcquireFactorCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.AcquireFactor, StringFormat='{}{0:F1}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="0.5" Maximum="1"
+                                                                Value="{Binding AutoSteer.AcquireFactor}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                    <TextBlock Text="Acquire = Factor * Hold" Foreground="#777" FontSize="10"
+                                                               HorizontalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <!-- Tab 4: Gain (gauge icon) -->
+                                <TabItem ToolTip.Tip="Gain Settings">
+                                    <TabItem.Header>
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ST_GainTab.png"
+                                               Width="40" Height="40" Stretch="Uniform"/>
+                                    </TabItem.Header>
+                                    <!-- Tab 4 Content: Gain -->
+                                    <ScrollViewer Padding="8">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Text="Gain" FontSize="18" FontWeight="Bold" Foreground="#4A9A7E"
+                                                       HorizontalAlignment="Center"/>
+
+                                            <!-- Proportional Gain -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Text="Proportional Gain" Foreground="White" FontWeight="SemiBold"
+                                                               HorizontalAlignment="Center"/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditProportionalGainCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.ProportionalGain}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="1" Maximum="100"
+                                                                Value="{Binding AutoSteer.ProportionalGain}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Max PWM -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Text="Max Limit" Foreground="White" FontWeight="SemiBold"
+                                                               HorizontalAlignment="Center"/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditMaxPwmCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.MaxPwm}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="50" Maximum="255"
+                                                                Value="{Binding AutoSteer.MaxPwm}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Min PWM -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Text="Minimum to Move" Foreground="White" FontWeight="SemiBold"
+                                                               HorizontalAlignment="Center"/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditMinPwmCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.MinPwm}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="1" Maximum="50"
+                                                                Value="{Binding AutoSteer.MinPwm}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+                            </TabControl>
+
+                            <!-- TEST MODE PANEL (Full Mode Only) -->
+                            <Border Grid.Row="1" Background="#DD1E2A38" CornerRadius="6" Padding="8" Margin="0,8,0,0"
+                                    IsVisible="{Binding IsFullMode}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Test Mode" FontSize="14" FontWeight="Bold" Foreground="#F39C12"
+                                               HorizontalAlignment="Center"/>
+
+                                    <!-- Free Drive Toggle -->
+                                    <Button Classes="ToggleButton" Command="{Binding ToggleFreeDriveCommand}"
+                                            HorizontalAlignment="Stretch" Padding="8">
+                                        <Grid ColumnDefinitions="Auto,*">
+                                            <Grid Margin="0,0,8,0">
+                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SteerDriveOn.png"
+                                                       Width="32" Height="32" Stretch="Uniform"
+                                                       IsVisible="{Binding IsFreeDriveMode}"/>
+                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SteerDriveOff.png"
+                                                       Width="32" Height="32" Stretch="Uniform"
+                                                       IsVisible="{Binding !IsFreeDriveMode}"/>
+                                            </Grid>
+                                            <TextBlock Grid.Column="1" Text="Free Drive" Foreground="White" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+
+                                    <!-- Steer Left/Right/Zero Buttons -->
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="4"
+                                                IsEnabled="{Binding IsFreeDriveMode}">
+                                        <Button Content="◀ LEFT" Padding="16,8"
+                                                Background="#DD3498DB"
+                                                Command="{Binding SteerLeftCommand}"/>
+                                        <Button Content="0" Padding="20,8"
+                                                Background="#DD27AE60" FontWeight="Bold" FontSize="16"
+                                                Command="{Binding SteerCenterCommand}"/>
+                                        <Button Content="RIGHT ▶" Padding="16,8"
+                                                Background="#DD3498DB"
+                                                Command="{Binding SteerRightCommand}"/>
+                                    </StackPanel>
+
+                                    <!-- PWM Display -->
+                                    <Border Background="#DD2C3E50" CornerRadius="4" Padding="8,4"
+                                            HorizontalAlignment="Center" IsVisible="{Binding IsFreeDriveMode}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="PWM:" Foreground="#AAA" VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding PwmDisplay}" Foreground="White" FontWeight="Bold"
+                                                       FontSize="16" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Steer Angle & Diameter Display -->
+                                    <Grid ColumnDefinitions="*,Auto,*" IsEnabled="{Binding IsFreeDriveMode}">
+                                        <Border Grid.Column="0" Classes="ParamCard" Margin="0,0,4,0">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <TextBlock Text="{Binding ActualSteerAngle, StringFormat='{}{0:F1}°'}"
+                                                           Foreground="White" FontWeight="Bold" FontSize="18"
+                                                           HorizontalAlignment="Center"/>
+                                                <TextBlock Text="Steer Angle" Foreground="#AAA" FontSize="10"
+                                                           HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Button Grid.Column="1" Content="REC" Padding="12,6"
+                                                Background="#DDE74C3C" VerticalAlignment="Stretch"
+                                                Command="{Binding RecordDiameterCommand}"/>
+                                        <Border Grid.Column="2" Classes="ParamCard" Margin="4,0,0,0">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <TextBlock Text="{Binding MeasuredDiameter, StringFormat='{}{0:F2}m'}"
+                                                           Foreground="White" FontWeight="Bold" FontSize="18"
+                                                           HorizontalAlignment="Center"/>
+                                                <TextBlock Text="Diameter" Foreground="#AAA" FontSize="10"
+                                                           HorizontalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <!-- RIGHT SIDE: Full Mode Additional Content (5 tabs) -->
+                    <Border Grid.Column="1" Background="#DD2C3E50" Padding="8"
+                            IsVisible="{Binding IsFullMode}" Width="420">
+                        <Grid RowDefinitions="*,Auto">
+                            <!-- Right Side Tabs -->
+                            <TabControl Grid.Row="0" Classes="SteerTabs"
+                                        SelectedIndex="{Binding SelectedRightTabIndex}"
+                                        Background="Transparent" Padding="0">
+
+                                <!-- Tab 5: Turn Sensors -->
+                                <TabItem ToolTip.Tip="Turn Sensors">
+                                    <TabItem.Header>
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/Sensors.png"
+                                               Width="40" Height="40" Stretch="Uniform"/>
+                                    </TabItem.Header>
+                                    <ScrollViewer Padding="8">
+                                        <StackPanel Spacing="12">
+                                            <!-- Turn Sensor -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="Turn Sensor" FontSize="14" FontWeight="Bold" Foreground="#4A9A7E"/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Border Grid.Column="0" CornerRadius="4" BorderBrush="#555" BorderThickness="1"
+                                                                Margin="0,0,8,0"
+                                                                Background="{Binding AutoSteer.TurnSensorEnabled, Converter={x:Static converters:BoolToToggleBackgroundConverter.Instance}}">
+                                                            <Button Command="{Binding ToggleTurnSensorCommand}"
+                                                                    Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConSt_TurnSensor.png"
+                                                                       Width="64" Height="64" Stretch="Uniform"/>
+                                                            </Button>
+                                                        </Border>
+                                                        <!-- Counts field - visible when Turn Sensor enabled -->
+                                                        <StackPanel Grid.Column="1" IsVisible="{Binding AutoSteer.TurnSensorEnabled}"
+                                                                    Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                            <TextBlock Text="Counts" Foreground="#AAA" VerticalAlignment="Center"/>
+                                                            <Button Classes="TappableValue" Command="{Binding EditTurnSensorCountsCommand}"
+                                                                    Padding="16,8">
+                                                                <TextBlock Text="{Binding AutoSteer.TurnSensorCounts}"
+                                                                           Foreground="White" FontWeight="Bold" FontSize="18"/>
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Pressure Turn -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="Pressure Turn" FontSize="14" FontWeight="Bold" Foreground="#4A9A7E"/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Border Grid.Column="0" CornerRadius="4" BorderBrush="#555" BorderThickness="1"
+                                                                Margin="0,0,8,0"
+                                                                Background="{Binding AutoSteer.PressureSensorEnabled, Converter={x:Static converters:BoolToToggleBackgroundConverter.Instance}}">
+                                                            <Button Command="{Binding TogglePressureSensorCommand}"
+                                                                    Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConSt_TurnSensorPressure.png"
+                                                                       Width="64" Height="64" Stretch="Uniform"/>
+                                                            </Button>
+                                                        </Border>
+                                                        <!-- Pressure fields - visible when Pressure Sensor enabled -->
+                                                        <StackPanel Grid.Column="1" IsVisible="{Binding AutoSteer.PressureSensorEnabled}"
+                                                                    Spacing="4">
+                                                            <TextBlock Text="Off at %" Foreground="#AAA" HorizontalAlignment="Center" FontSize="12"/>
+                                                            <!-- Actual pressure reading from PGN -->
+                                                            <ProgressBar Minimum="0" Maximum="100" Value="{Binding ActualPressurePercent}"
+                                                                         Height="16" Foreground="#3498DB"/>
+                                                            <!-- Trip point slider -->
+                                                            <Grid ColumnDefinitions="*,Auto">
+                                                                <Slider Grid.Column="0" Minimum="0" Maximum="99"
+                                                                        Value="{Binding AutoSteer.PressureTripPoint}"
+                                                                        VerticalAlignment="Center"/>
+                                                                <TextBlock Grid.Column="1" Text="{Binding AutoSteer.PressureTripPoint, StringFormat='{}{0}%'}"
+                                                                           Foreground="White" FontWeight="Bold" MinWidth="40" Margin="8,0,0,0"
+                                                                           VerticalAlignment="Center"/>
+                                                            </Grid>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Current Turn -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="Current Turn" FontSize="14" FontWeight="Bold" Foreground="#4A9A7E"/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Border Grid.Column="0" CornerRadius="4" BorderBrush="#555" BorderThickness="1"
+                                                                Margin="0,0,8,0"
+                                                                Background="{Binding AutoSteer.CurrentSensorEnabled, Converter={x:Static converters:BoolToToggleBackgroundConverter.Instance}}">
+                                                            <Button Command="{Binding ToggleCurrentSensorCommand}"
+                                                                    Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConSt_TurnSensorCurrent.png"
+                                                                       Width="64" Height="64" Stretch="Uniform"/>
+                                                            </Button>
+                                                        </Border>
+                                                        <!-- Current fields - visible when Current Sensor enabled -->
+                                                        <StackPanel Grid.Column="1" IsVisible="{Binding AutoSteer.CurrentSensorEnabled}"
+                                                                    Spacing="4">
+                                                            <TextBlock Text="Off at %" Foreground="#AAA" HorizontalAlignment="Center" FontSize="12"/>
+                                                            <!-- Actual current reading from PGN -->
+                                                            <ProgressBar Minimum="0" Maximum="100" Value="{Binding ActualCurrentPercent}"
+                                                                         Height="16" Foreground="#3498DB"/>
+                                                            <!-- Trip point slider -->
+                                                            <Grid ColumnDefinitions="*,Auto">
+                                                                <Slider Grid.Column="0" Minimum="0" Maximum="99"
+                                                                        Value="{Binding AutoSteer.CurrentTripPoint}"
+                                                                        VerticalAlignment="Center"/>
+                                                                <TextBlock Grid.Column="1" Text="{Binding AutoSteer.CurrentTripPoint, StringFormat='{}{0}%'}"
+                                                                           Foreground="White" FontWeight="Bold" MinWidth="40" Margin="8,0,0,0"
+                                                                           VerticalAlignment="Center"/>
+                                                            </Grid>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <!-- Tab 6: Hardware Config -->
+                                <TabItem ToolTip.Tip="Hardware Config">
+                                    <TabItem.Header>
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConS_Pins.png"
+                                               Width="40" Height="40" Stretch="Uniform"/>
+                                    </TabItem.Header>
+                                    <ScrollViewer Padding="8">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock Text="Hardware Config" FontSize="16" FontWeight="Bold" Foreground="#4A9A7E"
+                                                       HorizontalAlignment="Center"/>
+
+                                            <!-- Toggle buttons for hardware settings -->
+                                            <Border Classes="ParamCard">
+                                                <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                    <!-- Danfoss -->
+                                                    <StackPanel Margin="4">
+                                                        <Border CornerRadius="4" BorderBrush="#555" BorderThickness="1"
+                                                                Background="{Binding AutoSteer.DanfossEnabled, Converter={x:Static converters:BoolToToggleBackgroundConverter.Instance}}">
+                                                            <Button Command="{Binding ToggleDanfossCommand}"
+                                                                    Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConST_Danfoss.png"
+                                                                       Width="48" Height="48" Stretch="Uniform"/>
+                                                            </Button>
+                                                        </Border>
+                                                        <TextBlock Text="Danfoss" Foreground="#AAA" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+
+                                                    <!-- Invert WAS -->
+                                                    <StackPanel Margin="4">
+                                                        <Border CornerRadius="4" BorderBrush="#555" BorderThickness="1"
+                                                                Background="{Binding AutoSteer.InvertWas, Converter={x:Static converters:BoolToToggleBackgroundConverter.Instance}}">
+                                                            <Button Command="{Binding ToggleInvertWasCommand}"
+                                                                    Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConSt_InvertWAS.png"
+                                                                       Width="48" Height="48" Stretch="Uniform"/>
+                                                            </Button>
+                                                        </Border>
+                                                        <TextBlock Text="Invert WAS" Foreground="#AAA" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+
+                                                    <!-- Invert Motor -->
+                                                    <StackPanel Margin="4">
+                                                        <Border CornerRadius="4" BorderBrush="#555" BorderThickness="1"
+                                                                Background="{Binding AutoSteer.InvertMotor, Converter={x:Static converters:BoolToToggleBackgroundConverter.Instance}}">
+                                                            <Button Command="{Binding ToggleInvertMotorCommand}"
+                                                                    Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConSt_InvertDirection.png"
+                                                                       Width="48" Height="48" Stretch="Uniform"/>
+                                                            </Button>
+                                                        </Border>
+                                                        <TextBlock Text="Invert Motor" Foreground="#AAA" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+
+                                                    <!-- Invert Relays -->
+                                                    <StackPanel Margin="4">
+                                                        <Border CornerRadius="4" BorderBrush="#555" BorderThickness="1"
+                                                                Background="{Binding AutoSteer.InvertRelays, Converter={x:Static converters:BoolToToggleBackgroundConverter.Instance}}">
+                                                            <Button Command="{Binding ToggleInvertRelaysCommand}"
+                                                                    Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConSt_InvertRelay.png"
+                                                                       Width="48" Height="48" Stretch="Uniform"/>
+                                                            </Button>
+                                                        </Border>
+                                                        <TextBlock Text="Invert Relays" Foreground="#AAA" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </WrapPanel>
+                                            </Border>
+
+                                            <!-- Dropdowns -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="8">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="Motor Driver" Foreground="White" VerticalAlignment="Center"/>
+                                                        <ComboBox Grid.Column="1" SelectedIndex="{Binding AutoSteer.MotorDriver}"
+                                                                  Width="120">
+                                                            <ComboBoxItem Content="IBT2"/>
+                                                            <ComboBoxItem Content="Cytron"/>
+                                                        </ComboBox>
+                                                    </Grid>
+
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="AD Converter" Foreground="White" VerticalAlignment="Center"/>
+                                                        <ComboBox Grid.Column="1" SelectedIndex="{Binding AutoSteer.AdConverter}"
+                                                                  Width="120">
+                                                            <ComboBoxItem Content="Differential"/>
+                                                            <ComboBoxItem Content="Single"/>
+                                                        </ComboBox>
+                                                    </Grid>
+
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="External Enable" Foreground="White" VerticalAlignment="Center"/>
+                                                        <ComboBox Grid.Column="1" SelectedIndex="{Binding AutoSteer.ExternalEnable}"
+                                                                  Width="120">
+                                                            <ComboBoxItem Content="None"/>
+                                                            <ComboBoxItem Content="Switch"/>
+                                                            <ComboBoxItem Content="Button"/>
+                                                        </ComboBox>
+                                                    </Grid>
+
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="IMU Axis Swap" Foreground="White" VerticalAlignment="Center"/>
+                                                        <ComboBox Grid.Column="1" SelectedIndex="{Binding AutoSteer.ImuAxisSwap}"
+                                                                  Width="120">
+                                                            <ComboBoxItem Content="X"/>
+                                                            <ComboBoxItem Content="Y"/>
+                                                        </ComboBox>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <!-- Tab 7: Algorithm -->
+                                <TabItem ToolTip.Tip="Steering Algorithm">
+                                    <TabItem.Header>
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConS_ModulesSteer.png"
+                                               Width="40" Height="40" Stretch="Uniform"/>
+                                    </TabItem.Header>
+                                    <ScrollViewer Padding="8">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Text="Steering Algorithm" FontSize="16" FontWeight="Bold" Foreground="#4A9A7E"
+                                                       HorizontalAlignment="Center"/>
+
+                                            <!-- Stanley/Pure toggle -->
+                                            <Border Classes="ParamCard">
+                                                <Button Classes="ToggleButton" Command="{Binding ToggleStanleyModeCommand}"
+                                                        HorizontalAlignment="Stretch">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="Algorithm" Foreground="White"/>
+                                                        <Grid Grid.Column="1">
+                                                            <TextBlock Text="Stanley" Foreground="#4A9A7E" FontWeight="Bold"
+                                                                       IsVisible="{Binding AutoSteer.IsStanleyMode}"/>
+                                                            <TextBlock Text="Pure Pursuit" Foreground="#3498DB" FontWeight="Bold"
+                                                                       IsVisible="{Binding !AutoSteer.IsStanleyMode}"/>
+                                                        </Grid>
+                                                    </Grid>
+                                                </Button>
+                                            </Border>
+
+                                            <!-- U-Turn Compensation -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                                        <TextBlock Text="Out" Foreground="#E74C3C" FontSize="11"/>
+                                                        <TextBlock Grid.Column="1" Text="U-Turn Compensation" Foreground="White"
+                                                                   HorizontalAlignment="Center" FontWeight="SemiBold"/>
+                                                        <TextBlock Grid.Column="2" Text="In" Foreground="#4A9A7E" FontSize="11"/>
+                                                    </Grid>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditUTurnCompensationCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.UTurnCompensation, StringFormat='{}{0:F0}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="-100" Maximum="100"
+                                                                Value="{Binding AutoSteer.UTurnCompensation}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Sidehill Compensation -->
+                                            <Border Classes="ParamCard">
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Text="Sidehill / Degree" Foreground="White" FontWeight="SemiBold"
+                                                               HorizontalAlignment="Center"/>
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <Button Classes="TappableValue" Command="{Binding EditSidehillCompensationCommand}">
+                                                            <TextBlock Text="{Binding AutoSteer.SideHillCompensation, StringFormat='{}{0:F2}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"/>
+                                                        </Button>
+                                                        <Slider Grid.Column="1" Minimum="0" Maximum="1"
+                                                                Value="{Binding AutoSteer.SideHillCompensation}"
+                                                                VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Steer in Reverse -->
+                                            <Border Classes="ParamCard">
+                                                <Button Classes="ToggleButton" Command="{Binding ToggleSteerInReverseCommand}"
+                                                        HorizontalAlignment="Stretch">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="Steer in Reverse" Foreground="White"/>
+                                                        <Grid Grid.Column="1">
+                                                            <TextBlock Text="ON" Foreground="#4A9A7E" FontWeight="Bold"
+                                                                       IsVisible="{Binding AutoSteer.SteerInReverse}"/>
+                                                            <TextBlock Text="OFF" Foreground="#E74C3C" FontWeight="Bold"
+                                                                       IsVisible="{Binding !AutoSteer.SteerInReverse}"/>
+                                                        </Grid>
+                                                    </Grid>
+                                                </Button>
+                                            </Border>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <!-- Tab 8: Speed Limits -->
+                                <TabItem ToolTip.Tip="Speed Limits">
+                                    <TabItem.Header>
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConS_Alarm.png"
+                                               Width="40" Height="40" Stretch="Uniform"/>
+                                    </TabItem.Header>
+                                    <ScrollViewer Padding="8">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Text="Speed Limits" FontSize="16" FontWeight="Bold" Foreground="#4A9A7E"
+                                                       HorizontalAlignment="Center"/>
+
+                                            <!-- Speed Settings -->
+                                            <Border Classes="ParamCard">
+                                                <Grid ColumnDefinitions="*,*,*" HorizontalAlignment="Stretch">
+                                                    <!-- Manual Turns -->
+                                                    <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/con_VehicleFunctionSpeedLimit.png"
+                                                               Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="Manual Turns" Foreground="#AAA" FontSize="11"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Button Classes="TappableValue" Command="{Binding EditManualTurnsSpeedCommand}"
+                                                                HorizontalAlignment="Stretch">
+                                                            <TextBlock Text="{Binding AutoSteer.ManualTurnsSpeed, StringFormat='{}{0:F1}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"
+                                                                       HorizontalAlignment="Center"/>
+                                                        </Button>
+                                                        <TextBlock Text="km/h" Foreground="#777" FontSize="10"
+                                                                   HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                    <!-- Min Speed -->
+                                                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConV_MinAutoSteer.png"
+                                                               Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="Min Speed" Foreground="#AAA" FontSize="11"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Button Classes="TappableValue" Command="{Binding EditMinSteerSpeedCommand}"
+                                                                HorizontalAlignment="Stretch">
+                                                            <TextBlock Text="{Binding AutoSteer.MinSteerSpeed, StringFormat='{}{0:F1}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"
+                                                                       HorizontalAlignment="Center"/>
+                                                        </Button>
+                                                        <TextBlock Text="km/h" Foreground="#777" FontSize="10"
+                                                                   HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                    <!-- Max Speed -->
+                                                    <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConV_MaxAutoSteer.png"
+                                                               Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="Max Speed" Foreground="#AAA" FontSize="11"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Button Classes="TappableValue" Command="{Binding EditMaxSteerSpeedCommand}"
+                                                                HorizontalAlignment="Stretch">
+                                                            <TextBlock Text="{Binding AutoSteer.MaxSteerSpeed, StringFormat='{}{0:F1}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"
+                                                                       HorizontalAlignment="Center"/>
+                                                        </Button>
+                                                        <TextBlock Text="km/h" Foreground="#777" FontSize="10"
+                                                                   HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+
+                                <!-- Tab 9: Display Settings -->
+                                <TabItem ToolTip.Tip="Display Settings">
+                                    <TabItem.Header>
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConS_ImplementConfig.png"
+                                               Width="40" Height="40" Stretch="Uniform"/>
+                                    </TabItem.Header>
+                                    <ScrollViewer Padding="8">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Text="Display Settings" FontSize="16" FontWeight="Bold" Foreground="#4A9A7E"
+                                                       HorizontalAlignment="Center"/>
+
+                                            <!-- Numeric inputs row 1: Line Width & Nudge Distance -->
+                                            <Border Classes="ParamCard">
+                                                <Grid ColumnDefinitions="*,*" HorizontalAlignment="Stretch">
+                                                    <!-- Line Width -->
+                                                    <StackPanel Grid.Column="0" Margin="0,0,4,0" HorizontalAlignment="Center">
+                                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConV_LineWith.png"
+                                                               Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="Line Width" Foreground="#AAA" FontSize="11"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Button Classes="TappableValue" Command="{Binding EditLineWidthCommand}"
+                                                                HorizontalAlignment="Stretch">
+                                                            <TextBlock Text="{Binding AutoSteer.LineWidth}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"
+                                                                       HorizontalAlignment="Center"/>
+                                                        </Button>
+                                                        <TextBlock Text="pixels" Foreground="#777" FontSize="10"
+                                                                   HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                    <!-- Nudge Distance -->
+                                                    <StackPanel Grid.Column="1" Margin="4,0,0,0" HorizontalAlignment="Center">
+                                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConV_SnapDistance.png"
+                                                               Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="Nudge Distance" Foreground="#AAA" FontSize="11"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Button Classes="TappableValue" Command="{Binding EditNudgeDistanceCommand}"
+                                                                HorizontalAlignment="Stretch">
+                                                            <TextBlock Text="{Binding AutoSteer.NudgeDistance}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"
+                                                                       HorizontalAlignment="Center"/>
+                                                        </Button>
+                                                        <TextBlock Text="cm" Foreground="#777" FontSize="10"
+                                                                   HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+
+                                            <!-- Numeric inputs row 2: Next Guidance Line & Cm -> Pixel -->
+                                            <Border Classes="ParamCard">
+                                                <Grid ColumnDefinitions="*,*" HorizontalAlignment="Stretch">
+                                                    <!-- Next Guidance Line -->
+                                                    <StackPanel Grid.Column="0" Margin="0,0,4,0" HorizontalAlignment="Center">
+                                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConV_GuidanceLookAhead.png"
+                                                               Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="Next Guidance" Foreground="#AAA" FontSize="11"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Button Classes="TappableValue" Command="{Binding EditNextGuidanceTimeCommand}"
+                                                                HorizontalAlignment="Stretch">
+                                                            <TextBlock Text="{Binding AutoSteer.NextGuidanceTime, StringFormat='{}{0:F1}'}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"
+                                                                       HorizontalAlignment="Center"/>
+                                                        </Button>
+                                                        <TextBlock Text="sec" Foreground="#777" FontSize="10"
+                                                                   HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                    <!-- Cm -> Pixel -->
+                                                    <StackPanel Grid.Column="1" Margin="4,0,0,0" HorizontalAlignment="Center">
+                                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConV_CmPixel.png"
+                                                               Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="Cm -> Pixel" Foreground="#AAA" FontSize="11"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <Button Classes="TappableValue" Command="{Binding EditCmPerPixelCommand}"
+                                                                HorizontalAlignment="Stretch">
+                                                            <TextBlock Text="{Binding AutoSteer.CmPerPixel}"
+                                                                       Foreground="White" FontWeight="Bold" FontSize="16"
+                                                                       HorizontalAlignment="Center"/>
+                                                        </Button>
+                                                        <TextBlock Text="cm/px" Foreground="#777" FontSize="10"
+                                                                   HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+
+                                            <!-- Toggle buttons -->
+                                            <Border Classes="ParamCard">
+                                                <Grid ColumnDefinitions="*,*,*" HorizontalAlignment="Stretch">
+                                                    <!-- Lightbar -->
+                                                    <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                                                        <Border CornerRadius="4" BorderBrush="#555" BorderThickness="1"
+                                                                Background="{Binding AutoSteer.LightbarEnabled, Converter={x:Static converters:BoolToToggleBackgroundConverter.Instance}}">
+                                                            <Button Command="{Binding ToggleLightbarCommand}"
+                                                                    Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConD_LightBar.png"
+                                                                       Width="48" Height="48" Stretch="Uniform"/>
+                                                            </Button>
+                                                        </Border>
+                                                        <TextBlock Text="Lightbar" Foreground="#AAA" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                    <!-- Steering Bar -->
+                                                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                                                        <Border CornerRadius="4" BorderBrush="#555" BorderThickness="1"
+                                                                Background="{Binding AutoSteer.SteerBarEnabled, Converter={x:Static converters:BoolToToggleBackgroundConverter.Instance}}">
+                                                            <Button Command="{Binding ToggleSteerBarCommand}"
+                                                                    Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConD_SteerBarBar.png"
+                                                                       Width="48" Height="48" Stretch="Uniform"/>
+                                                            </Button>
+                                                        </Border>
+                                                        <TextBlock Text="Steer Bar" Foreground="#AAA" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                    <!-- On/Off (Guidance Bar) -->
+                                                    <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                                                        <Button Command="{Binding ToggleGuidanceBarCommand}"
+                                                                Background="Transparent" BorderThickness="0" Padding="4" Cursor="Hand">
+                                                            <Grid>
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SwitchOn.png"
+                                                                       Width="48" Height="48" Stretch="Uniform"
+                                                                       IsVisible="{Binding AutoSteer.GuidanceBarOn}"/>
+                                                                <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/SwitchOff.png"
+                                                                       Width="48" Height="48" Stretch="Uniform"
+                                                                       IsVisible="{Binding !AutoSteer.GuidanceBarOn}"/>
+                                                            </Grid>
+                                                        </Button>
+                                                        <TextBlock Text="On/Off" Foreground="#AAA" FontSize="10" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </TabItem>
+                            </TabControl>
+
+                            <!-- Bottom Action Buttons -->
+                            <Grid Grid.Row="1" ColumnDefinitions="*,*,*,Auto" Margin="0,8,0,0">
+                                <!-- Wizard -->
+                                <Button Grid.Column="0" Margin="2" Padding="4"
+                                        Background="#DD9B59B6" IsEnabled="False" Opacity="0.5">
+                                    <StackPanel HorizontalAlignment="Center">
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/WizardWand.png"
+                                               Width="32" Height="32" Stretch="Uniform" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Wizard" Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <!-- Reset -->
+                                <Button Grid.Column="1" Margin="2" Padding="4"
+                                        Background="#DDE74C3C" Command="{Binding ResetToDefaultsCommand}">
+                                    <StackPanel HorizontalAlignment="Center">
+                                        <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Reset_Default.png"
+                                               Width="32" Height="32" Stretch="Uniform" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="Reset" Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <!-- Send+Save with mandatory indicator -->
+                                <Button Grid.Column="2" Margin="2" Padding="4"
+                                        Background="#DD4A9A7E" Command="{Binding SendAndSaveCommand}">
+                                    <StackPanel HorizontalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/ToolAcceptChange.png"
+                                                   Width="32" Height="32" Stretch="Uniform"/>
+                                            <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/Config/ConSt_Mandatory.png"
+                                                   Width="24" Height="24" Stretch="Uniform" VerticalAlignment="Center"
+                                                   IsVisible="{Binding Config.HasUnsavedChanges}"/>
+                                        </StackPanel>
+                                        <TextBlock Text="Send+Save" Foreground="White" FontSize="10" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <!-- Close -->
+                                <Button Grid.Column="3" Margin="2" Padding="8,4"
+                                        Background="#DD27AE60" Command="{Binding ClosePanelCommand}">
+                                    <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/OK64.png"
+                                           Width="32" Height="32" Stretch="Uniform"/>
+                                </Button>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- Footer: Status Bar -->
+                <Border Grid.Row="2" Background="#DD2C3E50" Padding="12,8">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <!-- Status Values -->
+                        <StackPanel Orientation="Horizontal" Spacing="24">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="Set:" Classes="StatusLabel" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding SetSteerAngle, StringFormat='{}{0:F1}'}"
+                                           Classes="StatusValue" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="Act:" Classes="StatusLabel" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding ActualSteerAngle, StringFormat='{}{0:F1}°'}"
+                                           Classes="StatusValue" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="Err:" Classes="StatusLabel" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding SteerError, StringFormat='{}{0:F1}°'}"
+                                           Foreground="#E74C3C" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Expand/Collapse Button -->
+                        <Button Grid.Column="1" Command="{Binding ToggleFullModeCommand}"
+                                Background="#DD4A9A7E" Padding="12,6" CornerRadius="4">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="|||" Foreground="White" FontWeight="Bold"/>
+                                <Grid>
+                                    <TextBlock Text="◀" Foreground="White" FontWeight="Bold"
+                                               IsVisible="{Binding IsFullMode}"/>
+                                    <TextBlock Text="▶" Foreground="White" FontWeight="Bold"
+                                               IsVisible="{Binding !IsFullMode}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Numeric Input Overlay -->
+        <Border Background="#CC000000"
+                IsVisible="{Binding IsNumericInputVisible}"
+                ZIndex="100">
+            <Border Background="#DD1E2A38" CornerRadius="12" Padding="20"
+                    Width="320" Height="400"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    BorderBrush="#555" BorderThickness="1">
+                <Grid RowDefinitions="Auto,Auto,*,Auto">
+                    <!-- Title -->
+                    <TextBlock Grid.Row="0" Text="{Binding NumericInputTitle}"
+                               FontSize="18" FontWeight="Bold" Foreground="White"
+                               HorizontalAlignment="Center" Margin="0,0,0,12"/>
+
+                    <!-- Value Display -->
+                    <Border Grid.Row="1" Background="#DD2C3E50" CornerRadius="6"
+                            Padding="16,12" Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                            <TextBlock Text="{Binding NumericInputDisplayText}"
+                                       FontSize="28" FontWeight="Bold" Foreground="White"/>
+                            <TextBlock Text="{Binding NumericInputUnit}"
+                                       FontSize="16" Foreground="#AAA" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Keypad -->
+                    <Grid Grid.Row="2" ColumnDefinitions="*,*,*" RowDefinitions="*,*,*,*">
+                        <Button Grid.Row="0" Grid.Column="0" Content="7" Command="{Binding NumericInputDigitCommand}" CommandParameter="7" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="0" Grid.Column="1" Content="8" Command="{Binding NumericInputDigitCommand}" CommandParameter="8" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="0" Grid.Column="2" Content="9" Command="{Binding NumericInputDigitCommand}" CommandParameter="9" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="1" Grid.Column="0" Content="4" Command="{Binding NumericInputDigitCommand}" CommandParameter="4" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="1" Grid.Column="1" Content="5" Command="{Binding NumericInputDigitCommand}" CommandParameter="5" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="1" Grid.Column="2" Content="6" Command="{Binding NumericInputDigitCommand}" CommandParameter="6" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="2" Grid.Column="0" Content="1" Command="{Binding NumericInputDigitCommand}" CommandParameter="1" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="2" Grid.Column="1" Content="2" Command="{Binding NumericInputDigitCommand}" CommandParameter="2" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="2" Grid.Column="2" Content="3" Command="{Binding NumericInputDigitCommand}" CommandParameter="3" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="3" Grid.Column="0" Content="." Command="{Binding NumericInputDigitCommand}" CommandParameter="." Margin="2" FontSize="20"/>
+                        <Button Grid.Row="3" Grid.Column="1" Content="0" Command="{Binding NumericInputDigitCommand}" CommandParameter="0" Margin="2" FontSize="20"/>
+                        <Button Grid.Row="3" Grid.Column="2" Content="⌫" Command="{Binding NumericInputBackspaceCommand}" Margin="2" FontSize="20"/>
+                    </Grid>
+
+                    <!-- Confirm/Cancel -->
+                    <Grid Grid.Row="3" ColumnDefinitions="*,*" Margin="0,12,0,0">
+                        <Button Grid.Column="0" Content="Cancel" Command="{Binding CancelNumericInputCommand}"
+                                Margin="0,0,4,0" Background="#DD34495E"/>
+                        <Button Grid.Column="1" Content="OK" Command="{Binding ConfirmNumericInputCommand}"
+                                Margin="4,0,0,0" Background="#DD4A9A7E"/>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Border>
+    </Grid>
+</UserControl>

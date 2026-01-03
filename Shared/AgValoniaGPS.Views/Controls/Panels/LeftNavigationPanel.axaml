@@ -104,7 +104,8 @@
                 </Button>
 
                 <!-- 7. AutoSteer Config -->
-                <Button Classes="LeftPanelButton" ToolTip.Tip="AutoSteer Configuration">
+                <Button Classes="LeftPanelButton" ToolTip.Tip="AutoSteer Configuration"
+                        Command="{Binding ShowAutoSteerConfigCommand}">
                     <Image Source="avares://AgValoniaGPS.Views/Assets/Icons/AutoSteerConf.png" Stretch="Uniform"/>
                 </Button>
 

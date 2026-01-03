@@ -35,6 +35,13 @@ public partial class MainViewModel
                 ConfigurationViewModel.IsDialogVisible = false;
         });
 
+        // AutoSteer Configuration Panel
+        ShowAutoSteerConfigCommand = new RelayCommand(() =>
+        {
+            AutoSteerConfigViewModel ??= new AutoSteerConfigViewModel(_configurationService, _udpService);
+            AutoSteerConfigViewModel.IsPanelVisible = true;
+        });
+
         // Profile management
         ShowLoadProfileDialogCommand = new RelayCommand(() =>
         {
