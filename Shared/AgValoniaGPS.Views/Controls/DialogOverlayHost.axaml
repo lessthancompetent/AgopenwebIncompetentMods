@@ -34,5 +34,6 @@
         <dialogs:NtripProfilesDialogPanel/>
         <dialogs:NtripProfileEditorPanel/>
         <dialogs:ConfigurationDialog DataContext="{Binding ConfigurationViewModel}"/>
+        <dialogs:AutoSteerConfigPanel DataContext="{Binding AutoSteerConfigViewModel}"/>
     </Panel>
 </UserControl>

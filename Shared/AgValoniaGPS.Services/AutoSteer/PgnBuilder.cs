@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using AgValoniaGPS.Models;
+using AgValoniaGPS.Models.Configuration;
 
 namespace AgValoniaGPS.Services.AutoSteer;
 
@@ -19,12 +20,16 @@ public static class PgnBuilder
     public const byte SOURCE = 0x7F;  // AgIO/AgOpenGPS source
 
     // PGN identifiers (from PgnNumbers)
-    public const byte PGN_AUTOSTEER = 0xFE;  // 254 - AutoSteer Data
-    public const byte PGN_MACHINE = 0xEF;    // 239 - Machine Data
+    public const byte PGN_AUTOSTEER = 0xFE;      // 254 - AutoSteer Data
+    public const byte PGN_MACHINE = 0xEF;        // 239 - Machine Data
+    public const byte PGN_STEER_SETTINGS = 0xFC; // 252 - Steer Settings
+    public const byte PGN_STEER_CONFIG = 0xFB;   // 251 - Steer Config
 
     // Buffer sizes: header(2) + source(1) + pgn(1) + length(1) + data(N) + crc(1)
-    public const int AUTOSTEER_PGN_SIZE = 14;  // 5 header + 8 data + 1 crc
-    public const int MACHINE_PGN_SIZE = 14;    // 5 header + 8 data + 1 crc
+    public const int AUTOSTEER_PGN_SIZE = 14;       // 5 header + 8 data + 1 crc
+    public const int MACHINE_PGN_SIZE = 14;         // 5 header + 8 data + 1 crc
+    public const int STEER_SETTINGS_PGN_SIZE = 14;  // 5 header + 8 data + 1 crc
+    public const int STEER_CONFIG_PGN_SIZE = 11;    // 5 header + 5 data + 1 crc
 
     // Thread-local buffers to avoid allocation
     [ThreadStatic]
@@ -32,6 +37,12 @@ public static class PgnBuilder
 
     [ThreadStatic]
     private static byte[]? _machineBuffer;
+
+    [ThreadStatic]
+    private static byte[]? _steerSettingsBuffer;
+
+    [ThreadStatic]
+    private static byte[]? _steerConfigBuffer;
 
     /// <summary>
     /// Build PGN 254 (Steer Data) from VehicleState.
@@ -179,5 +190,117 @@ public static class PgnBuilder
             calculated ^= data[i];
         }
         return calculated == data[checksumPos];
+    }
+
+    /// <summary>
+    /// Build PGN 252 (Steer Settings) from AutoSteerConfig.
+    /// Format: [0x80, 0x81, 0x7F, 0xFC, 8, gainP, highPWM, lowPWM, minPWM, countsPerDeg, offsetHi, offsetLo, ackerman, CRC]
+    ///
+    /// Byte 5:  Proportional gain (1-100)
+    /// Byte 6:  High PWM limit (max PWM)
+    /// Byte 7:  Low PWM limit (highPWM / 3)
+    /// Byte 8:  Minimum PWM to move
+    /// Byte 9:  Counts per degree * 10
+    /// Byte 10: WAS offset high byte
+    /// Byte 11: WAS offset low byte
+    /// Byte 12: Ackermann correction (0-200)
+    /// Byte 13: CRC
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static byte[] BuildSteerSettingsPgn(AutoSteerConfig config)
+    {
+        _steerSettingsBuffer ??= new byte[STEER_SETTINGS_PGN_SIZE];
+        var buf = _steerSettingsBuffer;
+
+        // Header
+        buf[0] = HEADER1;
+        buf[1] = HEADER2;
+        buf[2] = SOURCE;
+        buf[3] = PGN_STEER_SETTINGS;
+        buf[4] = 8;  // Data length
+
+        // Proportional gain (1-100)
+        buf[5] = (byte)Math.Clamp(config.ProportionalGain, 1, 100);
+
+        // High PWM (max PWM, 50-255)
+        buf[6] = (byte)Math.Clamp(config.MaxPwm, 50, 255);
+
+        // Low PWM (typically highPWM / 3)
+        buf[7] = (byte)(buf[6] / 3);
+
+        // Min PWM to move (1-50)
+        buf[8] = (byte)Math.Clamp(config.MinPwm, 1, 50);
+
+        // Counts per degree * 10 (0.01-1.0 -> 1-100)
+        buf[9] = (byte)Math.Clamp((int)(config.CountsPerDegree * 100), 1, 255);
+
+        // WAS offset (signed 16-bit, high/low bytes)
+        short wasOffset = (short)Math.Clamp(config.WasOffset, -32768, 32767);
+        buf[10] = (byte)(wasOffset >> 8);
+        buf[11] = (byte)(wasOffset & 0xFF);
+
+        // Ackermann correction (0-200)
+        buf[12] = (byte)Math.Clamp(config.Ackermann, 0, 200);
+
+        // CRC
+        buf[13] = CalculateCrc(buf, 2, 11);
+
+        return buf;
+    }
+
+    /// <summary>
+    /// Build PGN 251 (Steer Config) from AutoSteerConfig.
+    /// Format: [0x80, 0x81, 0x7F, 0xFB, 5, set0, pulseCount, minSpeed, set1, angVel, CRC]
+    ///
+    /// Byte 5 (set0):
+    ///   bit 0: Invert WAS
+    ///   bit 1: Invert Relays
+    ///   bit 2: Invert Motor
+    ///   bit 3: AD Converter (0=Differential, 1=Single)
+    ///   bit 4: Motor Driver (0=IBT2, 1=Cytron)
+    ///   bit 5-6: External Enable (0=None, 1=Switch, 2=Button)
+    ///   bit 7: Turn Sensor enabled
+    /// Byte 6:  Pulse count
+    /// Byte 7:  Min steer speed * 10
+    /// Byte 8 (set1):
+    ///   bit 0: Danfoss
+    ///   bit 1: Pressure Sensor
+    ///   bit 2: Current Sensor
+    ///   bit 3-4: IMU Axis Swap
+    /// Byte 9:  Angular velocity
+    /// Byte 10: CRC
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static byte[] BuildSteerConfigPgn(AutoSteerConfig config)
+    {
+        _steerConfigBuffer ??= new byte[STEER_CONFIG_PGN_SIZE];
+        var buf = _steerConfigBuffer;
+
+        // Header
+        buf[0] = HEADER1;
+        buf[1] = HEADER2;
+        buf[2] = SOURCE;
+        buf[3] = PGN_STEER_CONFIG;
+        buf[4] = 5;  // Data length
+
+        // Set0 byte (use helper from config)
+        buf[5] = config.GetSetting0Byte();
+
+        // Pulse count (not currently used, set to 0)
+        buf[6] = 0;
+
+        // Min steer speed * 10
+        buf[7] = (byte)Math.Clamp((int)(config.MinSteerSpeed * 10), 0, 255);
+
+        // Set1 byte (use helper from config)
+        buf[8] = config.GetSetting1Byte();
+
+        // Angular velocity (not currently used, set to 0)
+        buf[9] = 0;
+
+        // CRC
+        buf[10] = CalculateCrc(buf, 2, 8);
+
+        return buf;
     }
 }
