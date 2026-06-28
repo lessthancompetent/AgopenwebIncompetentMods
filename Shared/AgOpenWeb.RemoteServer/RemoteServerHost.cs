@@ -81,6 +81,10 @@ public sealed class RemoteServerHost
     }
     private Func<BoundaryDto?>? _boundaryProvider;
 
+    /// <summary>Host-supplied JSON of all mapped field outlines in the current map
+    /// plane (pick-from-map). Served at GET /api/nearbyfields.</summary>
+    public Func<string>? NearbyFieldsJsonProvider { get; set; }
+
     /// <summary>Host-supplied projector for the Field Builder Headland-tab segment list
     /// (VM-owned, rides the Scene frame). Set after <see cref="StartAsync"/>.</summary>
     public Func<IReadOnlyList<HeadlandSegInfoDto>>? HeadlandSegsProvider
@@ -187,6 +191,10 @@ public sealed class RemoteServerHost
         server.MapGet("/transport.js", () => SimpleWebServer.Response.Text(ReadAsset("transport.js"), "text/javascript", noStore));
         // PWA manifest — lets "Add to home screen" launch fullscreen (no browser chrome).
         server.MapGet("/manifest.webmanifest", () => SimpleWebServer.Response.Text(ReadAsset("manifest.webmanifest"), "application/manifest+json"));
+
+        // Pick-from-map: all mapped field outlines projected into the current map plane.
+        server.MapGet("/api/nearbyfields", () => SimpleWebServer.Response.Text(
+            NearbyFieldsJsonProvider?.Invoke() ?? "[]", "application/json", noStore));
 
         // CanvasKit (WASM Skia) — bundled locally for offline in-cab use. The wasm is
         // served as application/wasm so the browser can streaming-compile it.

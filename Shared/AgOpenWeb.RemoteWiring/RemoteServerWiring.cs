@@ -685,6 +685,9 @@ public static partial class RemoteServerWiring
                     // drive-around recording metrics/points (IBoundaryRecordingService is
                     // the SoT) + the VM-owned record toggles. Read-only on the broadcaster
                     // thread, same race tolerance as the other projectors.
+                    // Pick-from-map: all mapped field outlines in the current map plane (HTTP).
+                    server.NearbyFieldsJsonProvider = () => vm.GetNearbyFieldOutlinesJson();
+
                     server.BoundaryProvider = () =>
                     {
                         var bst = services.GetRequiredService<AgOpenWeb.Models.State.ApplicationState>();

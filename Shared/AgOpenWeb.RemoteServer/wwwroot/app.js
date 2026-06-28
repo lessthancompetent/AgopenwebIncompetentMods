@@ -491,20 +491,31 @@ function startMapTap(cfg) {
 }
 function endMapTap() {
   mapTap = null;
+  pickOutlines = null; // stop drawing the pick-from-map outlines once a pick/cancel happens
   document.body.classList.remove('maptap');
   document.getElementById('maptap-hint').classList.remove('show');
 }
 // Pick-from-map (ported from AgValoniaGPS-RoutePlanner): arm a tap that opens the
 // field at the tapped point. Exposed on window for now so it can be triggered
 // while the proper "Pick on map" button is wired up.
+let pickOutlines = null; // [[{e,n},…],…] all mapped-field outlines shown while picking
 function pickFieldOnMap() {
-  satEnabled = true; // show the aerial underlay so paddocks are visible to tap
+  // Pull every mapped field's outline (projected into the current map plane) so the
+  // paddocks are visible to tap — no satellite background required.
+  fetch('/api/nearbyfields').then(r => r.json()).then(d => {
+    pickOutlines = (d || []).map(f => f.ring.map(p => ({ e: p[0], n: p[1] })));
+  }).catch(() => { pickOutlines = null; });
   startMapTap({
     hint: 'Tap a field to open it',
     // One-shot: open the tapped field, then disarm (the shared handler doesn't
     // auto-end — multi-point features re-tap, but a field pick is a single tap).
     onTap: (e, n) => { transport.send('field.tapOpen|' + e + ',' + n); endMapTap(); },
   });
+}
+// Draw the pick-from-map field outlines (current-plane rings) while picking.
+function drawPickOutlinesSk(canvas) {
+  if (!pickOutlines) return;
+  for (const ring of pickOutlines) if (ring.length >= 2) strokePtsSk(canvas, ring, true, SKP.boundary);
 }
 window.pickFieldOnMap = pickFieldOnMap;
 
@@ -4690,6 +4701,7 @@ function renderSkia(canvas, rp) {
   drawGroundTextureSk(canvas); // ground backdrop (under everything)
   drawSatelliteSk(canvas); // Bing aerial underlay while drawing a boundary on map
   drawImagerySk(canvas); // imagery overlays the ground where present
+  drawPickOutlinesSk(canvas); // pick-from-map: all mapped field outlines
   drawCoverageSk(canvas);
   drawGridSk(canvas);
   if (scene) {
