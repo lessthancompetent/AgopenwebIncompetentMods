@@ -24,19 +24,39 @@ public partial class MainViewModel
             return;
         }
 
-        // GeoCoord is (northing, easting).
+        // Tapped point (current map plane, metres) -> lat/lon. GeoCoord is (N, E).
         var wgs = lp.ConvertGeoCoordToWgs84(new GeoCoord(northing, easting));
 
         var fieldsRoot = _settingsService.Settings.FieldsDirectory;
-        var nearby = _fieldService.FindFieldsNear(fieldsRoot, wgs.Latitude, wgs.Longitude, maxKm: 0.3);
+        var nearby = _fieldService.FindFieldsNear(fieldsRoot, wgs.Latitude, wgs.Longitude, maxKm: 0.5);
         if (nearby.Count == 0)
         {
-            StatusMessage = "No field near that spot";
+            StatusMessage = "No field there";
             return;
         }
 
-        var pick = nearby[0];
-        StatusMessage = $"Opening {pick.Name}…";
-        _ = OpenFieldAsync(pick.DirectoryPath, pick.Name);
+        // Open the field whose boundary actually CONTAINS the tap, not merely the
+        // nearest origin (a field origin often isn't its centre). Convert the tapped
+        // lat/lon into each candidate's own plane and use its boundary containment.
+        foreach (var nf in nearby)
+        {
+            Field field;
+            try { field = _fieldService.LoadField(nf.DirectoryPath); }
+            catch { continue; }
+            if (field?.Boundary is not { IsValid: true }) continue;
+            if (field.Origin.Latitude == 0 && field.Origin.Longitude == 0) continue;
+
+            var fieldPlane = new LocalPlane(
+                new Wgs84(field.Origin.Latitude, field.Origin.Longitude), new SharedFieldProperties());
+            var loc = fieldPlane.ConvertWgs84ToGeoCoord(wgs); // field-plane metres
+            if (field.Boundary.IsPointInside(loc.Easting, loc.Northing))
+            {
+                StatusMessage = $"Opening {nf.Name}…";
+                _ = OpenFieldAsync(nf.DirectoryPath, nf.Name);
+                return;
+            }
+        }
+
+        StatusMessage = "Tap inside a field's boundary to open it";
     }
 }
