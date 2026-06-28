@@ -24,12 +24,20 @@ public partial class MainViewModel
         var root = _settingsService.Settings.FieldsDirectory;
         if (lp == null || string.IsNullOrEmpty(root) || !Directory.Exists(root)) return "[]";
 
-        var sb = new StringBuilder("[");
+        // Only fields within range of the map origin (a cheap origin-distance filter
+        // that also avoids loading distant fields) — keeps the payload small enough
+        // for low-end tablets. Rings are decimated (drop points < ~1.5 m apart) and
+        // emitted at 0.1 m precision.
+        const double simplifyMinSq = 1.5 * 1.5;
+        var nearby = _fieldService.FindFieldsNear(root, lp.Origin.Latitude, lp.Origin.Longitude, maxKm: 30.0);
+
+        var sb = new StringBuilder(64 * 1024);
+        sb.Append('[');
         bool firstField = true;
-        foreach (var dir in Directory.GetDirectories(root))
+        foreach (var nf in nearby)
         {
             Field field;
-            try { field = _fieldService.LoadField(dir); }
+            try { field = _fieldService.LoadField(nf.DirectoryPath); }
             catch { continue; }
             if (field?.Boundary?.OuterBoundary is not { IsValid: true } outer) continue;
             if (field.Origin.Latitude == 0 && field.Origin.Longitude == 0) continue;
@@ -40,19 +48,26 @@ public partial class MainViewModel
             if (!firstField) sb.Append(',');
             firstField = false;
             sb.Append("{\"name\":")
-              .Append(JsonSerializer.Serialize(Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar))))
+              .Append(JsonSerializer.Serialize(nf.Name))
               .Append(",\"ring\":[");
             bool firstPt = true;
+            double lastE = 0, lastN = 0; bool haveLast = false;
             foreach (var p in outer.Points)
             {
                 // field-local (E,N) -> wgs -> current map plane (E,N).
                 var w = fieldPlane.ConvertGeoCoordToWgs84(new GeoCoord(p.Northing, p.Easting));
                 var loc = lp.ConvertWgs84ToGeoCoord(w);
+                if (haveLast)
+                {
+                    double dx = loc.Easting - lastE, dy = loc.Northing - lastN;
+                    if (dx * dx + dy * dy < simplifyMinSq) continue; // decimate
+                }
                 if (!firstPt) sb.Append(',');
                 firstPt = false;
                 sb.Append('[')
-                  .Append(loc.Easting.ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
-                  .Append(loc.Northing.ToString("0.###", CultureInfo.InvariantCulture)).Append(']');
+                  .Append(loc.Easting.ToString("0.#", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(loc.Northing.ToString("0.#", CultureInfo.InvariantCulture)).Append(']');
+                lastE = loc.Easting; lastN = loc.Northing; haveLast = true;
             }
             sb.Append("]}");
         }
