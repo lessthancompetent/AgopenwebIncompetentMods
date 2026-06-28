@@ -25,10 +25,12 @@ public partial class MainViewModel
         if (lp == null || string.IsNullOrEmpty(root) || !Directory.Exists(root)) return "[]";
 
         // Only fields within range of the map origin (a cheap origin-distance filter
-        // that also avoids loading distant fields) — keeps the payload small enough
-        // for low-end tablets. Rings are decimated (drop points < ~1.5 m apart) and
-        // emitted at 0.1 m precision.
-        const double simplifyMinSq = 1.5 * 1.5;
+        // that also avoids loading distant fields). The outlines are just a visual
+        // tap-target for "which paddock" — the actual open uses the real boundary
+        // server-side (TryOpenFieldAtTap.IsPointInside) — so we can draw them coarse:
+        // decimate to ~10 m point spacing and emit whole-metre coords. Tiny on the
+        // wire, light to draw on a low-end tablet, with no loss of pick accuracy.
+        const double simplifyMinSq = 10.0 * 10.0;
         var nearby = _fieldService.FindFieldsNear(root, lp.Origin.Latitude, lp.Origin.Longitude, maxKm: 30.0);
 
         var sb = new StringBuilder(64 * 1024);
@@ -65,8 +67,8 @@ public partial class MainViewModel
                 if (!firstPt) sb.Append(',');
                 firstPt = false;
                 sb.Append('[')
-                  .Append(loc.Easting.ToString("0.#", CultureInfo.InvariantCulture)).Append(',')
-                  .Append(loc.Northing.ToString("0.#", CultureInfo.InvariantCulture)).Append(']');
+                  .Append(loc.Easting.ToString("0", CultureInfo.InvariantCulture)).Append(',')
+                  .Append(loc.Northing.ToString("0", CultureInfo.InvariantCulture)).Append(']');
                 lastE = loc.Easting; lastN = loc.Northing; haveLast = true;
             }
             sb.Append("]}");
