@@ -494,6 +494,28 @@ function endMapTap() {
   document.body.classList.remove('maptap');
   document.getElementById('maptap-hint').classList.remove('show');
 }
+// Pick-from-map (ported from AgValoniaGPS-RoutePlanner): arm a tap that opens the
+// field at the tapped point. Exposed on window for now so it can be triggered
+// while the proper "Pick on map" button is wired up.
+function pickFieldOnMap() {
+  satEnabled = true; // show the aerial underlay so paddocks are visible to tap
+  startMapTap({
+    hint: 'Tap a field to open it',
+    // One-shot: open the tapped field, then disarm (the shared handler doesn't
+    // auto-end — multi-point features re-tap, but a field pick is a single tap).
+    onTap: (e, n) => { transport.send('field.tapOpen|' + e + ',' + n); endMapTap(); },
+  });
+}
+window.pickFieldOnMap = pickFieldOnMap;
+
+// General aerial/satellite background toggle (reuses the Bing underlay that the
+// "draw boundary on map" mode already draws — drawSatelliteSk gates on satEnabled).
+function toggleSatBackground() {
+  satEnabled = !satEnabled;
+  const b = document.getElementById('fo-sat');
+  if (b) b.classList.toggle('on', satEnabled);
+}
+window.toggleSatBackground = toggleSatBackground;
 // True when the user is typing into a field — global hotkeys (tilt, sim drive) must not
 // fire then (e.g. typing "300" into the boundary offset shouldn't toggle 3D tilt on "3").
 function isTyping() {
@@ -2163,6 +2185,8 @@ document.getElementById('fo-fields').addEventListener('pointerdown', e => { e.st
 document.getElementById('fo-resumelast').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('field.resumeLast'); lnCloseAll(); });
 document.getElementById('fo-resumejob').addEventListener('pointerdown', e => { e.stopPropagation(); openResumeJob(); });
 document.getElementById('fo-drivein').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('field.driveIn'); lnCloseAll(); });
+document.getElementById('fo-pickmap').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); pickFieldOnMap(); });
+document.getElementById('fo-sat').addEventListener('pointerdown', e => { e.stopPropagation(); toggleSatBackground(); lnCloseAll(); });
 document.getElementById('fo-close').addEventListener('pointerdown', e => { e.stopPropagation(); if (scene && scene.hasField) { transport.send('field.close'); lnCloseAll(); } });
 
 // Fields-and-Jobs chain panel (mirrors StartWorkSessionDialogPanel).

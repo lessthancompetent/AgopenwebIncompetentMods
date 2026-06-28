@@ -103,6 +103,15 @@ public static partial class RemoteServerWiring
                                     rollStore.Ahrs.RollZero += rollState.Vehicle.Roll;
                                     return;
                                 }
+                                case "field.tapOpen": // pick-from-map: arg = "easting,northing" (local-plane m)
+                                {
+                                    var tp = arg.Split(',');
+                                    if (tp.Length == 2
+                                        && double.TryParse(tp[0], num, inv, out var te)
+                                        && double.TryParse(tp[1], num, inv, out var tn))
+                                        vm.TryOpenFieldAtTap(te, tn);
+                                    return;
+                                }
                                 case "field.deleteApplied": // Tier-1; browser already confirmed
                                     vm.DeleteAppliedAreaConfirmed();
                                     return;
