@@ -307,6 +307,13 @@ public partial class MainViewModel
         State.Vehicle.Latitude = latitude;
         State.Vehicle.Longitude = longitude;
 
+        // With no field open, anchor the map's geo origin at the sim position so the
+        // idle map has a reference — this is what the satellite underlay and
+        // pick-from-map (LocalPlane) need before any field is opened. A field opened
+        // later re-anchors to its own origin via SetFieldOrigin.
+        if (State.Field.ActiveField == null)
+            SetFieldOrigin(latitude, longitude);
+
         StatusMessage = saved
             ? $"Simulator reset to {latitude:F8}, {longitude:F8}"
             : $"Reset to {latitude:F8}, {longitude:F8} (save failed: {_settingsService.GetSettingsFilePath()})";
