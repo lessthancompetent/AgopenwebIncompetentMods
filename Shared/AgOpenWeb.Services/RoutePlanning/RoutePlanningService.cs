@@ -306,22 +306,26 @@ public sealed class RoutePlanningService : IRoutePlanningService
             // Smooth the lap corners to the tractor's turning circle (drivable).
             rp = RoundCorners(rp, cornerRadius);
 
-            var loop = new List<Vec3>(rp.Count + 1);
+            // OPEN lap (do NOT close back to the seam): the path winds almost all the
+            // way around, then steps straight into the next inset lap. Closing each loop
+            // and joining seam→seam stacks the joins into one radial "spoke" to the
+            // centre; leaving the laps open makes the inward step part of the winding —
+            // a single continuous spiral, as the operator drives it.
+            var loop = new List<Vec3>(rp.Count);
             for (int j = 0; j < rp.Count; j++)
             {
                 var a = rp[j];
-                var b = rp[(j + 1) % rp.Count];
+                var b = rp[Math.Min(j + 1, rp.Count - 1)];
                 loop.Add(new Vec3(a.Easting, a.Northing,
                     Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
             }
-            loop.Add(loop[0]);
 
-            // Turn inward from the previous lap's seam to this lap's seam — the
-            // continuous spiral step at one consistent corner, not a cross-field jump.
+            // Inward step from the previous lap's end into this lap's start. Tagged
+            // Swath (worked, same colour) so the spiral reads as one continuous line.
             if (prev != null)
             {
                 var conn = new List<Vec3> { prev[^1], loop[0] };
-                rings.Add(new RouteSegment(RouteSegmentType.Turn, conn));
+                rings.Add(new RouteSegment(RouteSegmentType.Swath, conn));
                 totalDist += PolylineLength(conn);
             }
             rings.Add(new RouteSegment(RouteSegmentType.Swath, loop));
