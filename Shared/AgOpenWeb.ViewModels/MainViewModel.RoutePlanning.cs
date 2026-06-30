@@ -18,6 +18,7 @@ using System.Globalization;
 using System.Text;
 using AgOpenWeb.Models.Base;
 using AgOpenWeb.Models.RoutePlanning;
+using AgOpenWeb.Models.Track;
 using AgOpenWeb.Services.Geometry;
 using AgOpenWeb.Services.RoutePlanning;
 using AgOpenWeb.Services.Track;
@@ -130,8 +131,50 @@ public partial class MainViewModel
     /// <summary>Discard the current route preview.</summary>
     public void ClearRoutePlan()
     {
+        if (State.RecordedPath.IsDrivingRecordedPath) StopRouteDrive();
         _currentRoutePlan = null;
         StatusMessage = "Route cleared";
+    }
+
+    /// <summary>
+    /// Drive the planned route in the simulator. Flatten the plan into recorded-path
+    /// points and hand them to AgOpenWeb's recorded-path playback engine (Dubins
+    /// approach to the start, then Pure-Pursuit along the path); then set a forward sim
+    /// speed so it moves. Sections replay ON over worked passes (Swath/Headland) and OFF
+    /// over turns/transit. The sim speed slider still adjusts pace; StopRouteDrive ends it.
+    /// </summary>
+    public void DriveRoute()
+    {
+        var plan = _currentRoutePlan;
+        if (plan == null) { StatusMessage = "Plan a route first"; return; }
+
+        const double driveSpeedKph = 8.0;
+        var pts = new List<RecPathPoint>();
+        foreach (var seg in plan.Segments)
+        {
+            bool working = seg.Type == RouteSegmentType.Swath || seg.Type == RouteSegmentType.Headland;
+            foreach (var p in seg.Points)
+                pts.Add(new RecPathPoint(p.Easting, p.Northing, p.Heading, driveSpeedKph, working));
+        }
+        if (pts.Count < 5) { StatusMessage = "Route too short to drive"; return; }
+
+        State.RecordedPath.RecordedPoints = pts;
+        State.RecordedPath.CurrentPositionIndex = 0;
+        if (!StartDrivingRecordedPath())
+        {
+            StatusMessage = "Couldn't start driving the route";
+            return;
+        }
+        if (IsSimulatorEnabled) SimulatorSpeedKph = driveSpeedKph; // get moving; slider still adjusts
+        StatusMessage = "Driving route…";
+    }
+
+    /// <summary>Stop driving the route and halt the simulator.</summary>
+    public void StopRouteDrive()
+    {
+        StopDrivingRecordedPath();
+        if (IsSimulatorEnabled) SimulatorSpeedKph = 0;
+        StatusMessage = "Route drive stopped";
     }
 
     /// <summary>

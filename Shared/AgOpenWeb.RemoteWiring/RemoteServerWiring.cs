@@ -133,6 +133,12 @@ public static partial class RemoteServerWiring
                                 case "route.clear":
                                     vm.ClearRoutePlan();
                                     return;
+                                case "route.drive":
+                                    vm.DriveRoute();
+                                    return;
+                                case "route.stopDrive":
+                                    vm.StopRouteDrive();
+                                    return;
                                 case "field.deleteApplied": // Tier-1; browser already confirmed
                                     vm.DeleteAppliedAreaConfirmed();
                                     return;

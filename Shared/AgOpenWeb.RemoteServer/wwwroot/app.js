@@ -1430,6 +1430,8 @@ for (const b of document.querySelectorAll('#routeplan .rp-sb'))
   });
 document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
 document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
+document.getElementById('rp-drive').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.drive'); });
+document.getElementById('rp-stop').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.stopDrive'); });
 document.getElementById('ln-fieldops').addEventListener('pointerdown', e => {
   e.stopPropagation();
   const anyOpen = ['fieldops', 'fieldsandjobs', 'newfield'].some(id => document.getElementById(id).classList.contains('open'));
