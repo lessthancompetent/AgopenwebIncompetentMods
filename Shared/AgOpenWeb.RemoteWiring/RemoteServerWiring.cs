@@ -117,6 +117,22 @@ public static partial class RemoteServerWiring
                                         vm.TryOpenFieldAtTap(te, tn);
                                     return;
                                 }
+                                case "route.plan": // route planner: arg = "pattern,headlandPasses,skip,block,angleDeg"
+                                {
+                                    var rp = arg.Split(',');
+                                    var iNum = System.Globalization.NumberStyles.Integer;
+                                    if (rp.Length == 5
+                                        && int.TryParse(rp[0], iNum, inv, out var rpat)
+                                        && int.TryParse(rp[1], iNum, inv, out var rhl)
+                                        && int.TryParse(rp[2], iNum, inv, out var rskip)
+                                        && int.TryParse(rp[3], iNum, inv, out var rblk)
+                                        && double.TryParse(rp[4], num, inv, out var rang))
+                                        vm.PlanRoute(rpat, rhl, rskip, rblk, rang);
+                                    return;
+                                }
+                                case "route.clear":
+                                    vm.ClearRoutePlan();
+                                    return;
                                 case "field.deleteApplied": // Tier-1; browser already confirmed
                                     vm.DeleteAppliedAreaConfirmed();
                                     return;
@@ -692,6 +708,7 @@ public static partial class RemoteServerWiring
                     // thread, same race tolerance as the other projectors.
                     // Pick-from-map: all mapped field outlines in the current map plane (HTTP).
                     server.NearbyFieldsJsonProvider = () => vm.GetNearbyFieldOutlinesJson();
+                    server.RoutePlanJsonProvider = () => vm.GetRoutePlanJson();
 
                     server.BoundaryProvider = () =>
                     {

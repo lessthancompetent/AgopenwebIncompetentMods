@@ -93,6 +93,10 @@ public sealed class RemoteServerHost
     /// plane (pick-from-map). Served at GET /api/nearbyfields.</summary>
     public Func<string>? NearbyFieldsJsonProvider { get; set; }
 
+    /// <summary>Host-supplied JSON of the current planned coverage route (segments +
+    /// metadata) in the active map plane. Served at GET /api/routeplan.</summary>
+    public Func<string>? RoutePlanJsonProvider { get; set; }
+
     /// <summary>Host-supplied projector for the Field Builder Headland-tab segment list
     /// (VM-owned, rides the Scene frame). Set after <see cref="StartAsync"/>.</summary>
     public Func<IReadOnlyList<HeadlandSegInfoDto>>? HeadlandSegsProvider
@@ -203,6 +207,10 @@ public sealed class RemoteServerHost
         // Pick-from-map: all mapped field outlines projected into the current map plane.
         server.MapGet("/api/nearbyfields", () => SimpleWebServer.Response.Text(
             NearbyFieldsJsonProvider?.Invoke() ?? "[]", "application/json", noStore));
+
+        // Route planner: the current planned coverage route (segments + metadata).
+        server.MapGet("/api/routeplan", () => SimpleWebServer.Response.Text(
+            RoutePlanJsonProvider?.Invoke() ?? "{}", "application/json", noStore));
 
         // CanvasKit (WASM Skia) — bundled locally for offline in-cab use. The wasm is
         // served as application/wasm so the browser can streaming-compile it.
