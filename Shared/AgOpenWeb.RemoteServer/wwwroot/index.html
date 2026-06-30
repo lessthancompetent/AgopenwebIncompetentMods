@@ -510,6 +510,22 @@
     .fo-ic { width: 22px; height: 22px; object-fit: contain; flex: none; }
     .fo-pill { margin-top: 12px; background: #1E8449; color: #fff; border-radius: 6px; padding: 7px 12px;
       font: 600 13px system-ui, sans-serif; }
+    /* Route Planner panel. */
+    .rp-panel { width: 280px; }
+    .rp-pats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-bottom: 4px; }
+    .rp-pat { height: 34px; border: 1px solid var(--border); border-radius: 6px; background: rgba(var(--ov),0.05);
+      color: var(--text-2); cursor: pointer; font: 600 11px system-ui, sans-serif; }
+    .rp-pat:hover { background: rgba(var(--ov),0.14); }
+    .rp-pat.on { background: #b46fd0; border-color: #b46fd0; color: #fff; }
+    .rp-row { display: flex; align-items: center; justify-content: space-between; margin: 7px 0; }
+    .rp-step { display: flex; align-items: center; gap: 8px; }
+    .rp-sb { width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 6px;
+      background: rgba(var(--ov),0.05); color: var(--text-2); cursor: pointer; font: 700 16px system-ui, sans-serif; }
+    .rp-sb:hover { background: rgba(var(--ov),0.14); }
+    .rp-step span { min-width: 44px; text-align: center; color: var(--text-1); font: 600 13px system-ui, sans-serif; }
+    .rp-btns { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 12px; }
+    .rp-stats { margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: rgba(var(--ov),0.05);
+      color: var(--text-muted); font: 600 12px system-ui, sans-serif; line-height: 1.4; }
     /* Fields and Jobs — three columns. */
     .fj-panel { width: 900px; }
     .fj-cols { display: grid; grid-template-columns: 1.1fr 1.4fr auto; gap: 16px; }
@@ -1173,6 +1189,39 @@
         <path d="M14 22a14 14 0 0 1 20 0"/><path d="M18.5 27a8 8 0 0 1 11 0"/>
         <circle class="fill" cx="24" cy="32" r="2.4"/>
       </svg></button>
+    <button id="ln-routeplan" class="ln-btn" title="Route Planner">
+      <svg class="ln-ic" viewBox="0 0 48 48" aria-label="Route Planner" style="color:#b46fd0">
+        <path d="M14 13h15a6 6 0 0 1 0 12H19a6 6 0 0 0 0 12h15"/>
+        <circle class="fill" cx="14" cy="13" r="2.6"/>
+        <path class="fill" d="M31 33l5 4l-5 4z"/>
+      </svg></button>
+  </div>
+  <!-- Route Planner — non-modal flyout. Coverage-route generation (ported planner):
+       pick a pattern + headland/skip/angle, Plan Route posts route.plan|… and the
+       result is fetched from /api/routeplan and drawn client-side (drawRoutePlanSk). -->
+  <div id="routeplan" class="ln-panel rp-panel">
+    <div class="ln-hdr"><span class="ln-hdr-title">Route Planner</span><button class="ln-x ln-closex" title="Close">✕</button></div>
+    <div class="cfg-label">Pattern</div>
+    <div class="rp-pats">
+      <button class="rp-pat" data-pat="0">Auto</button>
+      <button class="rp-pat" data-pat="1">Skip</button>
+      <button class="rp-pat" data-pat="2">Cross</button>
+      <button class="rp-pat" data-pat="3">Spiral</button>
+      <button class="rp-pat" data-pat="4">Block</button>
+    </div>
+    <div class="rp-row"><span class="cfg-label">Headland laps</span>
+      <div class="rp-step"><button class="rp-sb" data-rp="hl" data-d="-1">−</button><span id="rp-hl">Auto</span><button class="rp-sb" data-rp="hl" data-d="1">+</button></div></div>
+    <div class="rp-row"><span class="cfg-label">Skip rows</span>
+      <div class="rp-step"><button class="rp-sb" data-rp="skip" data-d="-1">−</button><span id="rp-skip">0</span><button class="rp-sb" data-rp="skip" data-d="1">+</button></div></div>
+    <div class="rp-row"><span class="cfg-label">Block skip</span>
+      <div class="rp-step"><button class="rp-sb" data-rp="block" data-d="-1">−</button><span id="rp-block">3</span><button class="rp-sb" data-rp="block" data-d="1">+</button></div></div>
+    <div class="rp-row"><span class="cfg-label">Angle °</span>
+      <div class="rp-step"><button class="rp-sb" data-rp="angle" data-d="-5">−</button><span id="rp-angle">0</span><button class="rp-sb" data-rp="angle" data-d="5">+</button></div></div>
+    <div class="rp-btns">
+      <button class="cfg-act fj-primary" id="rp-plan">Plan Route</button>
+      <button class="cfg-act fj-danger" id="rp-clear">Clear</button>
+    </div>
+    <div class="rp-stats" id="rp-stats">No route planned.</div>
   </div>
   <!-- Screen & Alerts (Phase 9a) — non-modal flyout. Units toggle proves the config
        bridge (config.set|units:…); more settings accrue here in later sub-phases. -->

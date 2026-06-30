@@ -435,6 +435,10 @@ function buildSkPaints() {
     hlEdit: mk('rgba(245,235,90,0.95)', 3), hlEditOff: mk('rgba(232,86,74,0.95)', 3),
     // Tram lines (wheel tracks) — orange, set per frame in drawTramLinesSk.
     tram: mk('rgba(255,140,60,0.9)', 2),
+    // Route planner preview — worked swaths (green), U-turns (amber), headland laps
+    // (cyan), transport/approach moves (grey dashed). Widths set in updateLineWidths.
+    routeSwath: mk('rgba(90,210,100,0.95)', 1), routeTurn: mk('rgba(255,176,64,0.95)', 1),
+    routeHeadland: mk('rgba(90,190,235,0.95)', 1), routeApproach: mk('rgba(190,190,190,0.7)', 1, [8, 6]),
   };
   // Section footprint bars: one stroke paint per ColorCode (butt cap so adjacent
   // sections abut without rounded overhang), matching the 2D SECTION_COLORS.
@@ -609,6 +613,56 @@ function toggleSatBackground() {
   if (b) b.classList.toggle('active', satEnabled);
 }
 window.toggleSatBackground = toggleSatBackground;
+
+// ---- Route Planner (Layer 3) ----------------------------------------------
+// The control state mirrors the headless PlanRoute(pattern, headlandPasses, skip,
+// block, angleDeg) args. Plan Route posts route.plan|… then fetches /api/routeplan
+// (a list of typed segment polylines) and draws them client-side — same lightweight
+// pattern as pick-from-map, no binary scene-protocol layer.
+let routePlan = null; // { segments:[{type,pts:[{e,n}…]}…], meta:{…} } or null
+let rpPattern = 0, rpHeadland = 0, rpSkip = 0, rpBlock = 3, rpAngle = 0;
+const RP_PAINT = { Swath: 'routeSwath', Turn: 'routeTurn', Headland: 'routeHeadland', Approach: 'routeApproach' };
+function drawRoutePlanSk(canvas) {
+  if (!routePlan || !routePlan.segments) return;
+  for (const seg of routePlan.segments) {
+    if (!seg.pts || seg.pts.length < 2) continue;
+    strokePtsSk(canvas, seg.pts, false, SKP[RP_PAINT[seg.type] || 'routeSwath']);
+  }
+}
+function rpRender() {
+  for (const b of document.querySelectorAll('#routeplan .rp-pat'))
+    b.classList.toggle('on', +b.dataset.pat === rpPattern);
+  document.getElementById('rp-hl').textContent = rpHeadland === 0 ? 'Auto' : rpHeadland;
+  document.getElementById('rp-skip').textContent = rpSkip;
+  document.getElementById('rp-block').textContent = rpBlock;
+  document.getElementById('rp-angle').textContent = rpAngle;
+}
+function openRoutePlanner() { lnOpen('routeplan', 'ln-routeplan', rpRender); }
+function planRoute() {
+  transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle].join(','));
+  document.getElementById('rp-stats').textContent = 'Planning…';
+  // The command runs on the backend dispatcher; give it a beat, then fetch the result.
+  setTimeout(() => {
+    fetch('/api/routeplan').then(r => r.json()).then(d => {
+      if (!d || !d.segments || d.segments.length === 0) {
+        routePlan = null;
+        document.getElementById('rp-stats').textContent = 'No route (open a field with a boundary).';
+        return;
+      }
+      routePlan = { segments: d.segments.map(s => ({ type: s.type, pts: s.pts.map(p => ({ e: p[0], n: p[1] })) })), meta: d.meta };
+      const m = d.meta || {};
+      const km = ((m.distanceM || 0) / 1000).toFixed(2);
+      document.getElementById('rp-stats').textContent =
+        `${m.swaths || 0} passes · ${m.turns || 0} turns · ${km} km · ${(m.toolWidthM || 0).toFixed(2)} m tool`;
+    }).catch(() => { document.getElementById('rp-stats').textContent = 'Plan fetch failed.'; });
+  }, 250);
+}
+function clearRoute() {
+  transport.send('route.clear');
+  routePlan = null;
+  document.getElementById('rp-stats').textContent = 'No route planned.';
+}
+
 // True when the user is typing into a field — global hotkeys (tilt, sim drive) must not
 // fire then (e.g. typing "300" into the boundary offset shouldn't toggle 3D tilt on "3").
 function isTyping() {
@@ -1299,7 +1353,7 @@ document.getElementById('dlg-tracks-close').addEventListener('pointerdown', e =>
 // to ConfigurationStore). Grows one entry per sub-phase.
 // Navigation: top-level buttons open a panel; sub-panels (vehicle/tool config) are
 // reached from the hub and carry a Back button. One panel open at a time.
-const LN_NAV_PANELS = ['screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
+const LN_NAV_PANELS = ['routeplan', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
 // Watch-the-tractor panels opt OUT of the light-dismiss scrim — the map must stay
 // interactive (pan/zoom to follow the tractor while capturing). They close only via
 // the header (Back / ✕).
@@ -1316,6 +1370,7 @@ function lnCloseAll() {
   document.getElementById('ln-filemenu').classList.remove('active');
   document.getElementById('ln-tools').classList.remove('active');
   document.getElementById('ln-fieldtools').classList.remove('active');
+  document.getElementById('ln-routeplan').classList.remove('active');
 }
 function lnOpen(panelId, navBtnId, onOpen) {
   lnCloseAll();
@@ -1353,6 +1408,28 @@ document.getElementById('ln-network').addEventListener('pointerdown', e => {
   if (document.getElementById('networkio').classList.contains('open')) lnCloseAll();
   else lnOpen('networkio', 'ln-network', renderNetworkIo);
 });
+document.getElementById('ln-routeplan').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  if (document.getElementById('routeplan').classList.contains('open')) lnCloseAll();
+  else openRoutePlanner();
+});
+// Route Planner controls: pattern picker, ± steppers, Plan / Clear.
+for (const b of document.querySelectorAll('#routeplan .rp-pat'))
+  b.addEventListener('pointerdown', e => { e.stopPropagation(); rpPattern = +b.dataset.pat; rpRender(); });
+for (const b of document.querySelectorAll('#routeplan .rp-sb'))
+  b.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    const d = +b.dataset.d;
+    switch (b.dataset.rp) {
+      case 'hl': rpHeadland = Math.max(0, Math.min(5, rpHeadland + d)); break;
+      case 'skip': rpSkip = Math.max(0, Math.min(8, rpSkip + d)); break;
+      case 'block': rpBlock = Math.max(1, Math.min(8, rpBlock + d)); break;
+      case 'angle': rpAngle = ((rpAngle + d) % 360 + 360) % 360; break;
+    }
+    rpRender();
+  });
+document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
+document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
 document.getElementById('ln-fieldops').addEventListener('pointerdown', e => {
   e.stopPropagation();
   const anyOpen = ['fieldops', 'fieldsandjobs', 'newfield'].some(id => document.getElementById(id).classList.contains('open'));
@@ -4412,6 +4489,10 @@ function updateLineWidths() {
   SKP.track.setStrokeWidth(w(1.5));      // saved tracks ~ active weight
   SKP.extraGuide.setStrokeWidth(w(0.9)); // extra guide 0.3 × 3
   SKP.extraGuideShadow.setStrokeWidth(w(1.2));
+  SKP.routeSwath.setStrokeWidth(w(0.5));
+  SKP.routeTurn.setStrokeWidth(w(0.5));
+  SKP.routeHeadland.setStrokeWidth(w(0.7));
+  SKP.routeApproach.setStrokeWidth(w(0.4));
 }
 function vehicleSk(canvas, p) {
   const veh = config && config.vehicle;
@@ -4795,6 +4876,7 @@ function renderSkia(canvas, rp) {
   drawSatelliteSk(canvas); // Bing aerial underlay while drawing a boundary on map
   drawImagerySk(canvas); // imagery overlays the ground where present
   drawPickOutlinesSk(canvas); // pick-from-map: all mapped field outlines
+  drawRoutePlanSk(canvas); // route planner: generated coverage-route preview
   drawCoverageSk(canvas);
   drawGridSk(canvas);
   if (scene) {
