@@ -287,14 +287,21 @@ public sealed class RoutePlanningService : IRoutePlanningService
         List<Vec3>? prev = null;
         int laps = 0;
 
+        // Seam corner: rotate EVERY lap to start nearest this point, so consecutive
+        // laps begin at the same corner (each one swath-width further in). The short
+        // inward step between laps then lands at one consistent corner — a true
+        // continuous spiral winding inward — instead of jumping across the field.
+        var seed = startPos.HasValue
+            ? new Vec2(startPos.Value.Easting, startPos.Value.Northing)
+            : new Vec2(poly[0].Easting, poly[0].Northing);
+
         for (int i = 0; i < 1000; i++)
         {
             var ring = _offset.CreateInwardOffset(poly, (i + 0.5) * swathWidth);
             if (ring is not { Count: >= 3 }) break;
 
             var rp = new List<Vec2>(ring);
-            if (i == 0 && startPos.HasValue)
-                RotateToNearest(rp, new Vec2(startPos.Value.Easting, startPos.Value.Northing));
+            RotateToNearest(rp, seed); // align every lap's seam to the same corner
 
             // Smooth the lap corners to the tractor's turning circle (drivable).
             rp = RoundCorners(rp, cornerRadius);
@@ -309,11 +316,12 @@ public sealed class RoutePlanningService : IRoutePlanningService
             }
             loop.Add(loop[0]);
 
-            // Step inward from the previous lap to this one (sections off).
+            // Turn inward from the previous lap's seam to this lap's seam — the
+            // continuous spiral step at one consistent corner, not a cross-field jump.
             if (prev != null)
             {
                 var conn = new List<Vec3> { prev[^1], loop[0] };
-                rings.Add(new RouteSegment(RouteSegmentType.Approach, conn));
+                rings.Add(new RouteSegment(RouteSegmentType.Turn, conn));
                 totalDist += PolylineLength(conn);
             }
             rings.Add(new RouteSegment(RouteSegmentType.Swath, loop));
