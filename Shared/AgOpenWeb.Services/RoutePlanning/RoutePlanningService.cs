@@ -282,77 +282,72 @@ public sealed class RoutePlanningService : IRoutePlanningService
             return null;
 
         var poly = new List<Vec2>(outerBoundary);
-        var rings = new List<RouteSegment>();
-        double totalDist = 0;
-        List<Vec3>? prev = null;
-        int laps = 0;
 
-        // Seam corner: rotate EVERY lap to start nearest this point, so consecutive
-        // laps begin at the same corner (each one swath-width further in). The short
-        // inward step between laps then lands at one consistent corner — a true
-        // continuous spiral winding inward — instead of jumping across the field.
-        var seed = startPos.HasValue
+        // Seam pinned to a real field CORNER — the boundary vertex nearest the entry
+        // point — so every lap's inward turn-in lands at the same corner (not mid-edge),
+        // matching how an operator spirals in from a corner.
+        var entry = startPos.HasValue
             ? new Vec2(startPos.Value.Easting, startPos.Value.Northing)
             : new Vec2(poly[0].Easting, poly[0].Northing);
+        var seed = poly[0]; double seedD = double.MaxValue;
+        foreach (var v in poly) { double d = Distance(v, entry); if (d < seedD) { seedD = d; seed = v; } }
 
+        // Build ONE continuous inward spiral as an open polyline: each lap (offset in by
+        // a further swath width, rotated to start at the seam) winds around and flows
+        // straight into the next inset lap. No closed loops → no radial seam "spoke".
+        var path = new List<Vec2>();
+        Vec2 center = seed; int laps = 0;
         for (int i = 0; i < 1000; i++)
         {
             var ring = _offset.CreateInwardOffset(poly, (i + 0.5) * swathWidth);
             if (ring is not { Count: >= 3 }) break;
-
             var rp = new List<Vec2>(ring);
-            RotateToNearest(rp, seed); // align every lap's seam to the same corner
-
-            // Smooth the lap corners to the tractor's turning circle (drivable).
-            rp = RoundCorners(rp, cornerRadius);
-
-            // OPEN lap (do NOT close back to the seam): the path winds almost all the
-            // way around, then steps straight into the next inset lap. Closing each loop
-            // and joining seam→seam stacks the joins into one radial "spoke" to the
-            // centre; leaving the laps open makes the inward step part of the winding —
-            // a single continuous spiral, as the operator drives it.
-            var loop = new List<Vec3>(rp.Count);
-            for (int j = 0; j < rp.Count; j++)
-            {
-                var a = rp[j];
-                var b = rp[Math.Min(j + 1, rp.Count - 1)];
-                loop.Add(new Vec3(a.Easting, a.Northing,
-                    Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
-            }
-
-            // Inward step from the previous lap's end into this lap's start. Tagged
-            // Swath (worked, same colour) so the spiral reads as one continuous line.
-            if (prev != null)
-            {
-                var conn = new List<Vec3> { prev[^1], loop[0] };
-                rings.Add(new RouteSegment(RouteSegmentType.Swath, conn));
-                totalDist += PolylineLength(conn);
-            }
-            rings.Add(new RouteSegment(RouteSegmentType.Swath, loop));
-            totalDist += PolylineLength(loop);
-            prev = loop;
+            RotateToNearest(rp, seed);
+            path.AddRange(rp);        // open lap; the join to the next lap is the step-in
+            center = Centroid(rp);
             laps++;
         }
         if (laps == 0) return null;
 
-        var segments = new List<RouteSegment>();
-        if (startPos.HasValue && rings.Count > 0 && rings[0].Points.Count > 0)
-        {
-            var approach = new List<Vec3> { startPos.Value, rings[0].Points[0] };
-            segments.Add(new RouteSegment(RouteSegmentType.Approach, approach));
-            totalDist += PolylineLength(approach);
-        }
-        segments.AddRange(rings);
+        // Centre finish: run from the innermost lap into the field centre so the spiral
+        // doesn't leave an uncovered pocket in the middle.
+        path.Add(center);
 
+        // Smooth every corner to the turning circle in one open-polyline pass — the lap
+        // corners AND the inward step-ins — so the turn-ins are rounded, not sharp.
+        var smooth = RoundCorners(path, cornerRadius, closed: false);
+
+        var spiral = new List<Vec3>(smooth.Count);
+        for (int k = 0; k < smooth.Count; k++)
+        {
+            var a = smooth[k];
+            var b = smooth[Math.Min(k + 1, smooth.Count - 1)];
+            spiral.Add(new Vec3(a.Easting, a.Northing,
+                Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
+        }
+
+        // Keep the whole spiral the configured distance inside the fence.
         if (boundaryClearance > 0.01)
         {
             var limit = _offset.CreateInwardOffset(poly, boundaryClearance);
-            if (limit is { Count: >= 3 })
-                for (int i = 0; i < segments.Count; i++)
-                    segments[i] = new RouteSegment(segments[i].Type, ClampInside(segments[i].Points, limit));
+            if (limit is { Count: >= 3 }) spiral = ClampInside(spiral, limit);
         }
 
-        var meta = BuildMeta(segments, swathWidth);
+        var segments = new List<RouteSegment>();
+        double approachLen = 0;
+        if (startPos.HasValue && spiral.Count > 0)
+        {
+            var approach = new List<Vec3> { startPos.Value, spiral[0] };
+            approachLen = PolylineLength(approach);
+            segments.Add(new RouteSegment(RouteSegmentType.Approach, approach));
+        }
+        segments.Add(new RouteSegment(RouteSegmentType.Swath, spiral));
+
+        double workLen = PolylineLength(spiral);
+        double total = workLen + approachLen;
+        double est = EstimateSpeedMps > 0 ? total / EstimateSpeedMps : 0;
+        // One continuous Swath segment, but report the real lap count as the pass count.
+        var meta = new RoutePlanMetadata(laps, total, est, workLen, approachLen, 0, swathWidth);
         return new RoutePlan(segments, meta);
     }
 
@@ -572,7 +567,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// edge; near-straight corners are left untouched. Returns an OPEN ring (caller
     /// re-closes). Input may be open or closed (a duplicate closing point is dropped).
     /// </summary>
-    private static List<Vec2> RoundCorners(IReadOnlyList<Vec2> poly, double radius, double angleStepDeg = 12.0)
+    private static List<Vec2> RoundCorners(IReadOnlyList<Vec2> poly, double radius, double angleStepDeg = 12.0, bool closed = true)
     {
         int n = poly.Count;
         if (n < 3 || radius <= 0.01) return new List<Vec2>(poly);
@@ -584,8 +579,11 @@ public sealed class RoutePlanningService : IRoutePlanningService
         var outp = new List<Vec2>(count * 3);
         for (int i = 0; i < count; i++)
         {
-            var P = poly[(i - 1 + count) % count];
             var V = poly[i];
+            // Open polylines (a continuous spiral) keep their endpoints; only interior
+            // vertices are filleted, and neighbours are not wrapped around the ends.
+            if (!closed && (i == 0 || i == count - 1)) { outp.Add(V); continue; }
+            var P = poly[(i - 1 + count) % count];
             var N = poly[(i + 1) % count];
 
             double e1x = P.Easting - V.Easting, e1y = P.Northing - V.Northing;
