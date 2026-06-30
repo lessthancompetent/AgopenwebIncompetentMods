@@ -85,7 +85,12 @@
     #statusbar .dot { width: 13px; height: 13px; border-radius: 50%; display: inline-block;
       background: #6b7280; vertical-align: middle; }
     #sb-pause { font-size: 12px; color: var(--text-2); }
-    .sb-left { display: flex; flex-direction: column; justify-content: center; line-height: 1.25; min-width: 360px; }
+    .sb-left { position: relative; display: flex; flex-direction: column; justify-content: center; line-height: 1.25; min-width: 360px; }
+    /* Fullscreen: the OS draws an exit "✕" pill at the top-left (e.g. iPad Safari). The
+       status bar is laid out so only the non-tappable Operator indicator sits there — nudge
+       it clear of the pill so it stays readable. Fullscreen-only (body.fs-on, toggled on
+       fullscreenchange). */
+    body.fs-on #sb-role { margin-left: 75px; }
     .sb-row1 { display: flex; align-items: center; gap: 8px; }
     .sb-sec { color: var(--text-muted); font-weight: 500; }
     .sb-rot { color: #3498DB; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -111,7 +116,7 @@
     #sb-fs:hover { background: rgba(var(--ov),0.14); }
     /* GPS-detail card (Phase 5) — popup toggled by the fix dot; mirrors GpsDetailPanel. */
     #sb-fixbtn { padding: 0; }
-    #sb-gpscard { display: none; position: absolute; top: 50px; left: 10px; min-width: 180px;
+    #sb-gpscard { display: none; position: absolute; top: calc(100% + 8px); left: 0; min-width: 180px;
       background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
       box-shadow: 0 6px 20px rgba(0,0,0,0.5); z-index: 10; font-weight: 500; }
     #sb-gpscard .gc-ll { color: #F1C40F; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -179,7 +184,7 @@
     .osb-btn svg { width: 100%; height: 100%; display: block; pointer-events: none; }
     /* Auto-U-turn approach indicator — upper-right, symmetric to #onscreenbtns. Display
        only (click-through). Direction arrow flips for a left turn; distance below it; the
-       turn-type glyph (Omega/Sagitta) to the right. */
+       turn-type glyph (Sagitta/K-turn) to the right. */
     #uturn-indicator { position: fixed; top: calc(96px + var(--sat)); right: calc(126px + var(--sar));
       display: flex; align-items: center; gap: 14px; z-index: 20; pointer-events: none;
       filter: drop-shadow(0 1px 3px rgba(0,0,0,0.85)); }
@@ -1004,18 +1009,9 @@
 <body>
   <canvas id="ck"></canvas>
   <div id="statusbar">
-    <button id="sb-pause" title="Pause / resume rotating field info">❚❚</button>
-    <div class="sb-left">
-      <div class="sb-row1">
-        <button id="sb-fixbtn" title="GPS detail">
-          <span id="sb-fixdot" class="dot"></span>
-          <span id="sb-fix">—</span>
-        </button>
-        <span id="sb-age" class="sb-sec"></span>
-      </div>
-      <div id="sb-rot" class="sb-rot">—</div>
-    </div>
-    <span class="sb-spacer"></span>
+    <!-- LEFT/RIGHT groups swapped so the fullscreen exit "✕" pill (top-left) only ever
+         sits beside the NON-tappable Operator indicator. Left group = Operator indicator,
+         Modules, Speed, Heading; everything tappable here is well right of the pill. -->
     <div id="sb-role" title="Control role"><span id="sb-roledot" class="dot"></span><span id="sb-roletext">—</span></div>
     <div class="sb-mods-wrap">
       <button id="sb-modbtn"><span id="sb-modagg" class="dot"></span>Modules</button>
@@ -1034,23 +1030,37 @@
       <span id="sb-hdg">—</span>
       <span id="sb-hdglabel">HDG</span>
     </div>
-    <button id="sb-fs" title="Fullscreen (hide browser bars)">⛶</button>
-    <!-- GPS-detail card (Phase 5): toggled by the fix dot. Anchored under the
-         left fix readout, mirroring the native GpsDetailPanel. -->
-    <div id="sb-gpscard">
-      <div class="gc-ll" id="gc-lat">—</div>
-      <div class="gc-ll" id="gc-lon">—</div>
-      <div class="gc-rule"></div>
-      <div class="gc-row"><span class="gc-k">Elev:</span><span class="gc-v" id="gc-elev">—</span></div>
-      <div class="gc-row"><span class="gc-k"># Sats:</span><span class="gc-v" id="gc-sats">—</span></div>
-      <div class="gc-row"><span class="gc-k">HDOP:</span><span class="gc-v" id="gc-hdop">—</span></div>
-      <div class="gc-row"><span class="gc-k">Fix:</span><span class="gc-v" id="gc-fix">—</span></div>
-      <div class="gc-row"><span class="gc-k">Age:</span><span class="gc-v" id="gc-age">—</span></div>
-      <div class="gc-rule"></div>
-      <div class="gc-row"><span class="gc-k">Heading:</span><span class="gc-v" id="gc-hdg">—</span></div>
-      <div class="gc-row"><span class="gc-k">IMU Roll:</span><span class="gc-v" id="gc-roll">—</span></div>
-      <div class="gc-row"><span class="gc-k">FPS:</span><span class="gc-v" id="gc-fps">—</span></div>
+    <span class="sb-spacer"></span>
+    <!-- Right group: play/pause immediately left of the rotating info it controls, then
+         the Fix/RTK + rotating info; the fullscreen toggle stays at the far right. -->
+    <button id="sb-pause" title="Pause / resume rotating field info">❚❚</button>
+    <div class="sb-left">
+      <div class="sb-row1">
+        <button id="sb-fixbtn" title="GPS detail">
+          <span id="sb-fixdot" class="dot"></span>
+          <span id="sb-fix">—</span>
+        </button>
+        <span id="sb-age" class="sb-sec"></span>
+      </div>
+      <div id="sb-rot" class="sb-rot">—</div>
+      <!-- GPS-detail card (Phase 5): toggled by the fix dot. Nested in .sb-left so it
+           anchors under the fix readout now that the readout lives on the right. -->
+      <div id="sb-gpscard">
+        <div class="gc-ll" id="gc-lat">—</div>
+        <div class="gc-ll" id="gc-lon">—</div>
+        <div class="gc-rule"></div>
+        <div class="gc-row"><span class="gc-k">Elev:</span><span class="gc-v" id="gc-elev">—</span></div>
+        <div class="gc-row"><span class="gc-k"># Sats:</span><span class="gc-v" id="gc-sats">—</span></div>
+        <div class="gc-row"><span class="gc-k">HDOP:</span><span class="gc-v" id="gc-hdop">—</span></div>
+        <div class="gc-row"><span class="gc-k">Fix:</span><span class="gc-v" id="gc-fix">—</span></div>
+        <div class="gc-row"><span class="gc-k">Age:</span><span class="gc-v" id="gc-age">—</span></div>
+        <div class="gc-rule"></div>
+        <div class="gc-row"><span class="gc-k">Heading:</span><span class="gc-v" id="gc-hdg">—</span></div>
+        <div class="gc-row"><span class="gc-k">IMU Roll:</span><span class="gc-v" id="gc-roll">—</span></div>
+        <div class="gc-row"><span class="gc-k">FPS:</span><span class="gc-v" id="gc-fps">—</span></div>
+      </div>
     </div>
+    <button id="sb-fs" title="Fullscreen (hide browser bars)">⛶</button>
   </div>
   <div id="lb"></div>
   <div id="headland-hud"></div>
@@ -1098,7 +1108,7 @@
     </div>
   </div>
   <!-- Auto-U-turn approach indicator (native look) — green direction arrow + distance to
-       trigger + turn-type glyph (Omega / Sagitta). Upper-right, symmetric to the on-screen
+       trigger + turn-type glyph (Sagitta / K-turn). Upper-right, symmetric to the on-screen
        U-turn/Lateral buttons. Display only; shown while an auto U-turn is armed. -->
   <div id="uturn-indicator" hidden>
     <div class="uti-distbox">
@@ -1464,8 +1474,8 @@
     <div id="tc-uturn" class="cfg-body" data-strip="tc-top" hidden>
       <div class="cfg-label">Turn style</div>
       <div class="ln-seg cfg-seg-full">
-        <button class="cfg-typebtn" data-key="uturn.style" data-val="0" data-active="0">Omega</button>
-        <button class="cfg-typebtn" data-key="uturn.style" data-val="1" data-active="1">Sagitta</button>
+        <button class="cfg-typebtn" data-key="uturn.style" data-val="0">Sagitta</button>
+        <button class="cfg-typebtn" data-key="uturn.style" data-val="1">K-turn</button>
       </div>
       <div class="cfg-diaggrid">
         <div class="vc-diagrow"><img src="/icons/ConU_UturnLength.png" class="vc-diag" alt=""><div class="vc-fieldcol"><label>Extension (m)</label><input class="cfg-num" data-key="uturn.extension" type="number" step="0.1"></div></div>
