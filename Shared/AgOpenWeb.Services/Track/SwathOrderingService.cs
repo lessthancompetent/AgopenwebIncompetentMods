@@ -68,6 +68,69 @@ public static class SwathOrderingService
     }
 
     /// <summary>
+    /// Skip-and-fill traversal: consecutive driven passes are (skip+1) tracks
+    /// apart so the U-turn gets a wider gap, then the skipped tracks are filled
+    /// on the return lanes. <paramref name="skip"/> 0 = plain sequential
+    /// (adjacent U-turns). 1 reproduces the Snake order. Lanes alternate
+    /// direction so the jump between lanes stays short.
+    /// </summary>
+    public static List<int> GenerateSkipSequence(int trackCount, int skip)
+    {
+        if (trackCount <= 0) return new List<int>();
+        if (trackCount == 1) return new List<int> { 0 };
+        if (skip <= 0) return Enumerable.Range(0, trackCount).ToList();
+
+        int step = skip + 1;
+        var order = new List<int>(trackCount);
+        for (int lane = 0; lane < step; lane++)
+        {
+            var laneIdx = new List<int>();
+            for (int i = lane; i < trackCount; i += step) laneIdx.Add(i);
+            if ((lane % 2) == 1) laneIdx.Reverse();   // serpentine between lanes
+            order.AddRange(laneIdx);
+        }
+        return order;
+    }
+
+    /// <summary>
+    /// Block plotter (skip-and-fill): from the current pass, step BACK by
+    /// <paramref name="skip"/> rows if that row is still unworked; otherwise step
+    /// FORWARD by skip+1 rows; if neither is available, drop to the lowest unworked
+    /// row. Every turn stays at least <paramref name="skip"/> rows wide (so the
+    /// implement always has room to turn) and every pass is covered exactly once.
+    /// Example skip=3 over 16 passes: 0,4,1,5,2,6,3,7,11,8,12,9,13,10,14,15.
+    /// </summary>
+    public static List<int> GenerateBlockSequence(int trackCount, int skip)
+    {
+        if (trackCount <= 0) return new List<int>();
+        if (trackCount == 1) return new List<int> { 0 };
+
+        int back = Math.Max(1, skip);
+        int fwd = back + 1;
+        var visited = new bool[trackCount];
+        var order = new List<int>(trackCount) { 0 };
+        visited[0] = true;
+        int current = 0;
+
+        while (order.Count < trackCount)
+        {
+            int b = current - back;
+            int f = current + fwd;
+            int next;
+            if (b >= 0 && !visited[b]) next = b;
+            else if (f < trackCount && !visited[f]) next = f;
+            else
+            {
+                next = -1;
+                for (int i = 0; i < trackCount; i++) if (!visited[i]) { next = i; break; }
+                if (next < 0) break;                // all covered
+            }
+            current = next; visited[next] = true; order.Add(next);
+        }
+        return order;
+    }
+
+    /// <summary>
     /// Generate the track traversal sequence for a given pattern,
     /// offset by a starting path number (e.g., if the tractor starts on path 3).
     /// </summary>
