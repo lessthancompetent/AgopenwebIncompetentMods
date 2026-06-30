@@ -1148,11 +1148,11 @@
       </svg></button>
     <button id="ln-vehicle" class="ln-btn" title="Vehicle &amp; Tool Configuration">
       <svg class="ln-ic" viewBox="0 0 48 48" aria-label="Vehicle & Tool Configuration" style="color:#5ba644">
-        <path class="soft" d="M11 29V17h9v6h11l3 6Z"/>
-        <line x1="20" y1="17" x2="20" y2="23"/>
-        <line x1="25" y1="23" x2="25" y2="13"/>
-        <circle cx="16" cy="32" r="6"/><circle class="fill" cx="16" cy="32" r="1.8"/>
-        <circle cx="34" cy="34" r="4"/><circle class="fill" cx="34" cy="34" r="1.3"/>
+        <path class="soft" d="M8 28V23h15l2-9h10l1 9v5Z"/>
+        <line x1="23" y1="23" x2="23" y2="28"/>
+        <line x1="12" y1="23" x2="12" y2="14"/>
+        <circle cx="31" cy="31" r="8"/><circle class="fill" cx="31" cy="31" r="2.4"/>
+        <circle cx="13" cy="33" r="5"/><circle class="fill" cx="13" cy="33" r="1.6"/>
       </svg></button>
     <button id="ln-autosteer" class="ln-btn" title="AutoSteer Configuration">
       <svg class="ln-ic" viewBox="0 0 48 48" aria-label="AutoSteer" style="color:#4f86d6">
@@ -1192,6 +1192,10 @@
       <button class="sa-tgl" data-key="display.extraGuidelines"><img class="sa-ic" src="/icons/ConD_ExtraGuides.png" alt="">Extra Guides</button>
       <input id="sa-extracount" class="cfg-num" type="number" step="1" min="0" title="Extra guide count">
       <button class="sa-act" data-cmd="display.cycleResolution">Quality: <span id="sa-quality">—</span></button>
+    </div>
+    <div class="cfg-label">Map Background</div>
+    <div class="sa-grid">
+      <button class="sa-tgl" id="sa-sat"><img class="sa-ic" src="/icons/BoundaryByMap.png" alt="">Satellite / Aerial</button>
     </div>
     <div class="cfg-label">On-Screen Buttons</div>
     <div class="sa-grid">
@@ -1805,8 +1809,6 @@
       <button class="fo-btn" id="fo-resumelast"><img class="fo-ic" src="/icons/FilePrevious.png">Resume Last Job</button>
       <button class="fo-btn" id="fo-resumejob"><img class="fo-ic" src="/icons/FilePrevious.png">Resume Job</button>
       <button class="fo-btn" id="fo-drivein"><img class="fo-ic" src="/icons/SteerDriveOn.png">Drive In</button>
-      <button class="fo-btn" id="fo-pickmap"><img class="fo-ic" src="/icons/FileOpen.png">Pick on Map</button>
-      <button class="fo-btn" id="fo-sat"><img class="fo-ic" src="/icons/BoundaryByMap.png">Satellite</button>
       <button class="fo-btn" id="fo-close"><img class="fo-ic" src="/icons/FileClose.png">Close</button>
     </div>
     <div class="cfg-label" style="margin-top:10px">AgShare</div>
@@ -1824,6 +1826,7 @@
     <div class="fj-cols">
       <div class="fj-col">
         <div class="cfg-label">Fields</div>
+        <button class="cfg-act cfg-actwide fj-crbtn" id="fj-pickmap"><img class="fo-ic" src="/icons/BoundaryByMap.png">Pick on Map</button>
         <div class="fj-fhead"><span>Name</span><span>Dist (km)</span><span>Area (ha)</span></div>
         <div id="fj-fieldlist" class="fj-list"></div>
         <div class="fj-btnrow">

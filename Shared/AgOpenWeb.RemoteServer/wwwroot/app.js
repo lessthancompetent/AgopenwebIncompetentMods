@@ -550,26 +550,49 @@ function startMapTap(cfg) {
 }
 function endMapTap() {
   mapTap = null;
-  pickOutlines = null; // stop drawing the pick-from-map outlines once a pick/cancel happens
+  pickOutlines = null; pickNamed = null; // stop drawing / hit-testing pick outlines once a pick/cancel happens
   document.body.classList.remove('maptap');
   document.getElementById('maptap-hint').classList.remove('show');
 }
-// Pick-from-map (ported from AgValoniaGPS-RoutePlanner): arm a tap that opens the
-// field at the tapped point. Exposed on window for now so it can be triggered
-// while the proper "Pick on map" button is wired up.
-let pickOutlines = null; // [[{e,n},…],…] all mapped-field outlines shown while picking
+// Pick-from-map (ported from AgValoniaGPS-RoutePlanner): arm a tap that SELECTS the
+// field at the tapped point inside the Fields and Jobs panel, so the operator can
+// then confirm/choose the job (defaulting to the last one) before it opens. The
+// field is identified client-side by point-in-polygon against the mapped outlines —
+// the actual open later happens by field name (Resume/Start), so the ~10 m outline
+// decimation never affects which field really opens.
+let pickOutlines = null; // [[{e,n},…],…] outline rings, drawn while picking
+let pickNamed = null;    // [{name, ring:[{e,n}…]},…] same rings keyed by field name (hit-test)
 function pickFieldOnMap() {
   // Pull every mapped field's outline (projected into the current map plane) so the
   // paddocks are visible to tap — no satellite background required.
   fetch('/api/nearbyfields').then(r => r.json()).then(d => {
-    pickOutlines = (d || []).map(f => f.ring.map(p => ({ e: p[0], n: p[1] })));
-  }).catch(() => { pickOutlines = null; });
+    pickNamed = (d || []).map(f => ({ name: f.name, ring: f.ring.map(p => ({ e: p[0], n: p[1] })) }));
+    pickOutlines = pickNamed.map(f => f.ring);
+  }).catch(() => { pickOutlines = null; pickNamed = null; });
   startMapTap({
-    hint: 'Tap a field to open it',
-    // One-shot: open the tapped field, then disarm (the shared handler doesn't
-    // auto-end — multi-point features re-tap, but a field pick is a single tap).
-    onTap: (e, n) => { transport.send('field.tapOpen|' + e + ',' + n); endMapTap(); },
+    hint: 'Tap a field to choose its job',
+    // One-shot: identify the tapped field, select it in Fields and Jobs, then disarm
+    // (the shared handler doesn't auto-end — multi-point features re-tap).
+    onTap: (e, n) => {
+      const hit = (pickNamed || []).find(f => ptInRing(e, n, f.ring));
+      endMapTap();
+      if (hit) {
+        fjSelField = hit.name;
+        const jobs = fjJobsArr();                       // most-recent first
+        fjSelJob = jobs.length ? jobs[0].taskName : null; // default to last job
+      }
+      openFieldsAndJobs(); // re-open the panel with the picked field + last job selected
+    },
   });
+}
+// Ray-cast point-in-polygon over a ring of {e,n} points (current map plane, metres).
+function ptInRing(e, n, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i].e, yi = ring[i].n, xj = ring[j].e, yj = ring[j].n;
+    if (((yi > n) !== (yj > n)) && (e < (xj - xi) * (n - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
 }
 // Draw the pick-from-map field outlines (current-plane rings) while picking.
 function drawPickOutlinesSk(canvas) {
@@ -582,8 +605,8 @@ window.pickFieldOnMap = pickFieldOnMap;
 // "draw boundary on map" mode already draws — drawSatelliteSk gates on satEnabled).
 function toggleSatBackground() {
   satEnabled = !satEnabled;
-  const b = document.getElementById('fo-sat');
-  if (b) b.classList.toggle('on', satEnabled);
+  const b = document.getElementById('sa-sat');
+  if (b) b.classList.toggle('active', satEnabled);
 }
 window.toggleSatBackground = toggleSatBackground;
 // True when the user is typing into a field — global hotkeys (tilt, sim drive) must not
@@ -1730,8 +1753,10 @@ for (const b of document.querySelectorAll('.ln-closex'))
 const saPanel = document.getElementById('screenalerts');
 // Units + device settings (keyboard/fullscreen/elevation) moved to App Settings (File menu).
 // Screen & Alerts toggles → config.set|display.X; action rows (theme/quality) → command.
-for (const b of saPanel.querySelectorAll('.sa-tgl'))
+for (const b of saPanel.querySelectorAll('.sa-tgl[data-key]'))
   b.addEventListener('pointerdown', e => { e.stopPropagation(); cfgSend(b.dataset.key, b.classList.contains('active') ? '0' : '1'); });
+// Satellite/aerial map background — a client-only toggle (no backend display key).
+document.getElementById('sa-sat').addEventListener('pointerdown', e => { e.stopPropagation(); toggleSatBackground(); });
 for (const b of saPanel.querySelectorAll('.sa-act'))
   b.addEventListener('pointerdown', e => { e.stopPropagation(); transport.send(b.dataset.cmd); });
 const saExtra = document.getElementById('sa-extracount');
@@ -1739,7 +1764,8 @@ saExtra.addEventListener('change', () => { const v = parseInt(saExtra.value); if
 function populateScreenAlerts() {
   if (!config || !config.display) return;
   const d = config.display;
-  for (const b of saPanel.querySelectorAll('.sa-tgl')) b.classList.toggle('active', !!d[b.dataset.key.split('.')[1]]);
+  for (const b of saPanel.querySelectorAll('.sa-tgl[data-key]')) b.classList.toggle('active', !!d[b.dataset.key.split('.')[1]]);
+  document.getElementById('sa-sat').classList.toggle('active', satEnabled);
   if (document.activeElement !== saExtra) saExtra.value = d.extraGuidelinesCount;
   document.getElementById('sa-quality').textContent = d.resolutionLabel || '—';
 }
@@ -2255,8 +2281,6 @@ document.getElementById('fo-fields').addEventListener('pointerdown', e => { e.st
 document.getElementById('fo-resumelast').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('field.resumeLast'); lnCloseAll(); });
 document.getElementById('fo-resumejob').addEventListener('pointerdown', e => { e.stopPropagation(); openResumeJob(); });
 document.getElementById('fo-drivein').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('field.driveIn'); lnCloseAll(); });
-document.getElementById('fo-pickmap').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); pickFieldOnMap(); });
-document.getElementById('fo-sat').addEventListener('pointerdown', e => { e.stopPropagation(); toggleSatBackground(); lnCloseAll(); });
 document.getElementById('fo-close').addEventListener('pointerdown', e => { e.stopPropagation(); if (scene && scene.hasField) { transport.send('field.close'); lnCloseAll(); } });
 
 // Fields-and-Jobs chain panel (mirrors StartWorkSessionDialogPanel).
@@ -2266,6 +2290,9 @@ function openFieldsAndJobs() {
   lnOpen('fieldsandjobs', 'ln-fieldops', renderFieldsAndJobs);
 }
 document.getElementById('fj-back').addEventListener('pointerdown', e => { e.stopPropagation(); lnOpen('fieldops', 'ln-fieldops', renderFieldOps); });
+// Pick on Map — close the panel so the map is tappable, then arm the picker; the tap
+// selects the field here and defaults to its last job (see pickFieldOnMap).
+document.getElementById('fj-pickmap').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); pickFieldOnMap(); });
 function fjJobsArr() { return fieldOps ? fieldOps.jobs.filter(j => j.fieldName === fjSelField) : []; }
 function renderFieldsAndJobs() {
   const fl = document.getElementById('fj-fieldlist'); fl.innerHTML = '';
