@@ -466,13 +466,17 @@ public partial class MainViewModel
         var points = recState.RecordedPoints;
         if (points.Count < 2) { StopDrivingRecordedPath(); return; }
 
-        // Find closest point - search entire path from current position onward
-        // Wide search prevents losing track on tight curves
+        // Find closest point within a LOCAL window around the current index, not the
+        // whole remaining path. A global forward search snaps to whichever point is
+        // spatially nearest — which, on a coverage route with parallel passes only one
+        // swath apart, can be a different (sequentially-distant) pass, sending the
+        // vehicle cutting across the field. A local window keeps tracking sequential.
         int searchStart = Math.Max(0, recState.CurrentPositionIndex - 5);
+        int searchEnd = Math.Min(points.Count, recState.CurrentPositionIndex + 30);
         int closestIdx = searchStart;
         double closestDist = double.MaxValue;
 
-        for (int i = searchStart; i < points.Count; i++)
+        for (int i = searchStart; i < searchEnd; i++)
         {
             double dx = points[i].Easting - vehicleE;
             double dy = points[i].Northing - vehicleN;
