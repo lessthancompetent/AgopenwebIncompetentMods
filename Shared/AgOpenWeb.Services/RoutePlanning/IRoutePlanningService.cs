@@ -76,7 +76,8 @@ public interface IRoutePlanningService
         double swathWidth,
         Vec3? startPos = null,
         double boundaryClearance = 0,
-        double cornerRadius = 0);
+        double cornerRadius = 0,
+        bool cornerLoops = false);
 
     /// <summary>
     /// Uncovered regions of <paramref name="boundary"/> for an assembled

@@ -620,7 +620,7 @@ window.toggleSatBackground = toggleSatBackground;
 // (a list of typed segment polylines) and draws them client-side — same lightweight
 // pattern as pick-from-map, no binary scene-protocol layer.
 let routePlan = null; // { segments:[{type,pts:[{e,n}…]}…], meta:{…} } or null
-let rpPattern = 0, rpHeadland = 0, rpSkip = 0, rpBlock = 3, rpAngle = 0;
+let rpPattern = 0, rpHeadland = 0, rpSkip = 0, rpBlock = 3, rpAngle = 0, rpCornerFill = false;
 const RP_PAINT = { Swath: 'routeSwath', Turn: 'routeTurn', Headland: 'routeHeadland', Approach: 'routeApproach' };
 function drawRoutePlanSk(canvas) {
   if (!routePlan || !routePlan.segments) return;
@@ -636,10 +636,11 @@ function rpRender() {
   document.getElementById('rp-skip').textContent = rpSkip;
   document.getElementById('rp-block').textContent = rpBlock;
   document.getElementById('rp-angle').textContent = rpAngle;
+  document.getElementById('rp-cornerfill').classList.toggle('on', rpCornerFill);
 }
 function openRoutePlanner() { lnOpen('routeplan', 'ln-routeplan', rpRender); }
 function planRoute() {
-  transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle].join(','));
+  transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0].join(','));
   document.getElementById('rp-stats').textContent = 'Planning…';
   // The command runs on the backend dispatcher; give it a beat, then fetch the result.
   setTimeout(() => {
@@ -1414,8 +1415,9 @@ document.getElementById('ln-routeplan').addEventListener('pointerdown', e => {
   else openRoutePlanner();
 });
 // Route Planner controls: pattern picker, ± steppers, Plan / Clear.
-for (const b of document.querySelectorAll('#routeplan .rp-pat'))
+for (const b of document.querySelectorAll('#routeplan .rp-pat[data-pat]'))
   b.addEventListener('pointerdown', e => { e.stopPropagation(); rpPattern = +b.dataset.pat; rpRender(); });
+document.getElementById('rp-cornerfill').addEventListener('pointerdown', e => { e.stopPropagation(); rpCornerFill = !rpCornerFill; rpRender(); });
 for (const b of document.querySelectorAll('#routeplan .rp-sb'))
   b.addEventListener('pointerdown', e => {
     e.stopPropagation();

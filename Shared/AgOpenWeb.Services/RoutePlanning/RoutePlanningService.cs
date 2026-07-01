@@ -276,7 +276,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double swathWidth,
         Vec3? startPos = null,
         double boundaryClearance = 0,
-        double cornerRadius = 0)
+        double cornerRadius = 0,
+        bool cornerLoops = false)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0)
             return null;
@@ -312,6 +313,12 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // Centre finish: run from the innermost lap into the field centre so the spiral
         // doesn't leave an uncovered pocket in the middle.
         path.Add(center);
+
+        // Corner-fill option: at each ~90° lap corner, replace the tight rounded corner
+        // with a forward 270° loop that swings out into the corner apex, covering the
+        // wedge a wide tool would otherwise miss (operator's "drive out + 270° loop").
+        double loopR = cornerRadius > 0.01 ? cornerRadius : swathWidth * 0.5;
+        if (cornerLoops) path = InsertCornerLoops(path, loopR);
 
         // Smooth every corner to the turning circle in one open-polyline pass — the lap
         // corners AND the inward step-ins — so the turn-ins are rounded, not sharp.
@@ -630,6 +637,69 @@ public sealed class RoutePlanningService : IRoutePlanningService
             }
             outp.Add(new Vec2(bx, by));
         }
+        return outp;
+    }
+
+    /// <summary>
+    /// Replace each ~90° corner of an OPEN polyline with a forward 270° "loop" turn that
+    /// swings out into the corner apex (covering the wedge a rounded corner would miss),
+    /// then continues on the outgoing edge. Non-corner vertices pass through unchanged.
+    /// The loop is tangent to both edges and turns the long way, so it never reverses.
+    /// </summary>
+    private static List<Vec2> InsertCornerLoops(IReadOnlyList<Vec2> path, double radius)
+    {
+        int n = path.Count;
+        if (n < 3 || radius < 0.5) return new List<Vec2>(path);
+        var outp = new List<Vec2> { path[0] };
+        for (int i = 1; i < n - 1; i++)
+        {
+            var P = path[i - 1]; var V = path[i]; var N = path[i + 1];
+            double ax = V.Easting - P.Easting, ay = V.Northing - P.Northing;
+            double bx = N.Easting - V.Easting, by = N.Northing - V.Northing;
+            double la = Math.Sqrt(ax * ax + ay * ay), lb = Math.Sqrt(bx * bx + by * by);
+            if (la < 1e-6 || lb < 1e-6) { outp.Add(V); continue; }
+            ax /= la; ay /= la; bx /= lb; by /= lb;
+            double turn = Math.Atan2(ax * by - ay * bx, ax * bx + ay * by); // signed a->b
+            // Only fill near-90° corners with room: the loop bulges ~2R, so the shorter
+            // adjacent edge must exceed R (else skip and leave the plain corner).
+            if (Math.Abs(Math.Abs(turn) - Math.PI / 2) > 0.6 || Math.Min(la, lb) < radius)
+            {
+                outp.Add(V);
+                continue;
+            }
+            outp.AddRange(CornerLoop(V, ax, ay, bx, by, radius));
+        }
+        outp.Add(path[n - 1]);
+        return outp;
+    }
+
+    /// <summary>
+    /// Forward 270° loop connecting incoming dir (ax,ay) to outgoing dir (bx,by) at corner
+    /// V, tangent to both edges and bulging toward the corner apex. Entry → arc → exit.
+    /// </summary>
+    private static List<Vec2> CornerLoop(Vec2 V, double ax, double ay, double bx, double by, double R)
+    {
+        // Exterior-corner centre (distance R from both edges, apex side): V + R·(a - b).
+        // Entry tangent = V + R·a; exit tangent = V - R·b.
+        double cx = V.Easting + R * (ax - bx), cy = V.Northing + R * (ay - by);
+        double p1x = V.Easting + R * ax, p1y = V.Northing + R * ay;
+        double p2x = V.Easting - R * bx, p2y = V.Northing - R * by;
+
+        double a1 = Math.Atan2(p1y - cy, p1x - cx);
+        double a2 = Math.Atan2(p2y - cy, p2x - cx);
+        double d = a2 - a1;
+        while (d <= -Math.PI) d += 2 * Math.PI;
+        while (d > Math.PI) d -= 2 * Math.PI;                       // short delta (~±90°)
+        double longD = d > 0 ? d - 2 * Math.PI : d + 2 * Math.PI;   // go the long way (~270°)
+
+        int steps = Math.Max(10, (int)Math.Ceiling(Math.Abs(longD) * R / 0.5));
+        var outp = new List<Vec2>(steps + 2) { new Vec2(p1x, p1y) };
+        for (int s = 1; s < steps; s++)
+        {
+            double ang = a1 + longD * s / steps;
+            outp.Add(new Vec2(cx + R * Math.Cos(ang), cy + R * Math.Sin(ang)));
+        }
+        outp.Add(new Vec2(p2x, p2y));
         return outp;
     }
 

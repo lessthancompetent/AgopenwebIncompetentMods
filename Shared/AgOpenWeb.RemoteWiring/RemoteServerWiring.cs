@@ -117,17 +117,17 @@ public static partial class RemoteServerWiring
                                         vm.TryOpenFieldAtTap(te, tn);
                                     return;
                                 }
-                                case "route.plan": // route planner: arg = "pattern,headlandPasses,skip,block,angleDeg"
+                                case "route.plan": // "pattern,headlandPasses,skip,block,angleDeg[,cornerFill]"
                                 {
                                     var rp = arg.Split(',');
                                     var iNum = System.Globalization.NumberStyles.Integer;
-                                    if (rp.Length == 5
+                                    if (rp.Length >= 5
                                         && int.TryParse(rp[0], iNum, inv, out var rpat)
                                         && int.TryParse(rp[1], iNum, inv, out var rhl)
                                         && int.TryParse(rp[2], iNum, inv, out var rskip)
                                         && int.TryParse(rp[3], iNum, inv, out var rblk)
                                         && double.TryParse(rp[4], num, inv, out var rang))
-                                        vm.PlanRoute(rpat, rhl, rskip, rblk, rang);
+                                        vm.PlanRoute(rpat, rhl, rskip, rblk, rang, rp.Length >= 6 && rp[5] == "1");
                                     return;
                                 }
                                 case "route.clear":

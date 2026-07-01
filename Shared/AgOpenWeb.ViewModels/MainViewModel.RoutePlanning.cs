@@ -44,7 +44,7 @@ public partial class MainViewModel
     /// headlandPasses 0 = auto (route-planner rule); skipCount/blockSkip used by
     /// the skip/cross/block patterns; angleDeg rotates the field-aligned passes.
     /// </summary>
-    public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg)
+    public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg, bool cornerFill = false)
     {
         if (State.Field.ActiveField?.Boundary?.OuterBoundary is not { IsValid: true } outer)
         {
@@ -112,7 +112,7 @@ public partial class MainViewModel
         double heading = LongestEdgeHeading(pts) + angleRad;
 
         RoutePlan? plan = spiral
-            ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius)
+            ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill)
             : cross
                 ? RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
                     SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius)
