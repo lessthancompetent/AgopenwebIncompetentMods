@@ -491,7 +491,16 @@ public partial class MainViewModel
         {
             recState.IsEndOfLine = true;
             StopDrivingRecordedPath();
-            StatusMessage = "Recorded path complete";
+            // A driven route halts the sim at the end (otherwise it keeps rolling forward
+            // at the last heading and drifts); record/playback leaves speed to the user.
+            if (_haltSimAtRouteEnd)
+            {
+                _haltSimAtRouteEnd = false;
+                SimulatorSteerAngle = 0;
+                if (IsSimulatorEnabled) SimulatorSpeedKph = 0;
+                StatusMessage = "Route complete — stopped";
+            }
+            else StatusMessage = "Recorded path complete";
             return;
         }
 

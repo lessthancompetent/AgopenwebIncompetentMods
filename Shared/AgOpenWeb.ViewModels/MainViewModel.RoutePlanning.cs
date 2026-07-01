@@ -34,6 +34,10 @@ public partial class MainViewModel
     /// <summary>The most recently planned coverage route, for the web preview.</summary>
     private RoutePlan? _currentRoutePlan;
 
+    /// <summary>When driving a planned route, halt the sim at the path end (the
+    /// record/playback feature leaves the user in control of speed, so this is gated).</summary>
+    private bool _haltSimAtRouteEnd;
+
     /// <summary>
     /// Plan a coverage route for the open field and stash it for the web preview.
     /// Pattern: 0 auto, 1 skip, 2 cross-drill, 3 spiral, 4 block.
@@ -198,6 +202,7 @@ public partial class MainViewModel
             StatusMessage = "Couldn't start driving the route";
             return;
         }
+        _haltSimAtRouteEnd = true;
         if (IsSimulatorEnabled) SimulatorSpeedKph = driveSpeedKph; // get moving; slider still adjusts
         StatusMessage = "Driving route…";
     }
@@ -205,6 +210,7 @@ public partial class MainViewModel
     /// <summary>Stop driving the route and halt the simulator.</summary>
     public void StopRouteDrive()
     {
+        _haltSimAtRouteEnd = false;
         StopDrivingRecordedPath();
         if (IsSimulatorEnabled) SimulatorSpeedKph = 0;
         StatusMessage = "Route drive stopped";
