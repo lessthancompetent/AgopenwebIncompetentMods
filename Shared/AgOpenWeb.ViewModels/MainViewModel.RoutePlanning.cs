@@ -149,12 +149,45 @@ public partial class MainViewModel
         if (plan == null) { StatusMessage = "Plan a route first"; return; }
 
         const double driveSpeedKph = 8.0;
-        var pts = new List<RecPathPoint>();
+
+        // Flatten the plan to (E, N, working) — sections ON over worked passes.
+        var raw = new List<(double e, double n, bool work)>();
         foreach (var seg in plan.Segments)
         {
             bool working = seg.Type == RouteSegmentType.Swath || seg.Type == RouteSegmentType.Headland;
-            foreach (var p in seg.Points)
-                pts.Add(new RecPathPoint(p.Easting, p.Northing, p.Heading, driveSpeedKph, working));
+            foreach (var p in seg.Points) raw.Add((p.Easting, p.Northing, working));
+        }
+        if (raw.Count < 2) { StatusMessage = "Route too short to drive"; return; }
+
+        // Resample to a dense, uniform ~1 m spacing. AgOpenWeb's recorded-path follower
+        // looks a fixed few POINTS ahead and snaps to the globally-nearest forward point,
+        // so coarse route vertices (a straight swath is just 2 points tens of metres apart)
+        // make the look-ahead overshoot and can let the vehicle jump onto an adjacent lap.
+        // Dense points keep the nearest point sequential and the look-ahead ~2-3 m.
+        const double step = 1.0;
+        var pts = new List<RecPathPoint>(raw.Count * 8);
+        pts.Add(new RecPathPoint(raw[0].e, raw[0].n, 0, driveSpeedKph, raw[0].work));
+        double carry = 0; // distance already travelled past the last emitted point
+        for (int i = 1; i < raw.Count; i++)
+        {
+            var a = raw[i - 1]; var b = raw[i];
+            double dE = b.e - a.e, dN = b.n - a.n;
+            double len = Math.Sqrt(dE * dE + dN * dN);
+            if (len < 1e-9) continue;
+            double d = step - carry;                       // first new point on this segment
+            for (; d <= len; d += step)
+            {
+                double t = d / len;
+                pts.Add(new RecPathPoint(a.e + dE * t, a.n + dN * t, 0, driveSpeedKph, b.work));
+            }
+            carry = len - (d - step);                      // leftover into the next segment
+        }
+        // Point headings: face the next point (the last keeps the previous heading).
+        for (int i = 0; i < pts.Count - 1; i++)
+        {
+            var p = pts[i]; var q = pts[i + 1];
+            p.Heading = Math.Atan2(q.Easting - p.Easting, q.Northing - p.Northing);
+            pts[i] = p;
         }
         if (pts.Count < 5) { StatusMessage = "Route too short to drive"; return; }
 
