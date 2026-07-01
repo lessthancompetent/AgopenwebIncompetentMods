@@ -652,6 +652,25 @@ public partial class MainViewModel
         }
     }
 
+    /// <summary>
+    /// Wipe all recorded-path state on field close/switch. Recorded paths are per-field
+    /// (RecPath.txt lives in the field directory) and their points are in the field's
+    /// local plane, so a leftover path would redraw at the same local E/N on the next
+    /// field — a completely different place. Also stops any active recording/playback and
+    /// clears the map overlay, so nothing is left stuck.
+    /// </summary>
+    internal void ResetRecordedPathState()
+    {
+        _haltSimAtRouteEnd = false;
+        StopDrivingRecordedPath();
+        IsRecordingPath = false;
+        _recPathRecordingPoints.Clear();
+        _lastRecPathPoint = null;
+        State.RecordedPath.Reset();
+        IsRecordedPathPanelVisible = false;
+        _mapService.SetRecordedPaths(System.Array.Empty<Track>());
+    }
+
     private void UpdateRecordedPathDisplayOnMap()
     {
         var recState = State.RecordedPath;

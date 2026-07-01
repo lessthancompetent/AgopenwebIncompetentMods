@@ -1980,6 +1980,11 @@ public partial class MainViewModel : ObservableObject
         // Clear U-turn state
         ClearYouTurnState();
 
+        // Clear recorded-path state (per-field; leftover points would redraw on the
+        // next field at the same local E/N — a different place — and can leave a
+        // recording/playback stuck).
+        ResetRecordedPathState();
+
         // Clear coverage
         _coverageMapService.ClearAll();
 
