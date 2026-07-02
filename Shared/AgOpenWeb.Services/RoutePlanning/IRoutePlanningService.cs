@@ -40,7 +40,8 @@ public interface IRoutePlanningService
         double boundaryClearance = 0,
         int skipPasses = 0,
         int blockSkip = 0,
-        double cornerRadius = 0);
+        double cornerRadius = 0,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null);
 
     /// <summary>
     /// Cross-drill: two complete coverages, the second rotated by

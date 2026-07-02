@@ -56,6 +56,21 @@ public partial class MainViewModel
         var pts = new List<Vec2>(outer.Points.Count);
         foreach (var p in outer.Points) pts.Add(new Vec2(p.Easting, p.Northing));
 
+        // Inner obstacles (ponds/exclusions) — swaths are routed around them.
+        List<IReadOnlyList<Vec2>>? inners = null;
+        var innerList = State.Field.ActiveField?.Boundary?.InnerBoundaries;
+        if (innerList is { Count: > 0 })
+        {
+            inners = new List<IReadOnlyList<Vec2>>();
+            foreach (var ib in innerList)
+            {
+                if (ib is not { IsValid: true }) continue;
+                var ring = new List<Vec2>(ib.Points.Count);
+                foreach (var p in ib.Points) ring.Add(new Vec2(p.Easting, p.Northing));
+                if (ring.Count >= 3) inners.Add(ring);
+            }
+        }
+
         double width = _configStore.ActualToolWidth;
         if (width <= 0.1) width = 6.0;
         double turnRadius = _configStore.Guidance.UTurnRadius;
@@ -117,7 +132,7 @@ public partial class MainViewModel
                 ? RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
                     SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius)
                 : RoutePlanner.GenerateBoustrophedon(pts, width, turnRadius, headlandMargin, heading,
-                    SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius);
+                    SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners);
 
         _currentRoutePlan = plan;
         if (plan == null)

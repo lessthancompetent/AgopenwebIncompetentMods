@@ -77,7 +77,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double boundaryClearance = 0,
         int skipPasses = 0,
         int blockSkip = 0,
-        double cornerRadius = 0)
+        double cornerRadius = 0,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0)
             return null;
@@ -90,6 +91,21 @@ public sealed class RoutePlanningService : IRoutePlanningService
         {
             var inset = _offset.CreateInwardOffset(boundary, headlandMargin);
             if (inset is { Count: >= 3 }) cultivated = inset;
+        }
+
+        // 1b. Inner obstacles (ponds) inflated by the tool half-width (+ clearance) so
+        // the tool clears them — swaths get clipped OUT of these regions below.
+        List<List<Vec2>>? holes = null;
+        if (innerBoundaries is { Count: > 0 })
+        {
+            holes = new List<List<Vec2>>();
+            double inflate = swathWidth / 2.0 + Math.Max(0, boundaryClearance);
+            foreach (var h in innerBoundaries)
+            {
+                if (h is not { Count: >= 3 }) continue;
+                var infl = _offset.CreateOutwardOffset(new List<Vec2>(h), inflate);
+                holes.Add(infl is { Count: >= 3 } ? infl : new List<Vec2>(h));
+            }
         }
 
         // 2. Heading: caller-supplied (e.g. an AB line), else the longest edge.
@@ -118,15 +134,18 @@ public sealed class RoutePlanningService : IRoutePlanningService
         for (double s = pmin + swathWidth / 2.0 + off - swathWidth; s <= pmax + swathWidth; s += swathWidth)
         {
             var lp = new Vec2(o.Easting + s * pE, o.Northing + s * pN);
-            var seg = ClipLongestSegment(lp, dE, dN, cultivated);
-            if (seg == null) continue;
-            double h = Math.Atan2(seg.Value.Exit.Easting - seg.Value.Entry.Easting,
-                                   seg.Value.Exit.Northing - seg.Value.Entry.Northing);
-            swaths.Add(new List<Vec3>
+            // Clip to the cultivated area minus any ponds; a line crossing a pond
+            // yields multiple segments (each becomes its own pass entry, in order).
+            foreach (var seg in ClipSegments(lp, dE, dN, cultivated, holes))
             {
-                new Vec3(seg.Value.Entry.Easting, seg.Value.Entry.Northing, h),
-                new Vec3(seg.Value.Exit.Easting, seg.Value.Exit.Northing, h),
-            });
+                double h = Math.Atan2(seg.Exit.Easting - seg.Entry.Easting,
+                                       seg.Exit.Northing - seg.Entry.Northing);
+                swaths.Add(new List<Vec3>
+                {
+                    new Vec3(seg.Entry.Easting, seg.Entry.Northing, h),
+                    new Vec3(seg.Exit.Easting, seg.Exit.Northing, h),
+                });
+            }
         }
         if (swaths.Count == 0) return null;
 
@@ -847,6 +866,74 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// (dE,dN) against the polygon and return the longest interior segment as
     /// (entry, exit), or null if the line misses the polygon.
     /// </summary>
+    /// <summary>
+    /// All interior intervals (parameter t along the line lp + t·d) where the line is
+    /// inside <paramref name="poly"/>, as (lo,hi) pairs of consecutive crossings.
+    /// </summary>
+    private static List<(double lo, double hi)> LineInsideIntervals(
+        Vec2 lp, double dE, double dN, IReadOnlyList<Vec2> poly)
+    {
+        var ts = new List<double>();
+        for (int i = 0; i < poly.Count; i++)
+        {
+            var v0 = poly[i]; var v1 = poly[(i + 1) % poly.Count];
+            double eE = v1.Easting - v0.Easting, eN = v1.Northing - v0.Northing;
+            double det = eE * dN - eN * dE;
+            if (Math.Abs(det) < 1e-9) continue;
+            double rhsE = v0.Easting - lp.Easting, rhsN = v0.Northing - lp.Northing;
+            double u = (dE * rhsN - dN * rhsE) / det;
+            if (u < -1e-9 || u > 1 + 1e-9) continue;
+            ts.Add((eE * rhsN - eN * rhsE) / det);
+        }
+        var res = new List<(double, double)>();
+        if (ts.Count < 2) return res;
+        ts.Sort();
+        var uniq = new List<double> { ts[0] };
+        for (int i = 1; i < ts.Count; i++) if (ts[i] - uniq[^1] > 1e-6) uniq.Add(ts[i]);
+        for (int i = 0; i + 1 < uniq.Count; i += 2) res.Add((uniq[i], uniq[i + 1]));
+        return res;
+    }
+
+    /// <summary>
+    /// Clip a swath line to the parts inside <paramref name="outer"/> but OUTSIDE every
+    /// hole in <paramref name="holes"/> (inner boundaries / ponds, already inflated by the
+    /// tool half-width). A line crossing a hole splits into multiple segments that avoid it.
+    /// </summary>
+    private static List<(Vec2 Entry, Vec2 Exit)> ClipSegments(
+        Vec2 lp, double dE, double dN, IReadOnlyList<Vec2> outer,
+        IReadOnlyList<IReadOnlyList<Vec2>>? holes)
+    {
+        var result = new List<(Vec2, Vec2)>();
+        var inside = LineInsideIntervals(lp, dE, dN, outer);
+        if (inside.Count == 0) return result;
+
+        var holeIv = new List<(double lo, double hi)>();
+        if (holes != null)
+            foreach (var h in holes)
+                if (h.Count >= 3) holeIv.AddRange(LineInsideIntervals(lp, dE, dN, h));
+
+        foreach (var (lo, hi) in inside)
+        {
+            var pieces = new List<(double lo, double hi)> { (lo, hi) };
+            foreach (var (hlo, hhi) in holeIv)
+            {
+                var next = new List<(double lo, double hi)>();
+                foreach (var (plo, phi) in pieces)
+                {
+                    if (hhi <= plo || hlo >= phi) { next.Add((plo, phi)); continue; } // no overlap
+                    if (hlo > plo) next.Add((plo, hlo));   // piece before the hole
+                    if (hhi < phi) next.Add((hhi, phi));   // piece after the hole
+                }
+                pieces = next;
+            }
+            foreach (var (plo, phi) in pieces)
+                if (phi - plo > 1.0) // drop slivers < 1 m
+                    result.Add((new Vec2(lp.Easting + plo * dE, lp.Northing + plo * dN),
+                                new Vec2(lp.Easting + phi * dE, lp.Northing + phi * dN)));
+        }
+        return result;
+    }
+
     private static (Vec2 Entry, Vec2 Exit)? ClipLongestSegment(
         Vec2 lp, double dE, double dN, IReadOnlyList<Vec2> poly)
     {
