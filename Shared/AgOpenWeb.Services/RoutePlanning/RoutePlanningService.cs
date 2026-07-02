@@ -130,35 +130,64 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // offset shifts the whole comb sideways within one swath spacing; start
         // a step early / end a step late so nothing is dropped at the edges.
         double off = ((swathOffset % swathWidth) + swathWidth) % swathWidth;
-        var swaths = new List<List<Vec3>>();
+        // Each parallel line -> its passes (left-to-right along the travel axis). A line
+        // crossing a pond yields >1 pass; those get clustered into separate blocks below.
+        var lines = new List<List<List<Vec3>>>();
         for (double s = pmin + swathWidth / 2.0 + off - swathWidth; s <= pmax + swathWidth; s += swathWidth)
         {
             var lp = new Vec2(o.Easting + s * pE, o.Northing + s * pN);
-            // Clip to the cultivated area minus any ponds; a line crossing a pond
-            // yields multiple segments (each becomes its own pass entry, in order).
-            foreach (var seg in ClipSegments(lp, dE, dN, cultivated, holes))
+            var segs = ClipSegments(lp, dE, dN, cultivated, holes);
+            if (segs.Count == 0) continue;
+            var passes = new List<List<Vec3>>(segs.Count);
+            foreach (var seg in segs)
             {
                 double h = Math.Atan2(seg.Exit.Easting - seg.Entry.Easting,
                                        seg.Exit.Northing - seg.Entry.Northing);
-                swaths.Add(new List<Vec3>
+                passes.Add(new List<Vec3>
                 {
                     new Vec3(seg.Entry.Easting, seg.Entry.Northing, h),
                     new Vec3(seg.Exit.Easting, seg.Exit.Northing, h),
                 });
             }
+            lines.Add(passes);
         }
-        if (swaths.Count == 0) return null;
+        if (lines.Count == 0) return null;
 
-        // 4. Order (sequential or leap-frog) then assemble turns + headland +
-        // approach. Skip ordering widens each turn to ~one swath. "Swap ends"
-        // starts from the opposite side of the field.
-        var order =
-            blockSkip > 0 ? SwathOrderingService.GenerateBlockSequence(swaths.Count, blockSkip)
-            : skipPasses > 0 ? SwathOrderingService.GenerateSkipSequence(swaths.Count, skipPasses)
-            : SwathOrderingService.GenerateSequence(swaths.Count, pattern);
-        if (swapEnds) order.Reverse();
-        var ordered = new List<List<Vec3>>(order.Count);
-        foreach (int idx in order) ordered.Add(swaths[idx]);
+        // 4. Cluster passes into blocks (per Hameed/Höffmann): while the number of passes
+        //    per line is stable, each column feeds one block; when it changes (entering or
+        //    leaving a pond) close the current blocks and open a fresh set. Each block is a
+        //    contiguous obstacle-free strip covered by a simple back-and-forth — so the
+        //    field left/right of a pond becomes two blocks driven one after the other,
+        //    instead of turning across the pond on every row.
+        var blocks = new List<List<List<Vec3>>>();
+        List<List<List<Vec3>>>? current = null;
+        int prevCount = -1;
+        foreach (var passes in lines)
+        {
+            int m = passes.Count;
+            if (m != prevCount)
+            {
+                current = new List<List<List<Vec3>>>(m);
+                for (int i = 0; i < m; i++) { var b = new List<List<Vec3>>(); current.Add(b); blocks.Add(b); }
+                prevCount = m;
+            }
+            for (int i = 0; i < m; i++) current![i].Add(passes[i]);
+        }
+
+        // 5. Order each block (sequential / leap-frog / skip) and concatenate; assemble
+        //    turns + headland + approach across the whole sequence.
+        var ordered = new List<List<Vec3>>();
+        foreach (var block in blocks)
+        {
+            if (block.Count == 0) continue;
+            var order =
+                blockSkip > 0 ? SwathOrderingService.GenerateBlockSequence(block.Count, blockSkip)
+                : skipPasses > 0 ? SwathOrderingService.GenerateSkipSequence(block.Count, skipPasses)
+                : SwathOrderingService.GenerateSequence(block.Count, pattern);
+            if (swapEnds) order.Reverse();
+            foreach (int idx in order) ordered.Add(block[idx]);
+        }
+        if (ordered.Count == 0) return null;
 
         return Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius);
     }
