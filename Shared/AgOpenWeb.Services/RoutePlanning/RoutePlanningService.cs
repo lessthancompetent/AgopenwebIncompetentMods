@@ -325,12 +325,28 @@ public sealed class RoutePlanningService : IRoutePlanningService
         Vec3? startPos = null,
         double boundaryClearance = 0,
         double cornerRadius = 0,
-        bool cornerLoops = false)
+        bool cornerLoops = false,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0)
             return null;
 
         var poly = new List<Vec2>(outerBoundary);
+
+        // Inner obstacles (ponds) inflated by the tool half-width (+clearance): each
+        // spiral ring is clipped to the arc OUTSIDE these, so the winding avoids the pond.
+        List<List<Vec2>>? holes = null;
+        if (innerBoundaries is { Count: > 0 })
+        {
+            holes = new List<List<Vec2>>();
+            double inflate = swathWidth / 2.0 + Math.Max(0, boundaryClearance);
+            foreach (var h in innerBoundaries)
+            {
+                if (h is not { Count: >= 3 }) continue;
+                var infl = _offset.CreateOutwardOffset(new List<Vec2>(h), inflate);
+                holes.Add(infl is { Count: >= 3 } ? infl : new List<Vec2>(h));
+            }
+        }
 
         // Seam pinned to a real field CORNER — the boundary vertex nearest the entry
         // point — so every lap's inward turn-in lands at the same corner (not mid-edge),
@@ -353,6 +369,14 @@ public sealed class RoutePlanningService : IRoutePlanningService
             if (ring is not { Count: >= 3 }) break;
             var rp = new List<Vec2>(ring);
             RotateToNearest(rp, seed);
+            if (holes != null)
+            {
+                // Keep only the arc of this ring outside the pond(s); skip a ring the
+                // pond fully shadows. The winding then flows around the obstacle.
+                var clipped = ClipRingAgainstHoles(rp, holes);
+                if (clipped.Count < 2) continue;
+                rp = clipped;
+            }
             if (path.Count > 0) { seamIdx.Add(path.Count - 1); seamIdx.Add(path.Count); }
             path.AddRange(rp);        // open lap; the join to the next lap is the step-in
             center = Centroid(rp);
@@ -360,9 +384,13 @@ public sealed class RoutePlanningService : IRoutePlanningService
         }
         if (laps == 0) return null;
 
-        // Centre finish: run from the innermost lap into the field centre so the spiral
-        // doesn't leave an uncovered pocket in the middle.
-        path.Add(center);
+        // Centre finish: run into the field centre so the spiral doesn't leave a middle
+        // pocket — but not if the centre sits inside a pond.
+        bool centerInHole = false;
+        if (holes != null)
+            foreach (var h in holes)
+                if (GeometryMath.IsPointInPolygon(h, center)) { centerInHole = true; break; }
+        if (!centerInHole) path.Add(center);
 
         // Corner-fill option: at each ~90° lap corner, replace the tight rounded corner
         // with a forward 270° loop that swings out into the corner apex, covering the
@@ -961,6 +989,45 @@ public sealed class RoutePlanningService : IRoutePlanningService
                                 new Vec2(lp.Easting + phi * dE, lp.Northing + phi * dN)));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Keep only the longest contiguous arc of <paramref name="ring"/> that lies OUTSIDE
+    /// every hole (inflated pond) — the arc that winds around the obstacle. Returns the
+    /// ring unchanged if it touches no hole, or empty if a hole fully shadows it.
+    /// </summary>
+    private static List<Vec2> ClipRingAgainstHoles(List<Vec2> ring, List<List<Vec2>> holes)
+    {
+        int n = ring.Count;
+        if (n < 3) return ring;
+        var inside = new bool[n];
+        bool any = false;
+        for (int i = 0; i < n; i++)
+        {
+            bool ins = false;
+            foreach (var h in holes)
+                if (h.Count >= 3 && GeometryMath.IsPointInPolygon(h, ring[i])) { ins = true; break; }
+            inside[i] = ins; any |= ins;
+        }
+        if (!any) return ring;
+
+        // Longest circular run of outside points (scan the doubled index to allow wrap).
+        int bestStart = 0, bestLen = 0, curStart = 0, curLen = 0;
+        for (int k = 0; k < 2 * n; k++)
+        {
+            int idx = k % n;
+            if (!inside[idx])
+            {
+                if (curLen == 0) curStart = idx;
+                curLen++;
+                if (curLen > bestLen && curLen <= n) { bestLen = curLen; bestStart = curStart; }
+            }
+            else curLen = 0;
+        }
+        if (bestLen < 2) return new List<Vec2>();
+        var arc = new List<Vec2>(bestLen);
+        for (int k = 0; k < bestLen; k++) arc.Add(ring[(bestStart + k) % n]);
+        return arc;
     }
 
     private static (Vec2 Entry, Vec2 Exit)? ClipLongestSegment(

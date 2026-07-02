@@ -78,7 +78,8 @@ public interface IRoutePlanningService
         Vec3? startPos = null,
         double boundaryClearance = 0,
         double cornerRadius = 0,
-        bool cornerLoops = false);
+        bool cornerLoops = false,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null);
 
     /// <summary>
     /// Uncovered regions of <paramref name="boundary"/> for an assembled

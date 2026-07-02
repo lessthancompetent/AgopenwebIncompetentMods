@@ -127,7 +127,7 @@ public partial class MainViewModel
         double heading = LongestEdgeHeading(pts) + angleRad;
 
         RoutePlan? plan = spiral
-            ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill)
+            ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill, inners)
             : cross
                 ? RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
                     SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius)
