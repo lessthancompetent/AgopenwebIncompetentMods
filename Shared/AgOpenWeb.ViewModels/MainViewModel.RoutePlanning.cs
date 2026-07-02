@@ -56,7 +56,10 @@ public partial class MainViewModel
         var pts = new List<Vec2>(outer.Points.Count);
         foreach (var p in outer.Points) pts.Add(new Vec2(p.Easting, p.Northing));
 
-        // Inner obstacles (ponds/exclusions) — swaths are routed around them.
+        // Inner obstacles the route must avoid: only HARD inner boundaries (a
+        // drive-through / soft exclusion is driven over — sections just switch off —
+        // so it isn't routed around). Mirrors Boundary.IsPointInside, which ignores
+        // drive-through inners.
         List<IReadOnlyList<Vec2>>? inners = null;
         var innerList = State.Field.ActiveField?.Boundary?.InnerBoundaries;
         if (innerList is { Count: > 0 })
@@ -64,11 +67,12 @@ public partial class MainViewModel
             inners = new List<IReadOnlyList<Vec2>>();
             foreach (var ib in innerList)
             {
-                if (ib is not { IsValid: true }) continue;
+                if (ib is not { IsValid: true } || ib.IsDriveThrough) continue;
                 var ring = new List<Vec2>(ib.Points.Count);
                 foreach (var p in ib.Points) ring.Add(new Vec2(p.Easting, p.Northing));
                 if (ring.Count >= 3) inners.Add(ring);
             }
+            if (inners.Count == 0) inners = null;
         }
 
         double width = _configStore.ActualToolWidth;
