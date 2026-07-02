@@ -297,6 +297,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // a further swath width, rotated to start at the seam) winds around and flows
         // straight into the next inset lap. No closed loops → no radial seam "spoke".
         var path = new List<Vec2>();
+        var seamIdx = new HashSet<int>();   // path indices at lap-to-lap seam junctions
         Vec2 center = seed; int laps = 0;
         for (int i = 0; i < 1000; i++)
         {
@@ -304,6 +305,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
             if (ring is not { Count: >= 3 }) break;
             var rp = new List<Vec2>(ring);
             RotateToNearest(rp, seed);
+            if (path.Count > 0) { seamIdx.Add(path.Count - 1); seamIdx.Add(path.Count); }
             path.AddRange(rp);        // open lap; the join to the next lap is the step-in
             center = Centroid(rp);
             laps++;
@@ -318,7 +320,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // with a forward 270° loop that swings out into the corner apex, covering the
         // wedge a wide tool would otherwise miss (operator's "drive out + 270° loop").
         double loopR = cornerRadius > 0.01 ? cornerRadius : swathWidth * 0.5;
-        if (cornerLoops) path = InsertCornerLoops(path, loopR);
+        if (cornerLoops) path = InsertCornerLoops(path, loopR, swathWidth * 2.0, seamIdx);
 
         // Smooth every corner to the turning circle in one open-polyline pass — the lap
         // corners AND the inward step-ins — so the turn-ins are rounded, not sharp.
@@ -646,7 +648,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// then continues on the outgoing edge. Non-corner vertices pass through unchanged.
     /// The loop is tangent to both edges and turns the long way, so it never reverses.
     /// </summary>
-    private static List<Vec2> InsertCornerLoops(IReadOnlyList<Vec2> path, double radius)
+    private static List<Vec2> InsertCornerLoops(IReadOnlyList<Vec2> path, double radius, double minEdge, HashSet<int>? skip = null)
     {
         int n = path.Count;
         if (n < 3 || radius < 0.5) return new List<Vec2>(path);
@@ -660,9 +662,11 @@ public sealed class RoutePlanningService : IRoutePlanningService
             if (la < 1e-6 || lb < 1e-6) { outp.Add(V); continue; }
             ax /= la; ay /= la; bx /= lb; by /= lb;
             double turn = Math.Atan2(ax * by - ay * bx, ax * bx + ay * by); // signed a->b
-            // Only fill near-90° corners with room: the loop bulges ~2R, so the shorter
-            // adjacent edge must exceed R (else skip and leave the plain corner).
-            if (Math.Abs(Math.Abs(turn) - Math.PI / 2) > 0.6 || Math.Min(la, lb) < radius)
+            // Fill a genuine ~90° LAP corner only. Skip the seam junctions between laps
+            // (their connector is a long diagonal whose ends look like 90° corners), and
+            // require both edges long enough for the loop to have room.
+            if ((skip != null && skip.Contains(i))
+                || Math.Abs(Math.Abs(turn) - Math.PI / 2) > 0.6 || Math.Min(la, lb) < minEdge)
             {
                 outp.Add(V);
                 continue;
