@@ -78,7 +78,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
         int skipPasses = 0,
         int blockSkip = 0,
         double cornerRadius = 0,
-        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null)
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
+        bool addPondLoops = true)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0)
             return null;
@@ -198,7 +199,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         if (ordered.Count == 0) return null;
 
         var plan = Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius, holes);
-        return plan != null && holes is { Count: > 0 } ? AddPondLoops(plan, holes, turnRadius, swathWidth) : plan;
+        return plan != null && holes is { Count: > 0 } && addPondLoops ? AddPondLoops(plan, holes, turnRadius, swathWidth) : plan;
     }
 
     /// <summary>
@@ -250,11 +251,12 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double boundaryClearance = 0,
         int skipPasses = 0,
         int blockSkip = 0,
-        double cornerRadius = 0)
+        double cornerRadius = 0,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null)
     {
         var first = GenerateBoustrophedon(outerBoundary, swathWidth, turnRadius, headlandMargin,
             headingRad, pattern, headlandPasses, startPos, swathOffset, swapEnds, startOppositeSide,
-            boundaryClearance, skipPasses, blockSkip, cornerRadius);
+            boundaryClearance, skipPasses, blockSkip, cornerRadius, innerBoundaries);
         if (first == null) return null;
 
         // Second set starts where the first finished and skips the headland laps
@@ -263,9 +265,11 @@ public sealed class RoutePlanningService : IRoutePlanningService
         Vec3? secondStart = first.Segments.Count > 0 && first.Segments[^1].Points.Count > 0
             ? first.Segments[^1].Points[^1]
             : startPos;
+        // The perimeter loop is the same ground at either angle — the first set already
+        // laid it, so don't repeat it on the crossing set.
         var second = GenerateBoustrophedon(outerBoundary, swathWidth, turnRadius, headlandMargin,
             headingRad + crossAngleRad, pattern, 0, secondStart, swathOffset, swapEnds, startOppositeSide,
-            boundaryClearance, skipPasses, blockSkip, cornerRadius);
+            boundaryClearance, skipPasses, blockSkip, cornerRadius, innerBoundaries, addPondLoops: false);
         if (second == null) return first;
 
         var segs = new List<RouteSegment>(first.Segments.Count + second.Segments.Count);

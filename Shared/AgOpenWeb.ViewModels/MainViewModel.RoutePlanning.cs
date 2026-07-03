@@ -134,7 +134,7 @@ public partial class MainViewModel
             ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill, inners)
             : cross
                 ? RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
-                    SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius)
+                    SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners)
                 : RoutePlanner.GenerateBoustrophedon(pts, width, turnRadius, headlandMargin, heading,
                     SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners);
 

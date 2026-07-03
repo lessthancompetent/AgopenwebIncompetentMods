@@ -41,7 +41,8 @@ public interface IRoutePlanningService
         int skipPasses = 0,
         int blockSkip = 0,
         double cornerRadius = 0,
-        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null);
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
+        bool addPondLoops = true);
 
     /// <summary>
     /// Cross-drill: two complete coverages, the second rotated by
@@ -65,7 +66,8 @@ public interface IRoutePlanningService
         double boundaryClearance = 0,
         int skipPasses = 0,
         int blockSkip = 0,
-        double cornerRadius = 0);
+        double cornerRadius = 0,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null);
 
     /// <summary>
     /// A simple spiral-in route: concentric inward laps at <paramref name="swathWidth"/>
