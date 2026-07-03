@@ -93,25 +93,33 @@ public sealed class RoutePlanningService : IRoutePlanningService
             if (inset is { Count: >= 3 }) cultivated = inset;
         }
 
-        // 1b. Inner obstacles (ponds) inflated by the tool half-width (+ clearance) so
-        // the tool clears them — swaths get clipped OUT of these regions below.
-        List<List<Vec2>>? holes = null;
+        // 2. Heading: caller-supplied (e.g. an AB line), else the longest edge.
+        double theta = headingRad ?? LongestEdgeHeading(boundary);
+        double dE = Math.Sin(theta), dN = Math.Cos(theta);    // travel direction
+        double pE = Math.Cos(theta), pN = -Math.Sin(theta);   // perpendicular (spacing axis)
+
+        // 1b. Inner obstacles (ponds). Two inflations:
+        //  - holes: uniform (tool half-width + clearance) — used for the turn/connector
+        //    reroute, which needs all-round clearance.
+        //  - clipHoles: anisotropic — inflated by the tool half-width only PERPENDICULAR to
+        //    the passes (the one direction the swath band can overlap the pond), so passes
+        //    reach right up to the faces they hit head-on. A uniform inflation over-clips
+        //    those faces and its rounded corners leave triangular wedge gaps at the corners.
+        List<List<Vec2>>? holes = null, clipHoles = null;
         if (innerBoundaries is { Count: > 0 })
         {
             holes = new List<List<Vec2>>();
-            double inflate = swathWidth / 2.0 + Math.Max(0, boundaryClearance);
+            clipHoles = new List<List<Vec2>>();
+            double clr = Math.Max(0, boundaryClearance);
+            double inflate = swathWidth / 2.0 + clr;
             foreach (var h in innerBoundaries)
             {
                 if (h is not { Count: >= 3 }) continue;
                 var infl = _offset.CreateOutwardOffset(new List<Vec2>(h), inflate);
                 holes.Add(infl is { Count: >= 3 } ? infl : new List<Vec2>(h));
+                clipHoles.Add(InflatePerp(h, pE, pN, swathWidth / 2.0, clr + swathWidth * 0.05));
             }
         }
-
-        // 2. Heading: caller-supplied (e.g. an AB line), else the longest edge.
-        double theta = headingRad ?? LongestEdgeHeading(boundary);
-        double dE = Math.Sin(theta), dN = Math.Cos(theta);    // travel direction
-        double pE = Math.Cos(theta), pN = -Math.Sin(theta);   // perpendicular (spacing axis)
 
         var o = Centroid(cultivated);
 
@@ -136,7 +144,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         for (double s = pmin + swathWidth / 2.0 + off - swathWidth; s <= pmax + swathWidth; s += swathWidth)
         {
             var lp = new Vec2(o.Easting + s * pE, o.Northing + s * pN);
-            var segs = ClipSegments(lp, dE, dN, cultivated, holes);
+            var segs = ClipSegments(lp, dE, dN, cultivated, clipHoles);
             if (segs.Count == 0) continue;
             var passes = new List<List<Vec3>>(segs.Count);
             foreach (var seg in segs)
@@ -189,7 +197,33 @@ public sealed class RoutePlanningService : IRoutePlanningService
         }
         if (ordered.Count == 0) return null;
 
-        return Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius, holes);
+        var plan = Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius, holes);
+        return plan != null && holes is { Count: > 0 } ? AddPondLoops(plan, holes, turnRadius, swathWidth) : plan;
+    }
+
+    /// <summary>
+    /// Add one worked perimeter loop around each obstacle, on the inflated (tool-half-width)
+    /// boundary so its band just reaches the obstacle face. This covers the strip immediately
+    /// beside faces the passes run PARALLEL to — which passes can't reach without their band
+    /// dipping into the obstacle. Appended as Swath segments (drive-order integration TODO).
+    /// </summary>
+    private RoutePlan AddPondLoops(RoutePlan plan, List<List<Vec2>> holes, double turnRadius, double swathWidth)
+    {
+        var segs = new List<RouteSegment>(plan.Segments);
+        foreach (var hole in holes)
+        {
+            var ring = turnRadius > 0.1 ? RoundCorners(hole, turnRadius) : new List<Vec2>(hole);
+            if (ring.Count < 3) continue;
+            var loop = new List<Vec3>(ring.Count + 1);
+            for (int j = 0; j < ring.Count; j++)
+            {
+                var a = ring[j]; var b = ring[(j + 1) % ring.Count];
+                loop.Add(new Vec3(a.Easting, a.Northing, Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
+            }
+            loop.Add(loop[0]);
+            segs.Add(new RouteSegment(RouteSegmentType.Swath, loop));
+        }
+        return new RoutePlan(segs, BuildMeta(segs, swathWidth));
     }
 
     /// <summary>
@@ -1106,6 +1140,55 @@ public sealed class RoutePlanningService : IRoutePlanningService
             outp.Add(new Vec3(a.Easting, a.Northing, Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
         }
         return outp;
+    }
+
+    /// <summary>
+    /// Inflate a hole ANISOTROPICALLY — by <paramref name="perpAmt"/> only along the pass-
+    /// perpendicular axis (pE,pN), plus a small uniform <paramref name="clearance"/>. This is
+    /// the Minkowski sum of the hole with a cross-pass segment (approximated by the convex
+    /// hull of the hole translated ±perp, then offset). Used to clip swaths so they reach the
+    /// faces they hit head-on without the wedge gaps a uniform disc inflation leaves.
+    /// </summary>
+    private List<Vec2> InflatePerp(IReadOnlyList<Vec2> poly, double pE, double pN, double perpAmt, double clearance)
+    {
+        var pts = new List<Vec2>(poly.Count * 2);
+        foreach (var v in poly)
+        {
+            pts.Add(new Vec2(v.Easting + pE * perpAmt, v.Northing + pN * perpAmt));
+            pts.Add(new Vec2(v.Easting - pE * perpAmt, v.Northing - pN * perpAmt));
+        }
+        var hull = ConvexHull(pts);
+        if (hull.Count < 3) return new List<Vec2>(poly);
+        if (clearance > 0.01)
+        {
+            var infl = _offset.CreateOutwardOffset(hull, clearance);
+            if (infl is { Count: >= 3 }) return infl;
+        }
+        return hull;
+    }
+
+    /// <summary>Andrew's monotone-chain convex hull (CCW).</summary>
+    private static List<Vec2> ConvexHull(List<Vec2> pts)
+    {
+        if (pts.Count < 3) return new List<Vec2>(pts);
+        var p = new List<Vec2>(pts);
+        p.Sort((a, b) => a.Easting != b.Easting ? a.Easting.CompareTo(b.Easting) : a.Northing.CompareTo(b.Northing));
+        double Cross(Vec2 o, Vec2 a, Vec2 b) =>
+            (a.Easting - o.Easting) * (b.Northing - o.Northing) - (a.Northing - o.Northing) * (b.Easting - o.Easting);
+        var h = new List<Vec2>();
+        for (int i = 0; i < p.Count; i++)   // lower
+        {
+            while (h.Count >= 2 && Cross(h[^2], h[^1], p[i]) <= 0) h.RemoveAt(h.Count - 1);
+            h.Add(p[i]);
+        }
+        int lower = h.Count + 1;
+        for (int i = p.Count - 2; i >= 0; i--)   // upper
+        {
+            while (h.Count >= lower && Cross(h[^2], h[^1], p[i]) <= 0) h.RemoveAt(h.Count - 1);
+            h.Add(p[i]);
+        }
+        h.RemoveAt(h.Count - 1);
+        return h;
     }
 
     /// <summary>Douglas-Peucker: drop points within <paramref name="tol"/> of the line
