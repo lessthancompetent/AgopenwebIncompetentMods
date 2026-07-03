@@ -621,6 +621,7 @@ window.toggleSatBackground = toggleSatBackground;
 // pattern as pick-from-map, no binary scene-protocol layer.
 let routePlan = null; // { segments:[{type,pts:[{e,n}…]}…], meta:{…} } or null
 let rpPattern = 0, rpHeadland = 0, rpSkip = 0, rpBlock = 3, rpAngle = 0, rpCornerFill = false;
+let rpObsW = 4, rpObsL = 4;
 const RP_PAINT = { Swath: 'routeSwath', Turn: 'routeTurn', Headland: 'routeHeadland', Approach: 'routeApproach' };
 function drawRoutePlanSk(canvas) {
   if (!routePlan || !routePlan.segments) return;
@@ -637,6 +638,15 @@ function rpRender() {
   document.getElementById('rp-block').textContent = rpBlock;
   document.getElementById('rp-angle').textContent = rpAngle;
   document.getElementById('rp-cornerfill').classList.toggle('on', rpCornerFill);
+  document.getElementById('rp-obsw').textContent = rpObsW;
+  document.getElementById('rp-obsl').textContent = rpObsL;
+}
+// Arm a map tap that drops a hard obstacle box (rpObsW × rpObsL) at the tapped point.
+function placeObstacle() {
+  startMapTap({
+    hint: 'Tap to drop an obstacle',
+    onTap: (e, n) => { transport.send('obstacle.place|' + e + ',' + n + ',' + rpObsW + ',' + rpObsL); endMapTap(); },
+  });
 }
 function openRoutePlanner() { lnOpen('routeplan', 'ln-routeplan', rpRender); }
 function planRoute() {
@@ -1427,9 +1437,12 @@ for (const b of document.querySelectorAll('#routeplan .rp-sb'))
       case 'skip': rpSkip = Math.max(0, Math.min(8, rpSkip + d)); break;
       case 'block': rpBlock = Math.max(1, Math.min(8, rpBlock + d)); break;
       case 'angle': rpAngle = ((rpAngle + d) % 360 + 360) % 360; break;
+      case 'obsw': rpObsW = Math.max(1, Math.min(60, rpObsW + d)); break;
+      case 'obsl': rpObsL = Math.max(1, Math.min(60, rpObsL + d)); break;
     }
     rpRender();
   });
+document.getElementById('rp-placeobs').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); placeObstacle(); });
 document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
 document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
 document.getElementById('rp-drive').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.drive'); });

@@ -828,6 +828,41 @@ public partial class MainViewModel
     }
 
     /// <summary>
+    /// Drop an obstacle at a tapped map point (field-local E/N): a small HARD inner
+    /// boundary box (width × length) that the route planner routes around. A quick way to
+    /// add a pole/hole/hose without driving a full loop (mirrors AgOpenGPS's obstacle marker).
+    /// </summary>
+    public void PlaceObstacleAtTap(double easting, double northing, double widthM, double lengthM)
+    {
+        if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
+        {
+            StatusMessage = "Open a field first to add an obstacle";
+            return;
+        }
+        double hw = Math.Max(0.2, widthM) / 2.0, hl = Math.Max(0.2, lengthM) / 2.0;
+        var poly = new BoundaryPolygon { IsDriveThrough = false, IsHard = true };
+        poly.Points.Add(new BoundaryPoint(easting - hw, northing - hl, 0));
+        poly.Points.Add(new BoundaryPoint(easting + hw, northing - hl, 0));
+        poly.Points.Add(new BoundaryPoint(easting + hw, northing + hl, 0));
+        poly.Points.Add(new BoundaryPoint(easting - hw, northing + hl, 0));
+        poly.UpdateBounds();
+        try
+        {
+            var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+            var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
+            boundary.InnerBoundaries.Add(poly);
+            _boundaryFileService.SaveBoundary(boundary, fieldPath);
+            SetCurrentBoundary(boundary);
+            RefreshBoundaryList();
+            StatusMessage = $"Obstacle placed ({widthM:F1}×{lengthM:F1} m) — re-plan to route around it";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error placing obstacle: {ex.Message}";
+        }
+    }
+
+    /// <summary>
     /// Create an outer boundary from points drawn on the satellite imagery (remote/web
     /// "Draw on map"). Points are field-local E/N (already unprojected by the client via
     /// s2w), so no WGS84 conversion is needed here — unlike the native BoundaryMapDialog,
