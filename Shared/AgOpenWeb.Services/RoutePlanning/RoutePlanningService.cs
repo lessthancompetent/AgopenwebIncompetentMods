@@ -189,7 +189,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         }
         if (ordered.Count == 0) return null;
 
-        return Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius);
+        return Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius, holes);
     }
 
     /// <summary>
@@ -418,11 +418,16 @@ public sealed class RoutePlanningService : IRoutePlanningService
             if (limit is { Count: >= 3 }) spiral = ClampInside(spiral, limit);
         }
 
+        // Route the winding + approach around the ponds too (the per-ring clip keeps the
+        // laps out, but the arc-to-arc joins and the drive-to-start can still cross one).
+        if (holes is { Count: > 0 }) spiral = RouteAroundHoles(spiral, holes);
+
         var segments = new List<RouteSegment>();
         double approachLen = 0;
         if (startPos.HasValue && spiral.Count > 0)
         {
             var approach = new List<Vec3> { startPos.Value, spiral[0] };
+            if (holes is { Count: > 0 }) approach = RouteAroundHoles(approach, holes);
             approachLen = PolylineLength(approach);
             segments.Add(new RouteSegment(RouteSegmentType.Approach, approach));
         }
@@ -452,7 +457,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
         bool flipStartSide = false,
         double turnRadius = 0,
         double boundaryClearance = 0,
-        double cornerRadius = 0)
+        double cornerRadius = 0,
+        List<List<Vec2>>? holes = null)
     {
         if (ordered.Count == 0) return null;
 
@@ -553,6 +559,13 @@ public sealed class RoutePlanningService : IRoutePlanningService
                     segments[i] = new RouteSegment(segments[i].Type, ClampInside(segments[i].Points, limit));
             }
         }
+
+        // Route the non-working pieces (turns, connectors, approach, headland laps) around
+        // the obstacles too — the passes are already clipped, but these can cut across a pond.
+        if (holes is { Count: > 0 })
+            for (int i = 0; i < segments.Count; i++)
+                if (segments[i].Type != RouteSegmentType.Swath && segments[i].Points.Count >= 2)
+                    segments[i] = new RouteSegment(segments[i].Type, RouteAroundHoles(segments[i].Points, holes));
 
         var meta = BuildMeta(segments, swathWidth);
         return new RoutePlan(segments, meta);
@@ -1028,6 +1041,91 @@ public sealed class RoutePlanningService : IRoutePlanningService
         var arc = new List<Vec2>(bestLen);
         for (int k = 0; k < bestLen; k++) arc.Add(ring[(bestStart + k) % n]);
         return arc;
+    }
+
+    /// <summary>
+    /// Reroute a polyline (a turn / connector / approach / headland lap) so it goes AROUND
+    /// the holes instead of cutting into them. Densify to ~2 m, then replace every run of
+    /// points that falls inside a hole with an arc along that hole's boundary (shorter way).
+    /// Handles both a straight edge crossing a hole and a turn that dips inside it.
+    /// </summary>
+    private static List<Vec3> RouteAroundHoles(IReadOnlyList<Vec3> line, List<List<Vec2>> holes)
+    {
+        if (line.Count < 2 || holes.Count == 0) return new List<Vec3>(line);
+
+        // Densify so a crossing registers as a run of interior points.
+        var pts = new List<Vec2>();
+        for (int i = 0; i < line.Count; i++)
+        {
+            var a = new Vec2(line[i].Easting, line[i].Northing);
+            pts.Add(a);
+            if (i + 1 >= line.Count) continue;
+            var b = new Vec2(line[i + 1].Easting, line[i + 1].Northing);
+            int steps = (int)(Distance(a, b) / 2.0);
+            for (int s = 1; s < steps; s++)
+            {
+                double t = (double)s / steps;
+                pts.Add(new Vec2(a.Easting + (b.Easting - a.Easting) * t, a.Northing + (b.Northing - a.Northing) * t));
+            }
+        }
+
+        foreach (var hole in holes)
+        {
+            if (hole.Count < 3) continue;
+            var np = new List<Vec2>();
+            int i = 0;
+            while (i < pts.Count)
+            {
+                if (!GeometryMath.IsPointInPolygon(hole, pts[i])) { np.Add(pts[i]); i++; continue; }
+                int j = i;
+                while (j < pts.Count && GeometryMath.IsPointInPolygon(hole, pts[j])) j++;
+                var before = np.Count > 0 ? np[^1] : pts[i];
+                var after = j < pts.Count ? pts[j] : before;
+                foreach (var v in HoleBoundaryDetour(hole, before, after)) np.Add(v);
+                i = j;
+            }
+            pts = np;
+        }
+
+        var outp = new List<Vec3>(pts.Count);
+        for (int k = 0; k < pts.Count; k++)
+        {
+            var a = pts[k]; var b = pts[Math.Min(k + 1, pts.Count - 1)];
+            outp.Add(new Vec3(a.Easting, a.Northing, Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
+        }
+        return outp;
+    }
+
+    /// <summary>Vertices of <paramref name="hole"/> from nearest-to-E to nearest-to-X, the
+    /// shorter way around — the arc the detour follows along the (inflated) obstacle.</summary>
+    private static List<Vec2> HoleBoundaryDetour(List<Vec2> hole, Vec2 E, Vec2 X)
+    {
+        int n = hole.Count;
+        int iE = 0, iX = 0; double dE0 = double.MaxValue, dX0 = double.MaxValue;
+        for (int k = 0; k < n; k++)
+        {
+            double de = Distance(hole[k], E); if (de < dE0) { dE0 = de; iE = k; }
+            double dx = Distance(hole[k], X); if (dx < dX0) { dX0 = dx; iX = k; }
+        }
+        List<Vec2> Walk(int step)
+        {
+            var r = new List<Vec2>();
+            for (int k = iE, guard = 0; guard <= n; k = (k + step + n) % n, guard++)
+            {
+                r.Add(hole[k]);
+                if (k == iX) break;
+            }
+            return r;
+        }
+        var fwd = Walk(1); var bwd = Walk(-1);
+        return PolylineLength2(fwd) <= PolylineLength2(bwd) ? fwd : bwd;
+    }
+
+    private static double PolylineLength2(List<Vec2> pts)
+    {
+        double L = 0;
+        for (int i = 1; i < pts.Count; i++) L += Distance(pts[i - 1], pts[i]);
+        return L;
     }
 
     private static (Vec2 Entry, Vec2 Exit)? ClipLongestSegment(
