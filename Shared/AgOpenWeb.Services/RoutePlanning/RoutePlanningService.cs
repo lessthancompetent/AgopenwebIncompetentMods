@@ -420,14 +420,14 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
         // Route the winding + approach around the ponds too (the per-ring clip keeps the
         // laps out, but the arc-to-arc joins and the drive-to-start can still cross one).
-        if (holes is { Count: > 0 }) spiral = RouteAroundHoles(spiral, holes);
+        if (holes is { Count: > 0 }) spiral = RouteAroundHoles(spiral, holes, cornerRadius > 0.1 ? cornerRadius : swathWidth * 0.5);
 
         var segments = new List<RouteSegment>();
         double approachLen = 0;
         if (startPos.HasValue && spiral.Count > 0)
         {
             var approach = new List<Vec3> { startPos.Value, spiral[0] };
-            if (holes is { Count: > 0 }) approach = RouteAroundHoles(approach, holes);
+            if (holes is { Count: > 0 }) approach = RouteAroundHoles(approach, holes, cornerRadius > 0.1 ? cornerRadius : swathWidth * 0.5);
             approachLen = PolylineLength(approach);
             segments.Add(new RouteSegment(RouteSegmentType.Approach, approach));
         }
@@ -562,10 +562,11 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
         // Route the non-working pieces (turns, connectors, approach, headland laps) around
         // the obstacles too — the passes are already clipped, but these can cut across a pond.
+        double rerouteRadius = turnRadius > 0.1 ? turnRadius : swathWidth * 0.5;
         if (holes is { Count: > 0 })
             for (int i = 0; i < segments.Count; i++)
                 if (segments[i].Type != RouteSegmentType.Swath && segments[i].Points.Count >= 2)
-                    segments[i] = new RouteSegment(segments[i].Type, RouteAroundHoles(segments[i].Points, holes));
+                    segments[i] = new RouteSegment(segments[i].Type, RouteAroundHoles(segments[i].Points, holes, rerouteRadius));
 
         var meta = BuildMeta(segments, swathWidth);
         return new RoutePlan(segments, meta);
@@ -1049,7 +1050,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// points that falls inside a hole with an arc along that hole's boundary (shorter way).
     /// Handles both a straight edge crossing a hole and a turn that dips inside it.
     /// </summary>
-    private static List<Vec3> RouteAroundHoles(IReadOnlyList<Vec3> line, List<List<Vec2>> holes)
+    private static List<Vec3> RouteAroundHoles(IReadOnlyList<Vec3> line, List<List<Vec2>> holes, double smoothRadius = 0)
     {
         if (line.Count < 2 || holes.Count == 0) return new List<Vec3>(line);
 
@@ -1069,6 +1070,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
             }
         }
 
+        bool detoured = false;
         foreach (var hole in holes)
         {
             if (hole.Count < 3) continue;
@@ -1082,9 +1084,19 @@ public sealed class RoutePlanningService : IRoutePlanningService
                 var before = np.Count > 0 ? np[^1] : pts[i];
                 var after = j < pts.Count ? pts[j] : before;
                 foreach (var v in HoleBoundaryDetour(hole, before, after)) np.Add(v);
+                detoured = true;
                 i = j;
             }
             pts = np;
+        }
+
+        // Ease the detour: hugging the obstacle's polygon corners makes the turn snap
+        // around them. Collapse the densified straights (exposes the real corners), then
+        // fillet each to the turn radius so the approach curves in smoothly.
+        if (detoured && smoothRadius > 0.1 && pts.Count >= 3)
+        {
+            pts = Simplify(pts, 0.4);
+            if (pts.Count >= 3) pts = RoundCorners(pts, smoothRadius, 12.0, closed: false);
         }
 
         var outp = new List<Vec3>(pts.Count);
@@ -1094,6 +1106,46 @@ public sealed class RoutePlanningService : IRoutePlanningService
             outp.Add(new Vec3(a.Easting, a.Northing, Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
         }
         return outp;
+    }
+
+    /// <summary>Douglas-Peucker: drop points within <paramref name="tol"/> of the line
+    /// through their neighbours, keeping only the corners that define the shape.</summary>
+    private static List<Vec2> Simplify(List<Vec2> pts, double tol)
+    {
+        int n = pts.Count;
+        if (n < 3) return pts;
+        var keep = new bool[n];
+        keep[0] = keep[n - 1] = true;
+        var stack = new Stack<(int a, int b)>();
+        stack.Push((0, n - 1));
+        while (stack.Count > 0)
+        {
+            var (a, b) = stack.Pop();
+            double maxD = 0; int idx = -1;
+            for (int i = a + 1; i < b; i++)
+            {
+                double d = PerpDistance(pts[i], pts[a], pts[b]);
+                if (d > maxD) { maxD = d; idx = i; }
+            }
+            if (maxD > tol && idx > 0)
+            {
+                keep[idx] = true;
+                stack.Push((a, idx));
+                stack.Push((idx, b));
+            }
+        }
+        var r = new List<Vec2>();
+        for (int i = 0; i < n; i++) if (keep[i]) r.Add(pts[i]);
+        return r;
+    }
+
+    private static double PerpDistance(Vec2 p, Vec2 a, Vec2 b)
+    {
+        double ex = b.Easting - a.Easting, ey = b.Northing - a.Northing;
+        double len2 = ex * ex + ey * ey;
+        if (len2 < 1e-9) return Distance(p, a);
+        double t = Math.Clamp(((p.Easting - a.Easting) * ex + (p.Northing - a.Northing) * ey) / len2, 0, 1);
+        return Distance(new Vec2(a.Easting + t * ex, a.Northing + t * ey), p);
     }
 
     /// <summary>Vertices of <paramref name="hole"/> from nearest-to-E to nearest-to-X, the
