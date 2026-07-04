@@ -199,14 +199,104 @@ public sealed class RoutePlanningService : IRoutePlanningService
         if (ordered.Count == 0) return null;
 
         var plan = Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius, holes);
-        return plan != null && holes is { Count: > 0 } && addPondLoops ? AddPondLoops(plan, holes, turnRadius, swathWidth) : plan;
+        if (plan == null || holes is not { Count: > 0 }) return plan;
+        if (addPondLoops) plan = AddPondLoops(plan, holes, turnRadius, swathWidth);
+
+        // Transit-gap holes: the ACTUAL obstacle inflated generously (turn radius + margin) so a
+        // drivable fillet on the reroute still clears the obstacle. Endpoints that land inside
+        // this are nudged back out in CloseTransitGaps, so anchoring stays robust.
+        double tr = turnRadius > 0.1 ? turnRadius : swathWidth * 0.5;
+        var transitHoles = new List<List<Vec2>>();
+        foreach (var h in innerBoundaries!)
+        {
+            if (h is not { Count: >= 3 }) continue;
+            var infl = _offset.CreateOutwardOffset(new List<Vec2>(h), tr * 1.3 + Math.Max(0, boundaryClearance));
+            transitHoles.Add(infl is { Count: >= 3 } ? infl : new List<Vec2>(h));
+        }
+        return transitHoles.Count > 0 ? CloseTransitGaps(plan, transitHoles, tr, swathWidth) : plan;
+    }
+
+    /// <summary>
+    /// Close drive-order transits that jump across an obstacle. Segment POINTS avoid the
+    /// holes, but the straight gap DRIVEN between two consecutive segments (e.g. a block
+    /// transition, or into/out of a perimeter loop) can still cut across one. Where it does,
+    /// insert a rerouted connector (Approach) that goes around instead.
+    /// </summary>
+    private RoutePlan CloseTransitGaps(RoutePlan plan, List<List<Vec2>> holes, double radius, double swathWidth)
+    {
+        var segs = new List<RouteSegment>(plan.Segments.Count);
+        for (int i = 0; i < plan.Segments.Count; i++)
+        {
+            segs.Add(plan.Segments[i]);
+            if (i + 1 >= plan.Segments.Count) continue;
+            var cur = plan.Segments[i]; var nxt = plan.Segments[i + 1];
+            if (cur.Points.Count == 0 || nxt.Points.Count == 0) continue;
+            var pa = cur.Points[^1]; var pb = nxt.Points[0];
+            var A = new Vec2(pa.Easting, pa.Northing);
+            var B = new Vec2(pb.Easting, pb.Northing);
+            if (Distance(A, B) < 0.5) continue;
+
+            // Only the straight gap's INTERIOR is tested (endpoints can sit on a boundary).
+            var hole = FirstHoleCrossed(A, B, holes);
+            if (hole == null) continue;
+
+            // Anchor the reroute on points clearly outside the hole, then bookend with the real
+            // segment endpoints (the short radial in/out is away from the obstacle — clear).
+            var a2 = NudgeOutside(A, hole);
+            var b2 = NudgeOutside(B, hole);
+            var mid = RouteAroundHoles(
+                new List<Vec3> { new Vec3(a2.Easting, a2.Northing, 0), new Vec3(b2.Easting, b2.Northing, 0) },
+                holes, radius);
+            var conn = new List<Vec3>(mid.Count + 2) { pa };
+            conn.AddRange(mid);
+            conn.Add(pb);
+            segs.Add(new RouteSegment(RouteSegmentType.Approach, conn));
+        }
+        return new RoutePlan(segs, BuildMeta(segs, swathWidth));
+    }
+
+    /// <summary>First hole whose interior the straight A→B gap enters (endpoints skipped).</summary>
+    private static List<Vec2>? FirstHoleCrossed(Vec2 a, Vec2 b, List<List<Vec2>> holes)
+    {
+        foreach (var hole in holes)
+        {
+            if (hole.Count < 3) continue;
+            for (int k = 2; k <= 8; k++)
+            {
+                double t = k / 10.0;
+                var q = new Vec2(a.Easting + (b.Easting - a.Easting) * t, a.Northing + (b.Northing - a.Northing) * t);
+                if (GeometryMath.IsPointInPolygon(hole, q)) return hole;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Push a point radially out of <paramref name="hole"/> (away from its centre)
+    /// until just outside; points already outside are returned unchanged.</summary>
+    private static Vec2 NudgeOutside(Vec2 p, List<Vec2> hole)
+    {
+        if (!GeometryMath.IsPointInPolygon(hole, p)) return p;
+        var c = Centroid(hole);
+        double dx = p.Easting - c.Easting, dy = p.Northing - c.Northing;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) { dx = 1; dy = 0; len = 1; }
+        dx /= len; dy /= len;
+        for (double step = 0.5; step < 400; step += 0.5)
+        {
+            var q = new Vec2(p.Easting + dx * step, p.Northing + dy * step);
+            if (!GeometryMath.IsPointInPolygon(hole, q))
+                return new Vec2(p.Easting + dx * (step + 0.5), p.Northing + dy * (step + 0.5));
+        }
+        return p;
     }
 
     /// <summary>
     /// Add one worked perimeter loop around each obstacle, on the inflated (tool-half-width)
     /// boundary so its band just reaches the obstacle face. This covers the strip immediately
     /// beside faces the passes run PARALLEL to — which passes can't reach without their band
-    /// dipping into the obstacle. Appended as Swath segments (drive-order integration TODO).
+    /// dipping into the obstacle. Each loop is INSERTED right after the segment whose end is
+    /// nearest the obstacle, entering at its nearest point, so the drive slips into the loop
+    /// and back out without a long transit or a jump across the field.
     /// </summary>
     private RoutePlan AddPondLoops(RoutePlan plan, List<List<Vec2>> holes, double turnRadius, double swathWidth)
     {
@@ -215,14 +305,34 @@ public sealed class RoutePlanningService : IRoutePlanningService
         {
             var ring = turnRadius > 0.1 ? RoundCorners(hole, turnRadius) : new List<Vec2>(hole);
             if (ring.Count < 3) continue;
+
+            // Insert point: the segment whose LAST point is nearest the obstacle centre.
+            var c = Centroid(ring);
+            int best = -1; double bestD = double.MaxValue;
+            for (int s = 0; s < segs.Count; s++)
+            {
+                if (segs[s].Points.Count == 0) continue;
+                var e = segs[s].Points[^1];
+                double d = Distance(new Vec2(e.Easting, e.Northing), c);
+                if (d < bestD) { bestD = d; best = s; }
+            }
+
+            // Enter the loop at its point nearest that segment's end (short slip-in).
+            if (best >= 0)
+            {
+                var e = segs[best].Points[^1];
+                RotateToNearest(ring, new Vec2(e.Easting, e.Northing));
+            }
+
             var loop = new List<Vec3>(ring.Count + 1);
             for (int j = 0; j < ring.Count; j++)
             {
                 var a = ring[j]; var b = ring[(j + 1) % ring.Count];
                 loop.Add(new Vec3(a.Easting, a.Northing, Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
             }
-            loop.Add(loop[0]);
-            segs.Add(new RouteSegment(RouteSegmentType.Swath, loop));
+            loop.Add(loop[0]);   // closed: exits where it entered, back beside the pass
+            var loopSeg = new RouteSegment(RouteSegmentType.Swath, loop);
+            if (best >= 0) segs.Insert(best + 1, loopSeg); else segs.Add(loopSeg);
         }
         return new RoutePlan(segs, BuildMeta(segs, swathWidth));
     }
@@ -1127,6 +1237,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
             }
             pts = np;
         }
+
+        if (!detoured) return new List<Vec3>(line);   // no crossing — leave the line as-is
 
         // Ease the detour: hugging the obstacle's polygon corners makes the turn snap
         // around them. Collapse the densified straights (exposes the real corners), then
