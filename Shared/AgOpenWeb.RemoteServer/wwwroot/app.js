@@ -643,6 +643,14 @@ function rpRender() {
   // Pole is a point obstacle (Width = diameter); Length doesn't apply.
   document.getElementById('rp-obsl-row').style.display = rpObsType === 'POLE' ? 'none' : '';
   for (const b of document.querySelectorAll('[data-obstype]')) b.classList.toggle('on', b.dataset.obstype === rpObsType);
+  // Proximity alarm mirrors persisted config (config.display.*).
+  const oaOn = !!(config && config.display && config.display.obstacleAlarmEnabled);
+  const oaDist = (config && config.display && config.display.obstacleAlarmDistanceM) || 10;
+  const oaBtn = document.getElementById('rp-obsalarm');
+  oaBtn.classList.toggle('on', oaOn);
+  oaBtn.textContent = 'Proximity alarm: ' + (oaOn ? 'on' : 'off');
+  document.getElementById('rp-obsalarmdist').textContent = oaDist;
+  document.getElementById('rp-obsalarm-dist-row').style.display = oaOn ? '' : 'none';
 }
 // Arm a map tap that drops a hard obstacle at the tapped point. A HOSE orients along the
 // current vehicle heading; POLE/HOLE are axis-aligned (heading 0).
@@ -1454,6 +1462,13 @@ for (const b of document.querySelectorAll('#routeplan .rp-sb'))
       case 'angle': rpAngle = ((rpAngle + d) % 360 + 360) % 360; break;
       case 'obsw': rpObsW = Math.max(1, Math.min(60, rpObsW + d)); break;
       case 'obsl': rpObsL = Math.max(1, Math.min(60, rpObsL + d)); break;
+      case 'obsalarmdist': {
+        const cur = (config && config.display && config.display.obstacleAlarmDistanceM) || 10;
+        const nv = Math.max(1, Math.min(100, cur + d));
+        cfgSend('display.obstacleAlarmDistanceM', nv);
+        if (config && config.display) config.display.obstacleAlarmDistanceM = nv;
+        break;
+      }
     }
     rpRender();
   });
@@ -1469,6 +1484,13 @@ for (const b of document.querySelectorAll('[data-obstype]'))
   });
 document.getElementById('rp-placeobs').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); placeObstacle(); });
 document.getElementById('rp-delobs').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); deleteObstacle(); });
+document.getElementById('rp-obsalarm').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const on = !(config && config.display && config.display.obstacleAlarmEnabled);
+  cfgSend('display.obstacleAlarmEnabled', on ? 1 : 0);
+  if (config && config.display) config.display.obstacleAlarmEnabled = on;
+  rpRender();
+});
 document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
 document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
 document.getElementById('rp-drive').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.drive'); });

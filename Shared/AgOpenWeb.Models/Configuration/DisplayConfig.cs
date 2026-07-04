@@ -252,6 +252,22 @@ public class DisplayConfig : ObservableObject
         set => SetProperty(ref _sectionsSound, value);
     }
 
+    // Obstacle proximity alarm — beep when the vehicle comes within
+    // ObstacleAlarmDistanceM of a hard inner boundary (obstacle). Off by default.
+    private bool _obstacleAlarmEnabled = false;
+    public bool ObstacleAlarmEnabled
+    {
+        get => _obstacleAlarmEnabled;
+        set => SetProperty(ref _obstacleAlarmEnabled, value);
+    }
+
+    private int _obstacleAlarmDistanceM = 10;
+    public int ObstacleAlarmDistanceM
+    {
+        get => _obstacleAlarmDistanceM;
+        set => SetProperty(ref _obstacleAlarmDistanceM, value);
+    }
+
     // Hardware Messages
     private bool _hardwareMessagesEnabled = true;
     public bool HardwareMessagesEnabled

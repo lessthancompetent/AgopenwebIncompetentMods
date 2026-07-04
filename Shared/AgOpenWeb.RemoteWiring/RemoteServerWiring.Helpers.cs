@@ -175,6 +175,8 @@ public static partial class RemoteServerWiring
             case "display.uTurnSound": disp.UTurnSound = B(); cfg.SaveAppSettings(); return;
             case "display.hydraulicSound": disp.HydraulicSound = B(); cfg.SaveAppSettings(); return;
             case "display.sectionsSound": disp.SectionsSound = B(); cfg.SaveAppSettings(); return;
+            case "display.obstacleAlarmEnabled": disp.ObstacleAlarmEnabled = B(); cfg.SaveAppSettings(); return;
+            case "display.obstacleAlarmDistanceM": if (I(out var oad)) { disp.ObstacleAlarmDistanceM = System.Math.Clamp(oad, 1, 100); cfg.SaveAppSettings(); } return;
             case "display.keyboardEnabled": disp.KeyboardEnabled = B(); cfg.SaveAppSettings(); return;
             case "display.startFullscreen": disp.StartFullscreen = B(); cfg.SaveAppSettings(); return;
             case "display.elevationLogEnabled": disp.ElevationLogEnabled = B(); cfg.SaveAppSettings(); return;

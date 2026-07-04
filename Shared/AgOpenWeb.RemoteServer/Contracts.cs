@@ -297,7 +297,9 @@ public record DisplayConfigDto(
     double DisplayResolutionMultiplier,
     // Day/Night theme (PersistentAppState.IsDayMode). The web client switches its full
     // light/dark palette + map colours on this; the Day/Night Theme button toggles it.
-    bool IsDayMode);
+    bool IsDayMode,
+    // Obstacle proximity alarm: beep when within DistanceM of a hard inner boundary.
+    bool ObstacleAlarmEnabled, int ObstacleAlarmDistanceM);
 
 /// <summary>Tool/Implement tab (ConfigStore.Tool + NumSections). Type: 0 front, 1 rear,
 /// 2 TBT, 3 trailing. Arrays fixed-size (16 widths/colours, 9 zone ranges).</summary>

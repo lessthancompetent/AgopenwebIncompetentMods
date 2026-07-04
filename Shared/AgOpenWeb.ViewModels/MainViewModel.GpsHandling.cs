@@ -196,6 +196,9 @@ public partial class MainViewModel
             _boundaryRecordingService.AddPoint(offsetEasting, offsetNorthing, headingRad);
         }
 
+        // Obstacle proximity alarm — beep when nearing a hard inner boundary (obstacle).
+        CheckObstacleAlarm(posEasting, posNorthing);
+
         // Add curve point if curve recording is active
         if (CurrentABCreationMode == ABCreationMode.Curve)
         {
@@ -466,6 +469,52 @@ public partial class MainViewModel
         RollDegrees = _latestRollDegrees;
         FixQuality = GetFixQualityString(v.FixQuality);
         GpsToPgnLatencyMs = _latestGpsToPgnLatencyMs;
+    }
+
+    // ── Obstacle proximity alarm ────────────────────────────────────────
+    private DateTime _lastObstacleBeepUtc = DateTime.MinValue;
+    private bool _obstacleInRange;
+
+    /// <summary>
+    /// Beep (BoundaryAlarm) when the vehicle comes within the configured distance of a hard
+    /// inner boundary (obstacle). Fires on entering range and repeats every ~2 s while in range.
+    /// </summary>
+    private void CheckObstacleAlarm(double easting, double northing)
+    {
+        if (!Display.ObstacleAlarmEnabled) { _obstacleInRange = false; return; }
+        bool inRange = NearestHardInnerDistance(easting, northing) <= Display.ObstacleAlarmDistanceM;
+        if (inRange)
+        {
+            var now = DateTime.UtcNow;
+            if (!_obstacleInRange || (now - _lastObstacleBeepUtc).TotalSeconds >= 2.0)
+            {
+                _audioService.Play(Services.Interfaces.SoundEffect.BoundaryAlarm);
+                _lastObstacleBeepUtc = now;
+            }
+        }
+        _obstacleInRange = inRange;
+    }
+
+    /// <summary>Distance from (e,n) to the nearest HARD inner boundary edge (0 if inside one).</summary>
+    private double NearestHardInnerDistance(double easting, double northing)
+    {
+        var inners = State.Field.ActiveField?.Boundary?.InnerBoundaries;
+        if (inners == null || inners.Count == 0) return double.MaxValue;
+        var p = new Models.Base.Vec2(easting, northing);
+        double best = double.MaxValue;
+        foreach (var ib in inners)
+        {
+            if (ib is null || ib.IsDriveThrough || ib.Points is not { Count: >= 3 }) continue;
+            var ring = new System.Collections.Generic.List<Models.Base.Vec2>(ib.Points.Count);
+            foreach (var pt in ib.Points) ring.Add(new Models.Base.Vec2(pt.Easting, pt.Northing));
+            if (Models.Base.GeometryMath.IsPointInPolygon(ring, p)) return 0;
+            for (int i = 0; i < ring.Count; i++)
+            {
+                double d = Models.Base.GeometryMath.PointToSegmentDistance(p, ring[i], ring[(i + 1) % ring.Count]);
+                if (d < best) best = d;
+            }
+        }
+        return best;
     }
 
     #endregion
