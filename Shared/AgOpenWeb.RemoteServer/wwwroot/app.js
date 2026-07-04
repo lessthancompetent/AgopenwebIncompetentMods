@@ -656,6 +656,13 @@ function placeObstacle() {
     },
   });
 }
+// Arm a map tap that deletes the obstacle (inner boundary) tapped, or the nearest one.
+function deleteObstacle() {
+  startMapTap({
+    hint: 'Tap the obstacle to delete',
+    onTap: (e, n) => { transport.send('obstacle.delete|' + e + ',' + n); endMapTap(); },
+  });
+}
 function openRoutePlanner() { lnOpen('routeplan', 'ln-routeplan', rpRender); }
 function planRoute() {
   transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0].join(','));
@@ -1461,6 +1468,7 @@ for (const b of document.querySelectorAll('[data-obstype]'))
     rpRender();
   });
 document.getElementById('rp-placeobs').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); placeObstacle(); });
+document.getElementById('rp-delobs').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); deleteObstacle(); });
 document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
 document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
 document.getElementById('rp-drive').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.drive'); });

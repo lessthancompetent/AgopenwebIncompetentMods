@@ -154,6 +154,15 @@ public static partial class RemoteServerWiring
                                     }
                                     return;
                                 }
+                                case "obstacle.delete": // "easting,northing" (field-local)
+                                {
+                                    var od = arg.Split(',');
+                                    if (od.Length == 2
+                                        && double.TryParse(od[0], num, inv, out var de)
+                                        && double.TryParse(od[1], num, inv, out var dn))
+                                        vm.DeleteObstacleAtTap(de, dn);
+                                    return;
+                                }
                                 case "field.deleteApplied": // Tier-1; browser already confirmed
                                     vm.DeleteAppliedAreaConfirmed();
                                     return;

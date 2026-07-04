@@ -883,6 +883,50 @@ public partial class MainViewModel
     }
 
     /// <summary>
+    /// Delete the inner boundary (obstacle) at a tapped map point: the one that contains the
+    /// tap, else the nearest whose centre is within ~20 m. Field-local E/N.
+    /// </summary>
+    public void DeleteObstacleAtTap(double easting, double northing)
+    {
+        if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
+        {
+            StatusMessage = "Open a field first";
+            return;
+        }
+        var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+        var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+        if (boundary?.InnerBoundaries == null || boundary.InnerBoundaries.Count == 0)
+        {
+            StatusMessage = "No obstacles to delete";
+            return;
+        }
+        var tap = new Vec2(easting, northing);
+        int best = -1; double bestD = double.MaxValue; bool inside = false;
+        for (int i = 0; i < boundary.InnerBoundaries.Count; i++)
+        {
+            var ib = boundary.InnerBoundaries[i];
+            if (ib?.Points is not { Count: >= 3 }) continue;
+            var ring = new List<Vec2>(ib.Points.Count);
+            double cx = 0, cy = 0;
+            foreach (var p in ib.Points) { ring.Add(new Vec2(p.Easting, p.Northing)); cx += p.Easting; cy += p.Northing; }
+            if (AgOpenWeb.Models.Base.GeometryMath.IsPointInPolygon(ring, tap)) { best = i; inside = true; break; }
+            cx /= ib.Points.Count; cy /= ib.Points.Count;
+            double d = Math.Sqrt((cx - easting) * (cx - easting) + (cy - northing) * (cy - northing));
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best < 0 || (!inside && bestD > 20))
+        {
+            StatusMessage = "No obstacle near that point";
+            return;
+        }
+        boundary.InnerBoundaries.RemoveAt(best);
+        _boundaryFileService.SaveBoundary(boundary, fieldPath);
+        SetCurrentBoundary(boundary);
+        RefreshBoundaryList();
+        StatusMessage = "Obstacle deleted — re-plan to update the route";
+    }
+
+    /// <summary>
     /// Create an outer boundary from points drawn on the satellite imagery (remote/web
     /// "Draw on map"). Points are field-local E/N (already unprojected by the client via
     /// s2w), so no WGS84 conversion is needed here — unlike the native BoundaryMapDialog,
