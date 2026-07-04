@@ -586,7 +586,25 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double est = EstimateSpeedMps > 0 ? total / EstimateSpeedMps : 0;
         // One continuous Swath segment, but report the real lap count as the pass count.
         var meta = new RoutePlanMetadata(laps, total, est, workLen, approachLen, 0, swathWidth);
-        return new RoutePlan(segments, meta);
+        var plan = new RoutePlan(segments, meta);
+
+        // Close the clip-seam channel: the per-ring clip keeps the laps out of the pond but
+        // leaves an uncovered strip where every arc opens. A perimeter loop covers it (same
+        // as boustrophedon); then close any transit that would jump across the obstacle.
+        if (holes is { Count: > 0 })
+        {
+            double tr = cornerRadius > 0.1 ? cornerRadius : swathWidth * 0.5;
+            plan = AddPondLoops(plan, holes, tr, swathWidth);
+            var transitHoles = new List<List<Vec2>>();
+            foreach (var h in innerBoundaries!)
+            {
+                if (h is not { Count: >= 3 }) continue;
+                var infl = _offset.CreateOutwardOffset(new List<Vec2>(h), tr * 1.3 + Math.Max(0, boundaryClearance));
+                transitHoles.Add(infl is { Count: >= 3 } ? infl : new List<Vec2>(h));
+            }
+            if (transitHoles.Count > 0) plan = CloseTransitGaps(plan, transitHoles, tr, swathWidth);
+        }
+        return plan;
     }
 
     // ---- assembly ----
