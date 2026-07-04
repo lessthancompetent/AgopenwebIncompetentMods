@@ -166,6 +166,63 @@ public partial class MainViewModel
     /// speed so it moves. Sections replay ON over worked passes (Swath/Headland) and OFF
     /// over turns/transit. The sim speed slider still adjusts pace; StopRouteDrive ends it.
     /// </summary>
+    /// <summary>
+    /// Turn the planned route into a normal guidance track (a curve) and select it, so the
+    /// operator drives it with ordinary autosteer. The plan is split at the first interior
+    /// pass: <paramref name="headland"/> = the headland laps (+ drive-to-start) as one path,
+    /// else the main-paddock fill (passes/turns/loops). Each is a separate SavedTrack, so one
+    /// can be part-driven, the other started, and switched back to — coverage tracks progress.
+    /// </summary>
+    public void ActivateRouteSteerPath(bool headland)
+    {
+        var plan = _currentRoutePlan;
+        if (plan == null) { StatusMessage = "Plan a route first"; return; }
+
+        int firstSwath = -1; bool hasHeadland = false;
+        for (int i = 0; i < plan.Segments.Count; i++)
+        {
+            if (plan.Segments[i].Type == RouteSegmentType.Swath && firstSwath < 0) firstSwath = i;
+            if (plan.Segments[i].Type == RouteSegmentType.Headland) hasHeadland = true;
+        }
+
+        var pts = new List<Vec3>();
+        string name;
+        if (headland)
+        {
+            if (!hasHeadland) { StatusMessage = "This plan has no headland laps"; return; }
+            int end = firstSwath < 0 ? plan.Segments.Count : firstSwath;
+            for (int i = 0; i < end; i++)
+                foreach (var p in plan.Segments[i].Points) pts.Add(p);
+            name = "Route Headland";
+        }
+        else
+        {
+            int start = firstSwath < 0 ? 0 : firstSwath;
+            for (int i = start; i < plan.Segments.Count; i++)
+                foreach (var p in plan.Segments[i].Points) pts.Add(p);
+            name = "Route Main";
+        }
+        if (pts.Count < 2) { StatusMessage = "Route path too short to steer"; return; }
+
+        var curve = Models.Guidance.CurveProcessing.CalculateHeadings(pts);
+
+        // Replace any prior copy so re-planning refreshes it; keep the other route path.
+        for (int i = SavedTracks.Count - 1; i >= 0; i--)
+            if (SavedTracks[i].Name == name) SavedTracks.RemoveAt(i);
+
+        var track = new Models.Track.Track
+        {
+            Name = name,
+            Points = curve,
+            Type = Models.Track.TrackType.Curve,
+            IsVisible = true,
+            IsClosed = false,
+        };
+        SavedTracks.Add(track);
+        SelectedTrack = track;
+        StatusMessage = $"{name} active — engage autosteer to follow it (switch anytime)";
+    }
+
     public void DriveRoute()
     {
         var plan = _currentRoutePlan;

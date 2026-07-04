@@ -1495,6 +1495,8 @@ document.getElementById('rp-obsalarm').addEventListener('pointerdown', e => {
 });
 document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
 document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
+document.getElementById('rp-steermain').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.steerMain'); });
+document.getElementById('rp-steerhead').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.steerHeadland'); });
 document.getElementById('rp-drive').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.drive'); });
 document.getElementById('rp-stop').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.stopDrive'); });
 document.getElementById('ln-fieldops').addEventListener('pointerdown', e => {

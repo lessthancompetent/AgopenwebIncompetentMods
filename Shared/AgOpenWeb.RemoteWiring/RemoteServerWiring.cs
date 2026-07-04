@@ -139,6 +139,12 @@ public static partial class RemoteServerWiring
                                 case "route.stopDrive":
                                     vm.StopRouteDrive();
                                     return;
+                                case "route.steerHeadland":
+                                    vm.ActivateRouteSteerPath(true);
+                                    return;
+                                case "route.steerMain":
+                                    vm.ActivateRouteSteerPath(false);
+                                    return;
                                 case "obstacle.place": // "e,n,widthM,lengthM[,headingRad,type]" (field-local)
                                 {
                                     var op = arg.Split(',');
