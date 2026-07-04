@@ -1189,12 +1189,6 @@
         <path d="M14 22a14 14 0 0 1 20 0"/><path d="M18.5 27a8 8 0 0 1 11 0"/>
         <circle class="fill" cx="24" cy="32" r="2.4"/>
       </svg></button>
-    <button id="ln-routeplan" class="ln-btn" title="Route Planner">
-      <svg class="ln-ic" viewBox="0 0 48 48" aria-label="Route Planner" style="color:#b46fd0">
-        <path d="M14 13h15a6 6 0 0 1 0 12H19a6 6 0 0 0 0 12h15"/>
-        <circle class="fill" cx="14" cy="13" r="2.6"/>
-        <path class="fill" d="M31 33l5 4l-5 4z"/>
-      </svg></button>
   </div>
   <!-- Route Planner — non-modal flyout. Coverage-route generation (ported planner):
        pick a pattern + headland/skip/angle, Plan Route posts route.plan|… and the
@@ -1209,18 +1203,31 @@
       <button class="rp-pat" data-pat="3">Spiral</button>
       <button class="rp-pat" data-pat="4">Block</button>
     </div>
-    <div class="rp-row"><span class="cfg-label">Headland laps</span>
+    <div class="rp-row" id="rp-hl-row"><span class="cfg-label">Headland laps</span>
       <div class="rp-step"><button class="rp-sb" data-rp="hl" data-d="-1">−</button><span id="rp-hl">Auto</span><button class="rp-sb" data-rp="hl" data-d="1">+</button></div></div>
-    <div class="rp-row"><span class="cfg-label">Skip rows</span>
+    <div class="rp-row" id="rp-skip-row"><span class="cfg-label">Skip rows</span>
       <div class="rp-step"><button class="rp-sb" data-rp="skip" data-d="-1">−</button><span id="rp-skip">0</span><button class="rp-sb" data-rp="skip" data-d="1">+</button></div></div>
-    <div class="rp-row"><span class="cfg-label">Block skip</span>
+    <div class="rp-row" id="rp-block-row"><span class="cfg-label">Block skip</span>
       <div class="rp-step"><button class="rp-sb" data-rp="block" data-d="-1">−</button><span id="rp-block">3</span><button class="rp-sb" data-rp="block" data-d="1">+</button></div></div>
-    <div class="rp-row"><span class="cfg-label">Angle °</span>
+    <div class="rp-row" id="rp-angle-row"><span class="cfg-label">Angle °</span>
       <div class="rp-step"><button class="rp-sb" data-rp="angle" data-d="-5">−</button><span id="rp-angle">0</span><button class="rp-sb" data-rp="angle" data-d="5">+</button></div></div>
-    <div class="rp-pats" style="grid-template-columns:1fr">
+    <div class="rp-pats" id="rp-cornerfill-row" style="grid-template-columns:1fr">
       <button class="rp-pat" id="rp-cornerfill">Corner fill (spiral)</button>
     </div>
-    <div class="cfg-label">Obstacle (hard — planner routes around it)</div>
+    <div class="rp-btns">
+      <button class="cfg-act fj-primary" id="rp-plan">Plan Route</button>
+      <button class="cfg-act fj-danger" id="rp-clear">Clear</button>
+    </div>
+    <div class="rp-btns">
+      <button class="cfg-act" id="rp-drive">▶ Drive</button>
+      <button class="cfg-act fj-danger" id="rp-stop">■ Stop</button>
+    </div>
+    <div class="rp-stats" id="rp-stats">No route planned.</div>
+  </div>
+  <!-- Obstacles — hard inner boundaries the planner routes around (Field Tools). -->
+  <div id="obstacles" class="ln-panel rp-panel">
+    <div class="ln-hdr"><span class="ln-hdr-title">Obstacles</span><button class="ln-x ln-closex" title="Close">✕</button></div>
+    <div class="cfg-label">Type (hard — planner routes around it)</div>
     <div class="rp-pats" style="grid-template-columns:1fr 1fr 1fr">
       <button class="rp-pat" data-obstype="POLE">Pole</button>
       <button class="rp-pat on" data-obstype="HOLE">Hole</button>
@@ -1235,15 +1242,6 @@
     <div class="rp-pats" style="grid-template-columns:1fr"><button class="rp-pat" id="rp-obsalarm">Proximity alarm: off</button></div>
     <div class="rp-row" id="rp-obsalarm-dist-row"><span class="cfg-label">Alarm dist m</span>
       <div class="rp-step"><button class="rp-sb" data-rp="obsalarmdist" data-d="-1">−</button><span id="rp-obsalarmdist">10</span><button class="rp-sb" data-rp="obsalarmdist" data-d="1">+</button></div></div>
-    <div class="rp-btns">
-      <button class="cfg-act fj-primary" id="rp-plan">Plan Route</button>
-      <button class="cfg-act fj-danger" id="rp-clear">Clear</button>
-    </div>
-    <div class="rp-btns">
-      <button class="cfg-act" id="rp-drive">▶ Drive</button>
-      <button class="cfg-act fj-danger" id="rp-stop">■ Stop</button>
-    </div>
-    <div class="rp-stats" id="rp-stats">No route planned.</div>
   </div>
   <!-- Screen & Alerts (Phase 9a) — non-modal flyout. Units toggle proves the config
        bridge (config.set|units:…); more settings accrue here in later sub-phases. -->
@@ -2112,6 +2110,8 @@
     <div class="fo-grid">
       <button class="fo-btn" id="ft-fieldbuilder" title="On-map track / headland / tram editor">Field Builder</button>
       <button class="fo-btn" id="ft-boundary">Boundary</button>
+      <button class="fo-btn" id="ft-routeplan" title="Coverage route planner">Route Planner</button>
+      <button class="fo-btn" id="ft-obstacles" title="Add / delete obstacles + proximity alarm">Obstacles</button>
       <button class="fo-btn" id="ft-deleteapplied">Delete Applied Area</button>
       <button class="fo-btn" id="ft-importtracks">Import Tracks</button>
       <button class="fo-btn" id="ft-recpath">Recorded Path</button>

@@ -638,6 +638,13 @@ function rpRender() {
   document.getElementById('rp-block').textContent = rpBlock;
   document.getElementById('rp-angle').textContent = rpAngle;
   document.getElementById('rp-cornerfill').classList.toggle('on', rpCornerFill);
+  // Show only the controls relevant to the selected pattern (0 Auto,1 Skip,2 Cross,3 Spiral,4 Block).
+  const show = (id, on) => { document.getElementById(id).style.display = on ? '' : 'none'; };
+  show('rp-hl-row', rpPattern !== 3);          // spiral has no headland laps
+  show('rp-skip-row', rpPattern === 1);        // Skip
+  show('rp-block-row', rpPattern === 4);       // Block
+  show('rp-angle-row', rpPattern !== 3);       // every pattern but spiral
+  show('rp-cornerfill-row', rpPattern === 3);  // Spiral
   document.getElementById('rp-obsw').textContent = rpObsW;
   document.getElementById('rp-obsl').textContent = rpObsL;
   // Pole is a point obstacle (Width = diameter); Length doesn't apply.
@@ -671,7 +678,8 @@ function deleteObstacle() {
     onTap: (e, n) => { transport.send('obstacle.delete|' + e + ',' + n); endMapTap(); },
   });
 }
-function openRoutePlanner() { lnOpen('routeplan', 'ln-routeplan', rpRender); }
+function openRoutePlanner() { lnOpen('routeplan', 'ln-fieldtools', rpRender); }
+function openObstacles() { lnOpen('obstacles', 'ln-fieldtools', rpRender); }
 function planRoute() {
   transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0].join(','));
   document.getElementById('rp-stats').textContent = 'Planning…';
@@ -1387,7 +1395,7 @@ document.getElementById('dlg-tracks-close').addEventListener('pointerdown', e =>
 // to ConfigurationStore). Grows one entry per sub-phase.
 // Navigation: top-level buttons open a panel; sub-panels (vehicle/tool config) are
 // reached from the hub and carry a Back button. One panel open at a time.
-const LN_NAV_PANELS = ['routeplan', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
+const LN_NAV_PANELS = ['routeplan', 'obstacles', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
 // Watch-the-tractor panels opt OUT of the light-dismiss scrim — the map must stay
 // interactive (pan/zoom to follow the tractor while capturing). They close only via
 // the header (Back / ✕).
@@ -1404,7 +1412,6 @@ function lnCloseAll() {
   document.getElementById('ln-filemenu').classList.remove('active');
   document.getElementById('ln-tools').classList.remove('active');
   document.getElementById('ln-fieldtools').classList.remove('active');
-  document.getElementById('ln-routeplan').classList.remove('active');
 }
 function lnOpen(panelId, navBtnId, onOpen) {
   lnCloseAll();
@@ -1442,16 +1449,11 @@ document.getElementById('ln-network').addEventListener('pointerdown', e => {
   if (document.getElementById('networkio').classList.contains('open')) lnCloseAll();
   else lnOpen('networkio', 'ln-network', renderNetworkIo);
 });
-document.getElementById('ln-routeplan').addEventListener('pointerdown', e => {
-  e.stopPropagation();
-  if (document.getElementById('routeplan').classList.contains('open')) lnCloseAll();
-  else openRoutePlanner();
-});
 // Route Planner controls: pattern picker, ± steppers, Plan / Clear.
 for (const b of document.querySelectorAll('#routeplan .rp-pat[data-pat]'))
   b.addEventListener('pointerdown', e => { e.stopPropagation(); rpPattern = +b.dataset.pat; rpRender(); });
 document.getElementById('rp-cornerfill').addEventListener('pointerdown', e => { e.stopPropagation(); rpCornerFill = !rpCornerFill; rpRender(); });
-for (const b of document.querySelectorAll('#routeplan .rp-sb'))
+for (const b of document.querySelectorAll('#routeplan .rp-sb, #obstacles .rp-sb'))
   b.addEventListener('pointerdown', e => {
     e.stopPropagation();
     const d = +b.dataset.d;
@@ -1585,6 +1587,8 @@ document.getElementById('rp-reverse').addEventListener('pointerdown', e => { e.s
 document.getElementById('ft-boundary').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('boundary.refresh'); lnOpen('boundarymenu', 'ln-fieldtools', renderBoundaryMenu);
 });
+document.getElementById('ft-routeplan').addEventListener('pointerdown', e => { e.stopPropagation(); openRoutePlanner(); });
+document.getElementById('ft-obstacles').addEventListener('pointerdown', e => { e.stopPropagation(); openObstacles(); });
 document.getElementById('bm-back').addEventListener('pointerdown', e => { e.stopPropagation(); lnOpen('fieldtools', 'ln-fieldtools'); });
 
 // ---- Field Builder (Phase MT) — Tracks / Headland / Tram editor (NO_SCRIM: the map
