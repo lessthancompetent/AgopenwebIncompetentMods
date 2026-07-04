@@ -621,7 +621,7 @@ window.toggleSatBackground = toggleSatBackground;
 // pattern as pick-from-map, no binary scene-protocol layer.
 let routePlan = null; // { segments:[{type,pts:[{e,n}…]}…], meta:{…} } or null
 let rpPattern = 0, rpHeadland = 0, rpSkip = 0, rpBlock = 3, rpAngle = 0, rpCornerFill = false;
-let rpObsW = 4, rpObsL = 4;
+let rpObsW = 4, rpObsL = 4, rpObsType = 'HOLE';
 const RP_PAINT = { Swath: 'routeSwath', Turn: 'routeTurn', Headland: 'routeHeadland', Approach: 'routeApproach' };
 function drawRoutePlanSk(canvas) {
   if (!routePlan || !routePlan.segments) return;
@@ -640,12 +640,20 @@ function rpRender() {
   document.getElementById('rp-cornerfill').classList.toggle('on', rpCornerFill);
   document.getElementById('rp-obsw').textContent = rpObsW;
   document.getElementById('rp-obsl').textContent = rpObsL;
+  // Pole is a point obstacle (Width = diameter); Length doesn't apply.
+  document.getElementById('rp-obsl-row').style.display = rpObsType === 'POLE' ? 'none' : '';
+  for (const b of document.querySelectorAll('[data-obstype]')) b.classList.toggle('on', b.dataset.obstype === rpObsType);
 }
-// Arm a map tap that drops a hard obstacle box (rpObsW × rpObsL) at the tapped point.
+// Arm a map tap that drops a hard obstacle at the tapped point. A HOSE orients along the
+// current vehicle heading; POLE/HOLE are axis-aligned (heading 0).
 function placeObstacle() {
   startMapTap({
-    hint: 'Tap to drop an obstacle',
-    onTap: (e, n) => { transport.send('obstacle.place|' + e + ',' + n + ',' + rpObsW + ',' + rpObsL); endMapTap(); },
+    hint: 'Tap to drop a ' + rpObsType.toLowerCase(),
+    onTap: (e, n) => {
+      const hdg = rpObsType === 'HOSE' && lastTick ? lastTick.heading : 0;
+      transport.send('obstacle.place|' + e + ',' + n + ',' + rpObsW + ',' + rpObsL + ',' + hdg + ',' + rpObsType);
+      endMapTap();
+    },
   });
 }
 function openRoutePlanner() { lnOpen('routeplan', 'ln-routeplan', rpRender); }
@@ -1440,6 +1448,16 @@ for (const b of document.querySelectorAll('#routeplan .rp-sb'))
       case 'obsw': rpObsW = Math.max(1, Math.min(60, rpObsW + d)); break;
       case 'obsl': rpObsL = Math.max(1, Math.min(60, rpObsL + d)); break;
     }
+    rpRender();
+  });
+for (const b of document.querySelectorAll('[data-obstype]'))
+  b.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    rpObsType = b.dataset.obstype;
+    // Sensible size presets per type (user can still adjust the steppers).
+    if (rpObsType === 'POLE') { rpObsW = 1; rpObsL = 1; }
+    else if (rpObsType === 'HOSE') { rpObsW = 1; rpObsL = 20; }
+    else { rpObsW = 4; rpObsL = 4; }
     rpRender();
   });
 document.getElementById('rp-placeobs').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); placeObstacle(); });

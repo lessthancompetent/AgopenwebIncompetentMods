@@ -139,15 +139,19 @@ public static partial class RemoteServerWiring
                                 case "route.stopDrive":
                                     vm.StopRouteDrive();
                                     return;
-                                case "obstacle.place": // "easting,northing,widthM,lengthM" (field-local)
+                                case "obstacle.place": // "e,n,widthM,lengthM[,headingRad,type]" (field-local)
                                 {
                                     var op = arg.Split(',');
-                                    if (op.Length == 4
+                                    if (op.Length >= 4
                                         && double.TryParse(op[0], num, inv, out var oe)
                                         && double.TryParse(op[1], num, inv, out var on)
                                         && double.TryParse(op[2], num, inv, out var ow)
                                         && double.TryParse(op[3], num, inv, out var ol))
-                                        vm.PlaceObstacleAtTap(oe, on, ow, ol);
+                                    {
+                                        double oh = op.Length >= 5 && double.TryParse(op[4], num, inv, out var h) ? h : 0;
+                                        string ot = op.Length >= 6 ? op[5] : "HOLE";
+                                        vm.PlaceObstacleAtTap(oe, on, ow, ol, oh, ot);
+                                    }
                                     return;
                                 }
                                 case "field.deleteApplied": // Tier-1; browser already confirmed

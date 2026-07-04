@@ -828,23 +828,41 @@ public partial class MainViewModel
     }
 
     /// <summary>
-    /// Drop an obstacle at a tapped map point (field-local E/N): a small HARD inner
-    /// boundary box (width × length) that the route planner routes around. A quick way to
-    /// add a pole/hole/hose without driving a full loop (mirrors AgOpenGPS's obstacle marker).
+    /// Drop an obstacle at a tapped map point (field-local E/N): a HARD inner boundary the
+    /// route planner routes around. <paramref name="type"/> shapes it — POLE = small octagon
+    /// (a point obstacle), HOLE = axis-aligned box (width × length), HOSE = long box oriented
+    /// along <paramref name="headingRad"/>. Mirrors AgOpenGPS's obstacle marker.
     /// </summary>
-    public void PlaceObstacleAtTap(double easting, double northing, double widthM, double lengthM)
+    public void PlaceObstacleAtTap(double easting, double northing, double widthM, double lengthM,
+        double headingRad = 0, string type = "HOLE")
     {
         if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
         {
             StatusMessage = "Open a field first to add an obstacle";
             return;
         }
-        double hw = Math.Max(0.2, widthM) / 2.0, hl = Math.Max(0.2, lengthM) / 2.0;
         var poly = new BoundaryPolygon { IsDriveThrough = false, IsHard = true };
-        poly.Points.Add(new BoundaryPoint(easting - hw, northing - hl, 0));
-        poly.Points.Add(new BoundaryPoint(easting + hw, northing - hl, 0));
-        poly.Points.Add(new BoundaryPoint(easting + hw, northing + hl, 0));
-        poly.Points.Add(new BoundaryPoint(easting - hw, northing + hl, 0));
+        type = (type ?? "HOLE").ToUpperInvariant();
+        if (type == "POLE")
+        {
+            // A point obstacle: an octagon approximating a circle of diameter = width.
+            double r = Math.Max(0.3, widthM) / 2.0;
+            for (int i = 0; i < 8; i++)
+            {
+                double a = i * Math.PI / 4.0;
+                poly.Points.Add(new BoundaryPoint(easting + r * Math.Cos(a), northing + r * Math.Sin(a), 0));
+            }
+        }
+        else
+        {
+            // Oriented rectangle: length along the heading, width across it (heading 0 = axis-aligned).
+            double hw = Math.Max(0.2, widthM) / 2.0, hl = Math.Max(0.2, lengthM) / 2.0;
+            double aE = Math.Sin(headingRad), aN = Math.Cos(headingRad);    // along (length)
+            double pE = Math.Cos(headingRad), pN = -Math.Sin(headingRad);   // across (width)
+            var local = new[] { (-hw, -hl), (hw, -hl), (hw, hl), (-hw, hl) };
+            foreach (var (lx, ly) in local)
+                poly.Points.Add(new BoundaryPoint(easting + lx * pE + ly * aE, northing + lx * pN + ly * aN, 0));
+        }
         poly.UpdateBounds();
         try
         {
@@ -854,7 +872,9 @@ public partial class MainViewModel
             _boundaryFileService.SaveBoundary(boundary, fieldPath);
             SetCurrentBoundary(boundary);
             RefreshBoundaryList();
-            StatusMessage = $"Obstacle placed ({widthM:F1}×{lengthM:F1} m) — re-plan to route around it";
+            StatusMessage = type == "POLE"
+                ? $"Pole placed (⌀{Math.Max(0.3, widthM):F1} m) — re-plan to route around it"
+                : $"{(type == "HOSE" ? "Hose" : "Hole")} placed ({widthM:F1}×{lengthM:F1} m) — re-plan to route around it";
         }
         catch (Exception ex)
         {
