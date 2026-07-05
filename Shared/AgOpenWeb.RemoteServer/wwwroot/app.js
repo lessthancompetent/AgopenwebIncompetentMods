@@ -739,12 +739,12 @@ function drawMissedSk(canvas) {
   path.delete(); p.delete();
 }
 // Route speed model (per-machine, persists with Save Profile): work/turn km/h + s/turn.
-for (const [id, key] of [['rp-wspd','uturn.routeWorkSpeedKmh'],['rp-tspd','uturn.routeTurnSpeedKmh'],['rp-tovh','uturn.routeTurnOverheadSec']]) {
+for (const [id, key] of [['rp-wspd','uturn.routeWorkSpeedKmh'],['rp-tspd','uturn.routeTurnSpeedKmh'],['rp-tovh','uturn.routeTurnOverheadSec'],['rp-edgeoff','uturn.routeFirstPassOffsetM']]) {
   const el = document.getElementById(id);
   el.addEventListener('change', () => { const v = parseFloat(el.value); if (Number.isFinite(v)) cfgSend(key, v); });
 }
 function rpFillSpeeds() {
-  for (const [id, key] of [['rp-wspd','uturn.routeWorkSpeedKmh'],['rp-tspd','uturn.routeTurnSpeedKmh'],['rp-tovh','uturn.routeTurnOverheadSec']]) {
+  for (const [id, key] of [['rp-wspd','uturn.routeWorkSpeedKmh'],['rp-tspd','uturn.routeTurnSpeedKmh'],['rp-tovh','uturn.routeTurnOverheadSec'],['rp-edgeoff','uturn.routeFirstPassOffsetM']]) {
     const el = document.getElementById(id);
     if (document.activeElement === el) continue;
     const v = cfgGet(key);

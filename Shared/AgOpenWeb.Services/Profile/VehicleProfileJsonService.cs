@@ -149,6 +149,7 @@ public static class VehicleProfileJsonService
             RouteWorkSpeedKmh = store.Guidance.RouteWorkSpeedKmh,
             RouteTurnSpeedKmh = store.Guidance.RouteTurnSpeedKmh,
             RouteTurnOverheadSec = store.Guidance.RouteTurnOverheadSec,
+                RouteFirstPassOffsetM = store.Guidance.RouteFirstPassOffsetM,
         },
         General = new GeneralDto
         {
@@ -208,6 +209,7 @@ public static class VehicleProfileJsonService
         store.Guidance.RouteWorkSpeedKmh = dto.YouTurn?.RouteWorkSpeedKmh ?? 8.0;
         store.Guidance.RouteTurnSpeedKmh = dto.YouTurn?.RouteTurnSpeedKmh ?? 6.0;
         store.Guidance.RouteTurnOverheadSec = dto.YouTurn?.RouteTurnOverheadSec ?? 4.0;
+        store.Guidance.RouteFirstPassOffsetM = dto.YouTurn?.RouteFirstPassOffsetM ?? 0;
         store.Guidance.UTurnExtension = dto.YouTurn?.ExtensionLength ?? 20.0;
         store.Guidance.UTurnDistanceFromBoundary = dto.YouTurn?.DistanceFromBoundary ?? 2.0;
         store.Guidance.UTurnSkipWidth = dto.YouTurn?.SkipWidth ?? 1;
@@ -281,6 +283,7 @@ public static class VehicleProfileJsonService
         public double? RouteWorkSpeedKmh { get; set; }
         public double? RouteTurnSpeedKmh { get; set; }
         public double? RouteTurnOverheadSec { get; set; }
+        public double? RouteFirstPassOffsetM { get; set; }
         public double TurnRadius { get; set; }
         public double ExtensionLength { get; set; }
         public double DistanceFromBoundary { get; set; }

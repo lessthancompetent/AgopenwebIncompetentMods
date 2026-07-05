@@ -676,7 +676,7 @@ public sealed class SceneProjector
                 t.CoverageMargin, t.IsWorkSwitchEnabled, t.IsWorkSwitchActiveLow, t.IsWorkSwitchManualSections,
                 t.IsSteerSwitchEnabled, t.IsSteerSwitchManualSections, _config.ActualToolWidth, t.PhysicalWidth),
             new UturnConfigDto(g.UTurnStyle, g.UTurnExtension, g.UTurnSmoothing, g.UTurnRadius, g.UTurnDistanceFromBoundary,
-                g.RouteWorkSpeedKmh, g.RouteTurnSpeedKmh, g.RouteTurnOverheadSec),
+                g.RouteWorkSpeedKmh, g.RouteTurnSpeedKmh, g.RouteTurnOverheadSec, g.RouteFirstPassOffsetM),
             new TramConfigDto(g.TramPasses, g.TramDisplay, g.TramLine),
             new MachineConfigDto(m.HydraulicLiftEnabled, m.RaiseTime, m.LookAhead, m.LowerTime, m.InvertRelay,
                 m.User1Value, m.User2Value, m.User3Value, m.User4Value, pins),

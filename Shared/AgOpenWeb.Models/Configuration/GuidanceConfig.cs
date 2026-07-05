@@ -153,6 +153,16 @@ public class GuidanceConfig : ObservableObject
         set => SetProperty(ref _routeTurnOverheadSec, System.Math.Max(0, value));
     }
 
+    // First-pass edge offset (m): for exactly-mapped boundaries where a fence sits ON
+    // the line, the whole plan (outer lap included) is pulled in by this much. Leave 0
+    // when the boundary was mapped by driving the first working pass (already the edge).
+    private double _routeFirstPassOffsetM;
+    public double RouteFirstPassOffsetM
+    {
+        get => _routeFirstPassOffsetM;
+        set => SetProperty(ref _routeFirstPassOffsetM, System.Math.Max(0, value));
+    }
+
     private double _uTurnExtension = 20.0;
     public double UTurnExtension
     {

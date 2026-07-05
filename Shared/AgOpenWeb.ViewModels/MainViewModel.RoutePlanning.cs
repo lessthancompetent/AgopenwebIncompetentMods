@@ -79,6 +79,15 @@ public partial class MainViewModel
             if (inners.Count == 0) inners = null;
         }
 
+        // First-pass edge offset: pull the plan boundary in so the outer lap's tool
+        // edge stays clear of a fence that sits exactly ON the mapped line.
+        double edgeOff = Math.Max(0, _configStore.Guidance.RouteFirstPassOffsetM);
+        if (edgeOff > 0.01)
+        {
+            var edgeInset = new PolygonOffsetService().CreateInwardOffset(pts, edgeOff);
+            if (edgeInset is { Count: >= 3 }) pts = edgeInset;
+        }
+
         double width = _configStore.ActualToolWidth;
         if (width <= 0.1) width = 6.0;
         // Physical frame width for obstacle clearance (small obstacles get swerved by the
@@ -175,6 +184,11 @@ public partial class MainViewModel
             StatusMessage = "Route planning produced no plan for this field";
             return;
         }
+
+        // Auto-headland: demarcate the planned headland band as the native headland
+        // line so the native headland toggle / section-in-headland control just works.
+        try { RemoteCreateHeadlandWholeBoundary(edgeOff + headlandMargin); }
+        catch { /* headland is a convenience here — never fail the plan on it */ }
 
         var m = plan.Metadata;
         double areaHa = m.WorkDistanceMeters * m.ToolWidthMeters / 10000.0;

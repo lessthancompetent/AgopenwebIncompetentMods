@@ -319,7 +319,8 @@ public record ToolConfigDto(
 
 /// <summary>U-Turn tab (ConfigStore.Guidance). Style: 0 Omega, 1 Sagitta.</summary>
 public record UturnConfigDto(int Style, double Extension, int Smoothing, double Radius, double DistanceFromBoundary,
-    double RouteWorkSpeedKmh, double RouteTurnSpeedKmh, double RouteTurnOverheadSec);
+    double RouteWorkSpeedKmh, double RouteTurnSpeedKmh, double RouteTurnOverheadSec,
+    double RouteFirstPassOffsetM);
 
 /// <summary>Tram Lines tab (ConfigStore.Guidance tram fields).</summary>
 public record TramConfigDto(int Passes, bool Display, int Line);

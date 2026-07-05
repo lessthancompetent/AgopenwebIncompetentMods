@@ -146,6 +146,7 @@ public static partial class RemoteServerWiring
             case "uturn.routeWorkSpeedKmh": if (D(out var u6)) gd.RouteWorkSpeedKmh = u6; return;
             case "uturn.routeTurnSpeedKmh": if (D(out var u7)) gd.RouteTurnSpeedKmh = u7; return;
             case "uturn.routeTurnOverheadSec": if (D(out var u8)) gd.RouteTurnOverheadSec = u8; return;
+            case "uturn.routeFirstPassOffsetM": if (D(out var u9)) gd.RouteFirstPassOffsetM = u9; return;
             // --- Tram (ConfigStore.Guidance) ---
             case "tram.passes": if (I(out var tp)) gd.TramPasses = tp; return;
             case "tram.display": gd.TramDisplay = B(); return;
