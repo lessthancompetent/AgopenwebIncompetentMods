@@ -1213,6 +1213,8 @@
       <div class="rp-step"><button class="rp-sb" data-rp="angle" data-d="-5">−</button><span id="rp-angle">0</span><button class="rp-sb" data-rp="angle" data-d="5">+</button></div></div>
     <div class="rp-row" id="rp-speeds-row" title="Machine speed model for route comparison and ETA: work km/h, turn km/h, seconds lost per turn"><span class="cfg-label">Spd W/T · s/turn</span>
       <input id="rp-wspd" type="number" step="0.5" min="0.5" style="width:46px"><input id="rp-tspd" type="number" step="0.5" min="0.5" style="width:46px"><input id="rp-tovh" type="number" step="0.5" min="0" style="width:46px"></div>
+    <div id="rp-eta" class="rp-stats" title="Live time remaining: learned work/turn speeds x remaining plan distance"></div>
+    <div class="rp-pats" id="rp-missed-row" style="grid-template-columns:1fr"><button id="rp-missed" title="Tint unworked ground red under the coverage so missed spots stand out">Show missed spots</button></div>
     <div class="rp-pats" id="rp-cornerfill-row" style="grid-template-columns:1fr">
       <button class="rp-pat" id="rp-cornerfill">Corner fill (spiral)</button>
     </div>

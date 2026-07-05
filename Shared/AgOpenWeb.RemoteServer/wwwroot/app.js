@@ -681,6 +681,63 @@ function deleteObstacle() {
 }
 function openRoutePlanner() { lnOpen('routeplan', 'ln-fieldtools', rpRender); }
 function openObstacles() { lnOpen('obstacles', 'ln-fieldtools', rpRender); }
+// Live route ETA: EMA of ACTUAL speed while working (any section on) vs turning/
+// transit, seeded from the profile speed model; x remaining plan distance (scaled
+// by the area fraction left) + per-turn overhead. Learned live, so the estimate
+// tightens as the job progresses.
+let emaWorkMps = 0, emaTurnMps = 0;
+function etaLearnTick() {
+  if (!tick || !lastTick) return;
+  const v = lastTick.speed || 0; if (v < 0.3) return;
+  const secs = tick.sections; let working = false;
+  if (secs) for (let i = 0; i < secs.length; i++) { const c = secs[i]; if (c === 1 || c === 2 || c === 4) { working = true; break; } }
+  const a = 0.02;
+  if (working) emaWorkMps = emaWorkMps ? emaWorkMps + (v - emaWorkMps) * a : v;
+  else emaTurnMps = emaTurnMps ? emaTurnMps + (v - emaTurnMps) * a : v;
+}
+function routeEtaText() {
+  if (!routePlan || !routePlan.meta || !routePlan.meta.workM) return '';
+  const m = routePlan.meta;
+  const workable = workableAreaSqM(); const worked = (statusBar && statusBar.workedAreaSqM) || 0;
+  const leftFrac = workable > 0 ? Math.max(0, Math.min(1, (workable - worked) / workable)) : 1;
+  const wSpd = emaWorkMps || (cfgGet('uturn.routeWorkSpeedKmh') || 8) / 3.6;
+  const tSpd = emaTurnMps || (cfgGet('uturn.routeTurnSpeedKmh') || 6) / 3.6;
+  const ovh = cfgGet('uturn.routeTurnOverheadSec') != null ? cfgGet('uturn.routeTurnOverheadSec') : 4;
+  const sec = m.workM * leftFrac / Math.max(0.3, wSpd) + m.turnM * leftFrac / Math.max(0.3, tSpd) + (m.turns || 0) * leftFrac * ovh;
+  const min = Math.round(sec / 60);
+  const t = min >= 90 ? '~' + (min / 60).toFixed(1) + ' h left' : '~' + min + ' min left';
+  return t + (emaWorkMps ? '  (' + (emaWorkMps * 3.6).toFixed(1) + '/' + (emaTurnMps * 3.6 || 0).toFixed(1) + ' km/h)' : '');
+}
+setInterval(() => {
+  etaLearnTick();
+  const el = document.getElementById('rp-eta');
+  if (el) el.textContent = routeEtaText();
+}, 2000);
+// Missed-spots overlay: red tint under the coverage layer inside the field.
+let showMissed = false;
+document.getElementById('rp-missed').addEventListener('pointerdown', e => {
+  e.stopPropagation(); showMissed = !showMissed;
+  e.currentTarget.classList.toggle('active', showMissed);
+});
+function drawMissedSk(canvas) {
+  if (!showMissed || !scene || !scene.boundaries || !scene.boundaries.length) return;
+  const cmds = [];
+  for (let bi = 0; bi < scene.boundaries.length; bi++) {
+    const ring = scene.boundaries[bi]; if (!ring || ring.length < 3) continue;
+    for (let i = 0; i < ring.length; i++) {
+      const s = w2s(ring[i].e, ring[i].n);
+      cmds.push(i === 0 ? CK.MOVE_VERB : CK.LINE_VERB, s[0], s[1]);
+    }
+    cmds.push(CK.CLOSE_VERB);
+  }
+  const path = CK.Path.MakeFromCmds(cmds);
+  if (!path) return;
+  path.setFillType(CK.FillType.EvenOdd);   // inner rings become holes (not missed area)
+  const p = new CK.Paint(); p.setAntiAlias(true); p.setStyle(CK.PaintStyle.Fill);
+  p.setColor(CK.Color(200, 40, 40, 0.38));
+  canvas.drawPath(path, p);
+  path.delete(); p.delete();
+}
 // Route speed model (per-machine, persists with Save Profile): work/turn km/h + s/turn.
 for (const [id, key] of [['rp-wspd','uturn.routeWorkSpeedKmh'],['rp-tspd','uturn.routeTurnSpeedKmh'],['rp-tovh','uturn.routeTurnOverheadSec']]) {
   const el = document.getElementById(id);
@@ -3623,7 +3680,8 @@ function rotatingLineText() {
     const workable = workableAreaSqM(), worked = s.workedAreaSqM || 0;
     const leftPct = workable > 0 ? ((workable - worked) * 100 / workable) : 100;
     const haPerHr = (lastTick ? lastTick.speed : 0) * 3600 * toolWidthM() / 10000;
-    return 'Done ' + fmtArea(worked, s.isMetric) + '  Left ' + leftPct.toFixed(0) + '%  Rate ' + fmtRate(haPerHr, s.isMetric);
+    const eta = routeEtaText();
+    return 'Done ' + fmtArea(worked, s.isMetric) + '  Left ' + leftPct.toFixed(0) + '%  Rate ' + fmtRate(haPerHr, s.isMetric) + (eta ? '  ' + eta : '');
   }
   const name = tick && tick.activeTrackName; // AB-line page
   if (!name) return 'No AB Line';
@@ -4970,6 +5028,7 @@ function renderSkia(canvas, rp) {
   drawImagerySk(canvas); // imagery overlays the ground where present
   drawPickOutlinesSk(canvas); // pick-from-map: all mapped field outlines
   drawRoutePlanSk(canvas); // route planner: generated coverage-route preview
+  drawMissedSk(canvas); // missed-spots tint: red under coverage, so unworked ground shows
   drawCoverageSk(canvas);
   drawGridSk(canvas);
   if (scene) {

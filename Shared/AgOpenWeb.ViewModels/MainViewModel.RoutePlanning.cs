@@ -363,6 +363,8 @@ public partial class MainViewModel
         sb.Append("\"swaths\":").Append(m.SwathCount.ToString(inv))
           .Append(",\"turns\":").Append(m.TurnCount.ToString(inv))
           .Append(",\"distanceM\":").Append(m.TotalDistanceMeters.ToString("0.0", inv))
+          .Append(",\"workM\":").Append(m.WorkDistanceMeters.ToString("0.0", inv))
+          .Append(",\"turnM\":").Append(m.TurnDistanceMeters.ToString("0.0", inv))
           .Append(",\"toolWidthM\":").Append(m.ToolWidthMeters.ToString("0.00", inv))
           .Append("}}");
         return sb.ToString();
