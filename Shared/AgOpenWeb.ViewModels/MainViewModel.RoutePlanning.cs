@@ -46,10 +46,14 @@ public partial class MainViewModel
     /// </summary>
     public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg, bool cornerFill = false)
     {
+        // Clear any prior plan up front so the web client, which polls
+        // /api/routeplan for the result, can't pick up a stale plan while this
+        // (potentially slow) obstacle-aware planning runs.
+        _currentRoutePlan = null;
+
         if (State.Field.ActiveField?.Boundary?.OuterBoundary is not { IsValid: true } outer)
         {
             StatusMessage = "Open a field with a boundary to plan a route";
-            _currentRoutePlan = null;
             return;
         }
 
@@ -77,6 +81,9 @@ public partial class MainViewModel
 
         double width = _configStore.ActualToolWidth;
         if (width <= 0.1) width = 6.0;
+        // Physical frame width for obstacle clearance (small obstacles get swerved by the
+        // frame, not the spread). 0 = fall back to working width (no swerve distinction).
+        double physWidth = _configStore.Tool.PhysicalWidth;
         double turnRadius = _configStore.Guidance.UTurnRadius;
         if (turnRadius <= 0.1) turnRadius = width / 2.0;
 
@@ -130,13 +137,37 @@ public partial class MainViewModel
         double cornerRadius = minTurn;
         double heading = LongestEdgeHeading(pts) + angleRad;
 
+        // Auto-orientation: unless the user has dialled in a manual angle, quickly try
+        // several candidate pass headings and keep the one with the lowest estimated
+        // drive time (work + turns + a per-turn overhead). Orientation is the biggest
+        // efficiency lever — the wrong one can nearly double the turn count. The trial
+        // plans skip obstacle handling for speed (it barely changes the ranking); the
+        // winning heading is then planned in full below.
+        if (!spiral && !cross && Math.Abs(angleDeg) < 0.01)
+        {
+            double bestSecs = double.MaxValue;
+            foreach (double h in CandidateHeadings(pts))
+            {
+                // Obstacle-aware but fast: passes are split around obstacles (so the
+                // turn count is honest) while the pretty reroute/smoothing is skipped.
+                var trial = RoutePlanner.GenerateBoustrophedon(pts, width, turnRadius, headlandMargin, h,
+                    SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance,
+                    skipPasses, blkSkip, cornerRadius, inners, false, true, physWidth);
+                if (trial == null) continue;
+                double secs = RoutePlanningService.EstimateWorkSeconds(
+                    trial.Metadata, RouteWorkSpeedMps, RouteTurnSpeedMps, RouteTurnOverheadSec);
+                if (secs < bestSecs) { bestSecs = secs; heading = h; }
+            }
+        }
+
         RoutePlan? plan = spiral
             ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill, inners)
             : cross
                 ? RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
                     SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners)
                 : RoutePlanner.GenerateBoustrophedon(pts, width, turnRadius, headlandMargin, heading,
-                    SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners);
+                    SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners,
+                    physicalToolWidth: physWidth);
 
         _currentRoutePlan = plan;
         if (plan == null)
@@ -147,8 +178,12 @@ public partial class MainViewModel
 
         var m = plan.Metadata;
         double areaHa = m.WorkDistanceMeters * m.ToolWidthMeters / 10000.0;
+        double estMin = RoutePlanningService.EstimateWorkSeconds(
+            m, RouteWorkSpeedMps, RouteTurnSpeedMps, RouteTurnOverheadSec) / 60.0;
+        double hdgDeg = ((heading * 180.0 / Math.PI) % 180.0 + 180.0) % 180.0;
         StatusMessage = $"Route: {m.SwathCount} passes, {m.TurnCount} turns, " +
-            $"{m.TotalDistanceMeters / 1000.0:F2} km, {areaHa:F1} ha, headland {headlandMargin:F1} m ({passes} laps)";
+            $"{m.TotalDistanceMeters / 1000.0:F2} km, {areaHa:F1} ha, ~{estMin:F0} min @ {hdgDeg:F0}° " +
+            $"(headland {headlandMargin:F1} m, {passes} laps)";
     }
 
     /// <summary>Discard the current route preview.</summary>
@@ -351,5 +386,36 @@ public partial class MainViewModel
             }
         }
         return bestHeading;
+    }
+
+    // Machine speed model for route scoring/ETA — per-profile settings, editable in the
+    // Route Planner panel (defaults 8 / 6 km/h, 4 s per turn).
+    private double RouteWorkSpeedMps => Math.Max(0.5, _configStore.Guidance.RouteWorkSpeedKmh) / 3.6;
+    private double RouteTurnSpeedMps => Math.Max(0.5, _configStore.Guidance.RouteTurnSpeedKmh) / 3.6;
+    private double RouteTurnOverheadSec => Math.Max(0, _configStore.Guidance.RouteTurnOverheadSec);
+
+    /// <summary>
+    /// Candidate pass headings to trial for auto-orientation: the field's longest edge
+    /// and its perpendicular (the natural alignments), plus a coarse 15° sweep so a
+    /// diagonal optimum isn't missed. Folded to [0, π) and de-duplicated to ~3°.
+    /// </summary>
+    private static List<double> CandidateHeadings(IReadOnlyList<Vec2> poly)
+    {
+        var cand = new List<double>();
+        void Add(double h)
+        {
+            h = ((h % Math.PI) + Math.PI) % Math.PI;
+            foreach (var e in cand)
+            {
+                double d = Math.Abs(h - e);
+                if (d < 0.06 || Math.Abs(d - Math.PI) < 0.06) return;
+            }
+            cand.Add(h);
+        }
+        double le = LongestEdgeHeading(poly);
+        Add(le);
+        Add(le + Math.PI / 2.0);
+        for (int deg = 0; deg < 180; deg += 15) Add(deg * Math.PI / 180.0);
+        return cand;
     }
 }

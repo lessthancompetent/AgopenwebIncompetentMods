@@ -130,6 +130,29 @@ public class GuidanceConfig : ObservableObject
         set => SetProperty(ref _uTurnRadius, value);
     }
 
+    // Route-planner speed model (per machine): used to compare candidate routes by
+    // estimated drive time and for the plan's ETA. Editable in the Route Planner panel.
+    private double _routeWorkSpeedKmh = 8.0;
+    public double RouteWorkSpeedKmh
+    {
+        get => _routeWorkSpeedKmh;
+        set => SetProperty(ref _routeWorkSpeedKmh, System.Math.Max(0.5, value));
+    }
+
+    private double _routeTurnSpeedKmh = 6.0;
+    public double RouteTurnSpeedKmh
+    {
+        get => _routeTurnSpeedKmh;
+        set => SetProperty(ref _routeTurnSpeedKmh, System.Math.Max(0.5, value));
+    }
+
+    private double _routeTurnOverheadSec = 4.0;
+    public double RouteTurnOverheadSec
+    {
+        get => _routeTurnOverheadSec;
+        set => SetProperty(ref _routeTurnOverheadSec, System.Math.Max(0, value));
+    }
+
     private double _uTurnExtension = 20.0;
     public double UTurnExtension
     {

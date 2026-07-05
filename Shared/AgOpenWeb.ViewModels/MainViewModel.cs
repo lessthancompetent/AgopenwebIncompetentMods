@@ -4309,6 +4309,7 @@ public partial class MainViewModel : ObservableObject
         if (deleted)
         {
             _boundaryFileService.SaveBoundary(boundary, fieldPath);
+            PersistBoundaryGeoJson();
             RefreshBoundaryList();
             SetCurrentBoundary(boundary);
 
@@ -4755,6 +4756,7 @@ public partial class MainViewModel : ObservableObject
             }
 
             _boundaryFileService.SaveBoundary(boundary, fieldPath);
+            PersistBoundaryGeoJson();
             SetCurrentBoundary(boundary);
             CenterMapOnBoundary(boundary);
             RefreshBoundaryList();

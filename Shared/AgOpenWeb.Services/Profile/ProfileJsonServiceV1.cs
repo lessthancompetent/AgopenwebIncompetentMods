@@ -155,6 +155,7 @@ public static class ProfileJsonServiceV1
             Tool = new ToolDto
             {
                 Width = store.Tool.Width,
+                PhysicalWidth = store.Tool.PhysicalWidth,
                 Overlap = store.Tool.Overlap,
                 Offset = store.Tool.Offset,
                 HitchLength = store.Tool.HitchLength,
@@ -201,6 +202,9 @@ public static class ProfileJsonServiceV1
                 SkipWidth = store.Guidance.UTurnSkipWidth,
                 Style = store.Guidance.UTurnStyle,
                 Smoothing = store.Guidance.UTurnSmoothing,
+                RouteWorkSpeedKmh = store.Guidance.RouteWorkSpeedKmh,
+                RouteTurnSpeedKmh = store.Guidance.RouteTurnSpeedKmh,
+                RouteTurnOverheadSec = store.Guidance.RouteTurnOverheadSec,
             },
             General = new GeneralDto
             {
@@ -258,6 +262,9 @@ public static class ProfileJsonServiceV1
 
         // U-Turn settings
         store.Guidance.UTurnRadius = dto.YouTurn?.TurnRadius ?? 8.0;
+        store.Guidance.RouteWorkSpeedKmh = dto.YouTurn?.RouteWorkSpeedKmh ?? 8.0;
+        store.Guidance.RouteTurnSpeedKmh = dto.YouTurn?.RouteTurnSpeedKmh ?? 6.0;
+        store.Guidance.RouteTurnOverheadSec = dto.YouTurn?.RouteTurnOverheadSec ?? 4.0;
         store.Guidance.UTurnExtension = dto.YouTurn?.ExtensionLength ?? 20.0;
         store.Guidance.UTurnDistanceFromBoundary = dto.YouTurn?.DistanceFromBoundary ?? 2.0;
         store.Guidance.UTurnSkipWidth = dto.YouTurn?.SkipWidth ?? 1;
@@ -266,6 +273,7 @@ public static class ProfileJsonServiceV1
 
         // Tool config
         store.Tool.Width = dto.Tool?.Width ?? 6.0;
+        store.Tool.PhysicalWidth = dto.Tool?.PhysicalWidth ?? 0;
         store.Tool.Overlap = dto.Tool?.Overlap ?? 0.0;
         store.Tool.Offset = dto.Tool?.Offset ?? 0.0;
         store.Tool.HitchLength = dto.Tool?.HitchLength ?? 1.8;
@@ -414,6 +422,7 @@ public static class ProfileJsonServiceV1
 
     internal class ToolDto
     {
+        public double? PhysicalWidth { get; set; }
         public double Width { get; set; }
         public double Overlap { get; set; }
         public double Offset { get; set; }
@@ -461,6 +470,9 @@ public static class ProfileJsonServiceV1
 
     internal class YouTurnDto
     {
+        public double? RouteWorkSpeedKmh { get; set; }
+        public double? RouteTurnSpeedKmh { get; set; }
+        public double? RouteTurnOverheadSec { get; set; }
         public double TurnRadius { get; set; }
         public double ExtensionLength { get; set; }
         public double DistanceFromBoundary { get; set; }

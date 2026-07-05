@@ -99,6 +99,7 @@ public partial class MainViewModel
                         boundary.OuterBoundary = outerPolygon;
 
                     _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                    PersistBoundaryGeoJson();
 
                     // NOTE: Do NOT overwrite the field origin - it should stay constant!
                     // The simulator coordinates and field origin should not change when
@@ -464,6 +465,7 @@ public partial class MainViewModel
                         boundary.OuterBoundary = polygon;
 
                     _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                    PersistBoundaryGeoJson();
                     SetCurrentBoundary(boundary);
                     RefreshBoundaryList();
                     var typeLabel = _boundaryRecordingService.CurrentBoundaryType == BoundaryType.Inner ? "Inner boundary" : "Boundary";
@@ -664,6 +666,7 @@ public partial class MainViewModel
                 boundary.OuterBoundary = polygon;
 
             _boundaryFileService.SaveBoundary(boundary, fieldPath);
+            PersistBoundaryGeoJson();
             SetCurrentBoundary(boundary);
             RefreshBoundaryList();
 
@@ -740,7 +743,10 @@ public partial class MainViewModel
             if (string.IsNullOrEmpty(CurrentFieldName)) return;
 
             var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-            var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+            // Toggle the ACTIVE in-memory boundary — what the list on screen shows — not a
+            // fresh load of the legacy file, which can diverge from the geojson-loaded state
+            // (flipping a stale copy the wrong way).
+            var boundary = ActiveField?.Boundary ?? _boundaryFileService.LoadBoundary(fieldPath);
             if (boundary == null) return;
 
             // Map selected index to the correct boundary polygon
@@ -752,6 +758,7 @@ public partial class MainViewModel
                 {
                     boundary.OuterBoundary.IsDriveThrough = !boundary.OuterBoundary.IsDriveThrough;
                     _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                    PersistBoundaryGeoJson();
                     SetCurrentBoundary(boundary);
                     RefreshBoundaryList();
                     StatusMessage = $"Outer boundary drive-through: {(boundary.OuterBoundary.IsDriveThrough ? "On" : "Off")}";
@@ -768,6 +775,7 @@ public partial class MainViewModel
                     {
                         boundary.InnerBoundaries[i].IsDriveThrough = !boundary.InnerBoundaries[i].IsDriveThrough;
                         _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                        PersistBoundaryGeoJson();
                         SetCurrentBoundary(boundary);
                         RefreshBoundaryList();
                         StatusMessage = $"Inner {i + 1} drive-through: {(boundary.InnerBoundaries[i].IsDriveThrough ? "On" : "Off")}";
@@ -789,7 +797,8 @@ public partial class MainViewModel
             if (string.IsNullOrEmpty(CurrentFieldName)) return;
 
             var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-            var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+            // Toggle the ACTIVE in-memory boundary (see ToggleDriveThroughCommand).
+            var boundary = ActiveField?.Boundary ?? _boundaryFileService.LoadBoundary(fieldPath);
             if (boundary == null) return;
 
             int currentIndex = 0;
@@ -800,6 +809,7 @@ public partial class MainViewModel
                 {
                     boundary.OuterBoundary.IsHard = !boundary.OuterBoundary.IsHard;
                     _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                    PersistBoundaryGeoJson();
                     SetCurrentBoundary(boundary);
                     RefreshBoundaryList();
                     StatusMessage = $"Outer boundary hard: {(boundary.OuterBoundary.IsHard ? "On" : "Off")}";
@@ -816,6 +826,7 @@ public partial class MainViewModel
                     {
                         boundary.InnerBoundaries[i].IsHard = !boundary.InnerBoundaries[i].IsHard;
                         _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                        PersistBoundaryGeoJson();
                         SetCurrentBoundary(boundary);
                         RefreshBoundaryList();
                         StatusMessage = $"Inner {i + 1} hard: {(boundary.InnerBoundaries[i].IsHard ? "On" : "Off")}";
@@ -833,6 +844,26 @@ public partial class MainViewModel
     /// (a point obstacle), HOLE = axis-aligned box (width × length), HOSE = long box oriented
     /// along <paramref name="headingRad"/>. Mirrors AgOpenGPS's obstacle marker.
     /// </summary>
+    /// <summary>
+    /// Persist the active field's boundary to the modern GeoJSON as well. The boundary
+    /// mutation sites write Boundary.txt (legacy) directly, but field OPEN prefers
+    /// field.geojson - without this, boundary edits (drive-through/hard flags, obstacles,
+    /// recorded inners) silently revert on the next open unless the app happened to close
+    /// cleanly (the only other place the geojson gets rewritten).
+    /// </summary>
+    private void PersistBoundaryGeoJson()
+    {
+        try
+        {
+            if (ActiveField != null && !string.IsNullOrWhiteSpace(ActiveField.DirectoryPath))
+                AgOpenWeb.Services.GeoJson.GeoJsonFieldService.Save(ActiveField, tracks: null);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Boundary GeoJSON save failed: {ex.Message}");
+        }
+    }
+
     public void PlaceObstacleAtTap(double easting, double northing, double widthM, double lengthM,
         double headingRad = 0, string type = "HOLE")
     {
@@ -867,9 +898,10 @@ public partial class MainViewModel
         try
         {
             var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-            var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
+            var boundary = ActiveField?.Boundary ?? _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
             boundary.InnerBoundaries.Add(poly);
             _boundaryFileService.SaveBoundary(boundary, fieldPath);
+            PersistBoundaryGeoJson();
             SetCurrentBoundary(boundary);
             RefreshBoundaryList();
             StatusMessage = type == "POLE"
@@ -894,7 +926,7 @@ public partial class MainViewModel
             return;
         }
         var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-        var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+        var boundary = ActiveField?.Boundary ?? _boundaryFileService.LoadBoundary(fieldPath);
         if (boundary?.InnerBoundaries == null || boundary.InnerBoundaries.Count == 0)
         {
             StatusMessage = "No obstacles to delete";
@@ -921,6 +953,7 @@ public partial class MainViewModel
         }
         boundary.InnerBoundaries.RemoveAt(best);
         _boundaryFileService.SaveBoundary(boundary, fieldPath);
+        PersistBoundaryGeoJson();
         SetCurrentBoundary(boundary);
         RefreshBoundaryList();
         StatusMessage = "Obstacle deleted — re-plan to update the route";
@@ -947,6 +980,7 @@ public partial class MainViewModel
             boundary.OuterBoundary = outer;
 
             _boundaryFileService.SaveBoundary(boundary, fieldPath);
+            PersistBoundaryGeoJson();
             SetCurrentBoundary(boundary);
             RefreshBoundaryList();
             StatusMessage = $"Boundary created with {points.Count} points";

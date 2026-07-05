@@ -79,7 +79,9 @@ public sealed class RoutePlanningService : IRoutePlanningService
         int blockSkip = 0,
         double cornerRadius = 0,
         IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
-        bool addPondLoops = true)
+        bool addPondLoops = true,
+        bool fastScore = false,
+        double physicalToolWidth = 0)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0)
             return null;
@@ -106,20 +108,39 @@ public sealed class RoutePlanningService : IRoutePlanningService
         //    the passes (the one direction the swath band can overlap the pond), so passes
         //    reach right up to the faces they hit head-on. A uniform inflation over-clips
         //    those faces and its rounded corners leave triangular wedge gaps at the corners.
-        List<List<Vec2>>? holes = null, clipHoles = null;
+        // Small obstacles (footprint <= a working width) whose PHYSICAL tool width is
+        // narrower than its spread get swerved around, not treated as a full field hole:
+        // the passes stay continuous, deviating only enough for the physical frame to
+        // clear (section control shuts the spread off over the footprint). Larger
+        // obstacles keep the split-and-loop treatment.
+        double physWidth = physicalToolWidth > 0.1 ? physicalToolWidth : swathWidth;
+        bool haveSwerve = physWidth < swathWidth - 0.1;
+
+        List<List<Vec2>>? holes = null, clipHoles = null, swerveHoles = null;
         if (innerBoundaries is { Count: > 0 })
         {
             holes = new List<List<Vec2>>();
             clipHoles = new List<List<Vec2>>();
+            swerveHoles = new List<List<Vec2>>();
             double clr = Math.Max(0, boundaryClearance);
             double inflate = swathWidth / 2.0 + clr;
             foreach (var h in innerBoundaries)
             {
                 if (h is not { Count: >= 3 }) continue;
+                if (haveSwerve && ObstacleMaxExtent(h) <= swathWidth)
+                {
+                    // Swerve: inflate only by the physical half-width + clearance.
+                    var s = _offset.CreateOutwardOffset(new List<Vec2>(h), physWidth / 2.0 + clr);
+                    swerveHoles.Add(s is { Count: >= 3 } ? s : new List<Vec2>(h));
+                    continue;
+                }
                 var infl = _offset.CreateOutwardOffset(new List<Vec2>(h), inflate);
                 holes.Add(infl is { Count: >= 3 } ? infl : new List<Vec2>(h));
                 clipHoles.Add(InflatePerp(h, pE, pN, swathWidth / 2.0, clr + swathWidth * 0.05));
             }
+            if (holes.Count == 0) holes = null;
+            if (clipHoles.Count == 0) clipHoles = null;
+            if (swerveHoles.Count == 0) swerveHoles = null;
         }
 
         var o = Centroid(cultivated);
@@ -198,61 +219,211 @@ public sealed class RoutePlanningService : IRoutePlanningService
         }
         if (ordered.Count == 0) return null;
 
-        var plan = Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius, holes);
-        if (plan == null || holes is not { Count: > 0 }) return plan;
-        if (addPondLoops) plan = AddPondLoops(plan, holes, turnRadius, swathWidth);
+        // fastScore: the passes are still split around obstacles (accurate pass/turn
+        // counts for comparing candidate orientations), but the expensive obstacle
+        // reroute/smoothing, pond loops and transit-gap fixing are skipped.
+        var plan = Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius, fastScore ? null : holes);
+        if (fastScore || plan == null) return plan;
 
-        // Transit-gap holes: the ACTUAL obstacle inflated generously (turn radius + margin) so a
-        // drivable fillet on the reroute still clears the obstacle. Endpoints that land inside
-        // this are nudged back out in CloseTransitGaps, so anchoring stays robust.
+        // Small obstacles: swerve every leg (swaths included) around the physical-width
+        // ring so the passes deviate just enough for the frame to clear. Continuous
+        // passes, no split, no loop.
+        if (swerveHoles is { Count: > 0 })
+            plan = SwervePlan(plan, swerveHoles, turnRadius);
+
+        if (holes is { Count: > 0 } && addPondLoops)
+            plan = AddPondLoops(plan, holes, turnRadius, swathWidth);
+
+        // Junction smoothing runs on EVERY plan (kinked joins exist even obstacle-free —
+        // e.g. into/out of the perimeter loop, drive-to-start). Links are validated against
+        // the PHYSICAL keep-out around each large obstacle (frame half-width + clearance —
+        // the tool is lifted in a transit, so the coverage rings would be needlessly wide
+        // and block perfectly good links) plus the small-obstacle swerve rings, and kept
+        // inside the boundary-clearance limit.
         double tr = turnRadius > 0.1 ? turnRadius : swathWidth * 0.5;
-        var transitHoles = new List<List<Vec2>>();
-        foreach (var h in innerBoundaries!)
-        {
-            if (h is not { Count: >= 3 }) continue;
-            var infl = _offset.CreateOutwardOffset(new List<Vec2>(h), tr * 1.3 + Math.Max(0, boundaryClearance));
-            transitHoles.Add(infl is { Count: >= 3 } ? infl : new List<Vec2>(h));
-        }
-        return transitHoles.Count > 0 ? CloseTransitGaps(plan, transitHoles, tr, swathWidth) : plan;
+        double hardMargin = physWidth / 2.0 + Math.Max(1.0, boundaryClearance);
+        var linkHoles = new List<List<Vec2>>();
+        if (holes is { Count: > 0 })
+            foreach (var h in innerBoundaries!)
+            {
+                if (h is not { Count: >= 3 }) continue;
+                if (haveSwerve && ObstacleMaxExtent(h) <= swathWidth) continue;   // small = swerved
+                var infl = _offset.CreateOutwardOffset(new List<Vec2>(h), hardMargin);
+                linkHoles.Add(infl is { Count: >= 3 } ? infl : new List<Vec2>(h));
+            }
+        if (swerveHoles is { Count: > 0 }) linkHoles.AddRange(swerveHoles);
+
+        List<Vec2>? linkLimit = boundaryClearance > 0.01
+            ? _offset.CreateInwardOffset(boundary, boundaryClearance)
+            : boundary;
+        if (linkLimit is not { Count: >= 3 }) linkLimit = boundary;
+        return CloseTransitGaps(plan, linkHoles, tr, swathWidth, linkLimit);
     }
 
     /// <summary>
-    /// Close drive-order transits that jump across an obstacle. Segment POINTS avoid the
-    /// holes, but the straight gap DRIVEN between two consecutive segments (e.g. a block
-    /// transition, or into/out of a perimeter loop) can still cut across one. Where it does,
-    /// insert a rerouted connector (Approach) that goes around instead.
+    /// Junction smoothing. Walks consecutive legs and replaces any join the tractor can't
+    /// physically drive — a heading kink sharper than ~30°, a positional gap left by earlier
+    /// surgery, or a straight gap that cuts across an obstacle ring — with a tangent Dubins
+    /// link from the exit POSE to the entry POSE (leave along the current heading, arrive
+    /// lined up with the next leg), validated against <paramref name="holes"/> and
+    /// <paramref name="limit"/>. Falls back to the taut ring-hugging reroute only for an
+    /// obstacle-crossing gap with no clear tangent link. This is what turns "arrive at the
+    /// next pass from wherever" into "arrive lined up with the pass".
     /// </summary>
-    private RoutePlan CloseTransitGaps(RoutePlan plan, List<List<Vec2>> holes, double radius, double swathWidth)
+    private RoutePlan CloseTransitGaps(RoutePlan plan, List<List<Vec2>> holes, double radius,
+        double swathWidth, IReadOnlyList<Vec2>? limit = null)
     {
+        const double kinkLimit = 30.0 * Math.PI / 180.0;
         var segs = new List<RouteSegment>(plan.Segments.Count);
         for (int i = 0; i < plan.Segments.Count; i++)
         {
             segs.Add(plan.Segments[i]);
             if (i + 1 >= plan.Segments.Count) continue;
             var cur = plan.Segments[i]; var nxt = plan.Segments[i + 1];
-            if (cur.Points.Count == 0 || nxt.Points.Count == 0) continue;
+            if (cur.Points.Count < 2 || nxt.Points.Count < 2) continue;
             var pa = cur.Points[^1]; var pb = nxt.Points[0];
             var A = new Vec2(pa.Easting, pa.Northing);
             var B = new Vec2(pb.Easting, pb.Northing);
-            if (Distance(A, B) < 0.5) continue;
+            double gap = Distance(A, B);
 
-            // Only the straight gap's INTERIOR is tested (endpoints can sit on a boundary).
-            var hole = FirstHoleCrossed(A, B, holes);
-            if (hole == null) continue;
+            double ha = EndHeading(cur.Points);
+            double hb = StartHeading(nxt.Points);
 
-            // Anchor the reroute on points clearly outside the hole, then bookend with the real
-            // segment endpoints (the short radial in/out is away from the obstacle — clear).
-            var a2 = NudgeOutside(A, hole);
-            var b2 = NudgeOutside(B, hole);
-            var mid = RouteAroundHoles(
-                new List<Vec3> { new Vec3(a2.Easting, a2.Northing, 0), new Vec3(b2.Easting, b2.Northing, 0) },
-                holes, radius);
-            var conn = new List<Vec3>(mid.Count + 2) { pa };
-            conn.AddRange(mid);
-            conn.Add(pb);
-            segs.Add(new RouteSegment(RouteSegmentType.Approach, conn));
+            // Sharpness of the join: with a gap both the pivot ONTO the chord and OFF it
+            // matter; with no gap it's the direct heading step at the shared point.
+            double kink;
+            if (gap > 0.5)
+            {
+                double hAB = Math.Atan2(B.Easting - A.Easting, B.Northing - A.Northing);
+                kink = Math.Max(Math.Abs(WrapAngle(hAB - ha)), Math.Abs(WrapAngle(hb - hAB)));
+            }
+            else kink = Math.Abs(WrapAngle(hb - ha));
+
+            // Endpoints that already sit inside a ring (pass ends are deliberately close to
+            // the obstacle face) would invalidate every candidate link. Swap any ring that
+            // contains an endpoint for a core shrunk just past the deeper endpoint — the
+            // link is then only required to keep its MIDDLE off the obstacle itself.
+            var holesForLink = holes;
+            if (holes.Count > 0)
+            {
+                List<List<Vec2>>? swapped = null;
+                foreach (var hole in holes)
+                {
+                    if (hole.Count < 3) continue;
+                    bool cA = GeometryMath.IsPointInPolygon(hole, A);
+                    bool cB = GeometryMath.IsPointInPolygon(hole, B);
+                    if (!cA && !cB) { swapped?.Add(hole); continue; }
+                    if (swapped == null)
+                    {
+                        swapped = new List<List<Vec2>>(holes.Count);
+                        foreach (var h0 in holes) { if (ReferenceEquals(h0, hole)) break; swapped.Add(h0); }
+                    }
+                    double depth = 0;
+                    if (cA) depth = Math.Max(depth, DepthInside(hole, A));
+                    if (cB) depth = Math.Max(depth, DepthInside(hole, B));
+                    var core = _offset.CreateInwardOffset(new List<Vec2>(hole), depth + 0.6);
+                    if (core is { Count: >= 3 }) swapped.Add(core);
+                    // collapsed core: obstacle smaller than the shrink — drop it for this link
+                }
+                if (swapped != null) holesForLink = swapped;
+            }
+
+            bool crosses = gap > 0.5 && holesForLink.Count > 0 && FirstHoleCrossed(A, B, holesForLink) != null;
+            if (!crosses && kink < kinkLimit) continue;   // drivable as-is
+
+            // Tangent link between the two poses at the machine's radius.
+            var link = BuildTurn(new Vec3(A.Easting, A.Northing, ha),
+                                 new Vec3(B.Easting, B.Northing, hb), radius, limit, holesForLink);
+
+            bool clear = link.Count >= 2;
+            if (clear && holesForLink.Count > 0)
+                foreach (var p in link)
+                {
+                    foreach (var hole in holesForLink)
+                        if (hole.Count >= 3 && GeometryMath.IsPointInPolygon(hole, new Vec2(p.Easting, p.Northing)))
+                        { clear = false; break; }
+                    if (!clear) break;
+                }
+
+            // The link must also stay inside the boundary — BuildTurn's fallback ignores
+            // the limit. Exempt junctions whose own endpoints sit outside it (the gate
+            // case: drive-to-start from a machine parked outside the field).
+            if (clear && limit is { Count: >= 3 }
+                && GeometryMath.IsPointInPolygon(limit, A) && GeometryMath.IsPointInPolygon(limit, B))
+                foreach (var p in link)
+                    if (!GeometryMath.IsPointInPolygon(limit, new Vec2(p.Easting, p.Northing)))
+                    { clear = false; break; }
+
+            if (!clear)
+            {
+                // A crossing link is worse than a kink — only fall back to the taut
+                // ring-hugging reroute when the ORIGINAL straight gap crossed too.
+                if (!crosses) continue;
+                var hole2 = FirstHoleCrossed(A, B, holesForLink)!;
+                var a2 = NudgeOutside(A, hole2);
+                var b2 = NudgeOutside(B, hole2);
+                var mid = RouteAroundHoles(
+                    new List<Vec3> { new Vec3(a2.Easting, a2.Northing, 0), new Vec3(b2.Easting, b2.Northing, 0) },
+                    holesForLink, radius);
+                var conn = new List<Vec3>(mid.Count + 2) { pa };
+                conn.AddRange(mid);
+                conn.Add(pb);
+                segs.Add(new RouteSegment(RouteSegmentType.Approach,
+                    limit is { Count: >= 3 } ? ClampInside(conn, limit) : conn));
+                continue;
+            }
+
+            // Clamp gate-exempt links (an endpoint outside the field skips the limit
+            // validation above) so they hug the fence instead of sweeping outside it.
+            segs.Add(new RouteSegment(RouteSegmentType.Turn,
+                limit is { Count: >= 3 } ? ClampInside(link, limit) : link));
         }
         return new RoutePlan(segs, BuildMeta(segs, swathWidth));
+    }
+
+    /// <summary>How far inside a ring a point sits: min distance to the ring's edges.</summary>
+    private static double DepthInside(IReadOnlyList<Vec2> ring, Vec2 p)
+    {
+        double best = double.MaxValue;
+        for (int i = 0; i < ring.Count; i++)
+        {
+            double d = GeometryMath.PointToSegmentDistance(p, ring[i], ring[(i + 1) % ring.Count]);
+            if (d < best) best = d;
+        }
+        return best;
+    }
+
+    /// <summary>Travel direction over the last ~1.5 m of a polyline.</summary>
+    private static double EndHeading(IReadOnlyList<Vec3> pts)
+    {
+        int j = pts.Count - 1, i = j;
+        double acc = 0;
+        while (i > 0 && acc < 1.5)
+        {
+            i--;
+            acc += Distance(new Vec2(pts[i].Easting, pts[i].Northing), new Vec2(pts[i + 1].Easting, pts[i + 1].Northing));
+        }
+        return Math.Atan2(pts[j].Easting - pts[i].Easting, pts[j].Northing - pts[i].Northing);
+    }
+
+    /// <summary>Travel direction over the first ~1.5 m of a polyline.</summary>
+    private static double StartHeading(IReadOnlyList<Vec3> pts)
+    {
+        int j = 0;
+        double acc = 0;
+        while (j < pts.Count - 1 && acc < 1.5)
+        {
+            j++;
+            acc += Distance(new Vec2(pts[j - 1].Easting, pts[j - 1].Northing), new Vec2(pts[j].Easting, pts[j].Northing));
+        }
+        return Math.Atan2(pts[j].Easting - pts[0].Easting, pts[j].Northing - pts[0].Northing);
+    }
+
+    private static double WrapAngle(double a)
+    {
+        while (a > Math.PI) a -= 2 * Math.PI;
+        while (a < -Math.PI) a += 2 * Math.PI;
+        return a;
     }
 
     /// <summary>First hole whose interior the straight A→B gap enters (endpoints skipped).</summary>
@@ -643,6 +814,15 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
         foreach (var ring in rings) totalDist += PolylineLength(ring);
 
+        // Containment ring for turn validation: the outer boundary, pulled in by
+        // the clearance if one is configured. Turns must stay inside this so a
+        // Dubins turn that fits is preferred over one that pokes past the fence.
+        var boundaryList = boundary as List<Vec2> ?? new List<Vec2>(boundary);
+        List<Vec2>? turnLimit = boundaryClearance > 0.01
+            ? _offset.CreateInwardOffset(boundaryList, boundaryClearance)
+            : boundaryList;
+        if (turnLimit is not { Count: >= 3 }) turnLimit = boundaryList;
+
         for (int k = 0; k < ordered.Count; k++)
         {
             var poly = new List<Vec3>(ordered[k]);
@@ -666,7 +846,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
             if (prevExit.HasValue)
             {
-                var turn = BuildTurn(prevExit.Value, new Vec2(poly[0].Easting, poly[0].Northing), turnRadius);
+                var turn = BuildTurn(prevExit.Value, poly[0], turnRadius, turnLimit, holes);
                 if (turn.Count >= 2)
                 {
                     interior.Add(new RouteSegment(RouteSegmentType.Turn, turn));
@@ -697,42 +877,84 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
         segments.AddRange(headland);
 
-        // Connector from the innermost headland lap into the first interior pass.
+        // Connector from the innermost headland lap into the first interior pass — a
+        // tangent Dubins link between the two poses (leave the lap along its own heading,
+        // arrive lined up with the pass), not a straight jump the tractor can't pivot onto.
         if (rings.Count > 0 && interior.Count > 0)
         {
-            var innerEnd = rings[^1][^1];
+            var innerRing = rings[^1];
+            var innerEnd = innerRing[^1];
             var firstInterior = FirstSwathPoint(interior);
             if (firstInterior.HasValue)
             {
-                var connector = new List<Vec3> { innerEnd, firstInterior.Value };
-                segments.Add(new RouteSegment(RouteSegmentType.Approach, connector));
+                double hFrom = innerRing.Count >= 2
+                    ? Math.Atan2(innerEnd.Easting - innerRing[^2].Easting, innerEnd.Northing - innerRing[^2].Northing)
+                    : innerEnd.Heading;
+                var connector = BuildTurn(
+                    new Vec3(innerEnd.Easting, innerEnd.Northing, hFrom),
+                    firstInterior.Value, turnRadius, turnLimit, holes);
+                if (connector.Count < 2)
+                    connector = new List<Vec3> { innerEnd, firstInterior.Value };
+                segments.Add(new RouteSegment(RouteSegmentType.Turn, connector));
                 totalDist += PolylineLength(connector);
             }
         }
 
         segments.AddRange(interior);
 
-        // Boundary clearance: keep every point at least this far inside the
-        // boundary so a turn (or anything) can't reach the fence. Points already
-        // inside are untouched; any that poke out are pulled onto the limit ring.
-        if (boundaryClearance > 0.01)
-        {
-            var limit = _offset.CreateInwardOffset(
-                boundary as List<Vec2> ?? new List<Vec2>(boundary), boundaryClearance);
-            if (limit is { Count: >= 3 })
-            {
-                for (int i = 0; i < segments.Count; i++)
-                    segments[i] = new RouteSegment(segments[i].Type, ClampInside(segments[i].Points, limit));
-            }
-        }
 
         // Route the non-working pieces (turns, connectors, approach, headland laps) around
         // the obstacles too — the passes are already clipped, but these can cut across a pond.
         double rerouteRadius = turnRadius > 0.1 ? turnRadius : swathWidth * 0.5;
         if (holes is { Count: > 0 })
+        {
+            // Detour rings = obstacles inflated a further turn-radius (round joins), so any
+            // arc that hugs one is never tighter than the turn radius. The connector is then
+            // pushed out to THESE rings and smoothed, which keeps it drivable and clear.
+            var detourRings = new List<List<Vec2>>(holes.Count);
+            foreach (var h in holes)
+            {
+                var infl = _offset.CreateOutwardOffset(new List<Vec2>(h), rerouteRadius);
+                detourRings.Add(infl is { Count: >= 3 } ? infl : h);
+            }
+            // Turns that BuildTurn validated are already hole-aware and tangent at both
+            // ends — rerouting them would shift their endpoints off the pass ends and
+            // destroy the tangency (the "sharp angle straight out of the pass" artifact).
+            // Only turns that actually ENTER a hole (BuildTurn's last-resort fallback when
+            // no clear path exists, e.g. a pass ending right at the pond face) still get
+            // pushed around the rings.
+            bool EntersHole(IReadOnlyList<Vec3> pts)
+            {
+                foreach (var p in pts)
+                    foreach (var hole in holes)
+                        if (hole.Count >= 3 && GeometryMath.IsPointInPolygon(hole, new Vec2(p.Easting, p.Northing)))
+                            return true;
+                return false;
+            }
             for (int i = 0; i < segments.Count; i++)
-                if (segments[i].Type != RouteSegmentType.Swath && segments[i].Points.Count >= 2)
-                    segments[i] = new RouteSegment(segments[i].Type, RouteAroundHoles(segments[i].Points, holes, rerouteRadius));
+            {
+                if (segments[i].Points.Count < 2) continue;
+                var st = segments[i].Type;
+                if (st == RouteSegmentType.Swath) continue;
+                if (st == RouteSegmentType.Turn && !EntersHole(segments[i].Points)) continue;
+                // localOnly: deform only around the crossing — the global taut-string
+                // smoothing would CONTRACT a whole headland lap / long connector into
+                // chords that can cut across boundary notches (outside the field).
+                segments[i] = new RouteSegment(st, RouteAroundHoles(segments[i].Points, detourRings, rerouteRadius, localOnly: true));
+            }
+        }
+
+        // Boundary containment LAST: keep every point inside the field (inset by the
+        // clearance when configured — turnLimit above). BuildTurn's fallback ignores the
+        // limit and the obstacle reroute can nudge legs, so a leg could otherwise cross
+        // the fence; clamping pulls those points onto the line instead. The drive-to-
+        // start approach is exempt — the machine may legitimately start outside.
+        for (int i = 0; i < segments.Count; i++)
+        {
+            if (segments[i].Type == RouteSegmentType.Swath) continue;
+            if (i == 0 && segments[i].Type == RouteSegmentType.Approach) continue;
+            segments[i] = new RouteSegment(segments[i].Type, ClampInside(segments[i].Points, turnLimit));
+        }
 
         var meta = BuildMeta(segments, swathWidth);
         return new RoutePlan(segments, meta);
@@ -1216,11 +1438,16 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// points that falls inside a hole with an arc along that hole's boundary (shorter way).
     /// Handles both a straight edge crossing a hole and a turn that dips inside it.
     /// </summary>
-    private static List<Vec3> RouteAroundHoles(IReadOnlyList<Vec3> line, List<List<Vec2>> holes, double smoothRadius = 0)
+    private static List<Vec3> RouteAroundHoles(IReadOnlyList<Vec3> line, List<List<Vec2>> holes,
+        double smoothRadius = 0, bool localOnly = false)
     {
         if (line.Count < 2 || holes.Count == 0) return new List<Vec3>(line);
 
-        // Densify so a crossing registers as a run of interior points.
+        // Densify so a crossing registers as a run of interior points. The parallel
+        // 'moveable' mask marks detour points (and later their neighbourhood) — in
+        // localOnly mode ONLY those may be smoothed, so the rest of the leg keeps its
+        // exact shape (a headland lap or a long turn must not be globally relaxed:
+        // Laplacian smoothing is curve-shortening and would contract it into a blob).
         var pts = new List<Vec2>();
         for (int i = 0; i < line.Count; i++)
         {
@@ -1235,36 +1462,46 @@ public sealed class RoutePlanningService : IRoutePlanningService
                 pts.Add(new Vec2(a.Easting + (b.Easting - a.Easting) * t, a.Northing + (b.Northing - a.Northing) * t));
             }
         }
+        var moveable = new List<bool>(new bool[pts.Count]);
 
         bool detoured = false;
         foreach (var hole in holes)
         {
             if (hole.Count < 3) continue;
             var np = new List<Vec2>();
+            var nm = new List<bool>();
             int i = 0;
             while (i < pts.Count)
             {
-                if (!GeometryMath.IsPointInPolygon(hole, pts[i])) { np.Add(pts[i]); i++; continue; }
+                if (!GeometryMath.IsPointInPolygon(hole, pts[i])) { np.Add(pts[i]); nm.Add(moveable[i]); i++; continue; }
                 int j = i;
                 while (j < pts.Count && GeometryMath.IsPointInPolygon(hole, pts[j])) j++;
                 var before = np.Count > 0 ? np[^1] : pts[i];
                 var after = j < pts.Count ? pts[j] : before;
-                foreach (var v in HoleBoundaryDetour(hole, before, after)) np.Add(v);
+                foreach (var v in HoleBoundaryDetour(hole, before, after)) { np.Add(v); nm.Add(true); }
                 detoured = true;
                 i = j;
             }
             pts = np;
+            moveable = nm;
         }
 
         if (!detoured) return new List<Vec3>(line);   // no crossing — leave the line as-is
 
-        // Ease the detour: hugging the obstacle's polygon corners makes the turn snap
-        // around them. Collapse the densified straights (exposes the real corners), then
-        // fillet each to the turn radius so the approach curves in smoothly.
+        // Ease the detour: hugging the obstacle-boundary vertices makes the turn snap around
+        // sharp corners. Constrained smoothing (Laplacian relaxation that pushes any point
+        // that drifts inside a ring back onto its boundary) converges to the taut-string path
+        // — tangent straights + ring-hugging arcs. localOnly restricts the relaxation to a
+        // window around each detour so the leg only deviates near the obstacle.
         if (detoured && smoothRadius > 0.1 && pts.Count >= 3)
         {
-            pts = Simplify(pts, 0.4);
-            if (pts.Count >= 3) pts = RoundCorners(pts, smoothRadius, 12.0, closed: false);
+            if (localOnly)
+            {
+                ExpandMask(pts, moveable, Math.Max(10.0, smoothRadius * 2.5));
+                pts = ConstrainedSmoothMasked(pts, holes, moveable, 150);
+            }
+            else
+                pts = ConstrainedSmooth(pts, holes, smoothRadius, 150);
         }
 
         var outp = new List<Vec3>(pts.Count);
@@ -1274,6 +1511,173 @@ public sealed class RoutePlanningService : IRoutePlanningService
             outp.Add(new Vec3(a.Easting, a.Northing, Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
         }
         return outp;
+    }
+
+    /// <summary>Largest bounding-box side of an obstacle polygon (its rough footprint size).</summary>
+    private static double ObstacleMaxExtent(IReadOnlyList<Vec2> poly)
+    {
+        double minE = double.MaxValue, maxE = double.MinValue, minN = double.MaxValue, maxN = double.MinValue;
+        foreach (var v in poly)
+        {
+            if (v.Easting < minE) minE = v.Easting;
+            if (v.Easting > maxE) maxE = v.Easting;
+            if (v.Northing < minN) minN = v.Northing;
+            if (v.Northing > maxN) maxN = v.Northing;
+        }
+        return Math.Max(maxE - minE, maxN - minN);
+    }
+
+    /// <summary>
+    /// Swerve every leg of a plan (swaths included) around small obstacles. Each swerve
+    /// ring is inflated a further turn radius (round joins → drivable arcs), then every
+    /// segment is rerouted around them with the constrained smoother. Legs that don't come
+    /// near a ring are returned untouched, so the passes stay dead straight except for a
+    /// local deviation where the physical frame would otherwise clip the obstacle.
+    /// </summary>
+    private RoutePlan SwervePlan(RoutePlan plan, List<List<Vec2>> swerveHoles, double turnRadius)
+    {
+        // Push out only to the physical-clearance ring itself (NOT inflated by the turn
+        // radius, unlike the connector reroute) so the deviation is minimal — just enough
+        // for the frame to clear. The constrained smoother then spreads that small lateral
+        // offset longitudinally into a gentle, drivable bump rather than a tight bulge.
+        double r = turnRadius > 0.1 ? turnRadius : 3.0;
+        var segs = new List<RouteSegment>(plan.Segments.Count);
+        foreach (var seg in plan.Segments)
+            segs.Add(seg.Points.Count >= 2
+                ? new RouteSegment(seg.Type, RouteAroundHoles(seg.Points, swerveHoles, r, localOnly: true))
+                : seg);
+        return new RoutePlan(segs, BuildMeta(segs, plan.Metadata.ToolWidthMeters));
+    }
+
+    /// <summary>
+    /// Smooth a detour polyline toward the shortest drivable path that stays outside the
+    /// <paramref name="rings"/> (obstacles inflated by the turn radius). Endpoints are pinned;
+    /// each interior point is relaxed toward the midpoint of its neighbours, then any point
+    /// that lands inside a ring is projected back onto that ring's boundary. Repeating this
+    /// pulls the path taut (straight where it can be, hugging a ring where it must) while
+    /// never letting curvature exceed the ring's — i.e. never tighter than the turn radius.
+    /// </summary>
+    private static List<Vec2> ConstrainedSmooth(List<Vec2> pts, List<List<Vec2>> rings, double smoothRadius, int iterations)
+    {
+        // Coarser spacing converges to a given radius far faster (iterations needed
+        // scale with (R/ds)^2) and keeps the point count sane.
+        double ds = Math.Max(0.5, smoothRadius * 0.2);
+        var work = ResampleUniform(pts, ds);
+        int n = work.Count;
+        if (n < 3) return work;
+
+        for (int it = 0; it < iterations; it++)
+        {
+            var np = new List<Vec2>(work);
+            for (int i = 1; i < n - 1; i++)
+            {
+                double mx = 0.5 * (work[i - 1].Easting + work[i + 1].Easting);
+                double my = 0.5 * (work[i - 1].Northing + work[i + 1].Northing);
+                np[i] = new Vec2(work[i].Easting + 0.5 * (mx - work[i].Easting),
+                                 work[i].Northing + 0.5 * (my - work[i].Northing));
+            }
+            for (int i = 1; i < n - 1; i++)
+                foreach (var ring in rings)
+                    if (ring.Count >= 3 && GeometryMath.IsPointInPolygon(ring, np[i]))
+                        np[i] = NearestOnPolygon(ring, np[i]);
+            work = np;
+        }
+        return work;
+    }
+
+    /// <summary>Widen the moveable mask by <paramref name="window"/> meters of polyline on
+    /// each side of every detour point, so the smoother can blend the deviation into the
+    /// surrounding leg. Endpoints stay pinned.</summary>
+    private static void ExpandMask(List<Vec2> pts, List<bool> mask, double window)
+    {
+        int n = pts.Count;
+        var orig = new bool[n];
+        for (int i = 0; i < n; i++) orig[i] = mask[i];
+        for (int i = 0; i < n; i++)
+        {
+            if (!orig[i]) continue;
+            double acc = 0;
+            for (int k = i - 1; k >= 0 && acc < window; k--) { acc += Distance(pts[k], pts[k + 1]); mask[k] = true; }
+            acc = 0;
+            for (int k = i + 1; k < n && acc < window; k++) { acc += Distance(pts[k], pts[k - 1]); mask[k] = true; }
+        }
+        mask[0] = false;
+        mask[n - 1] = false;
+    }
+
+    /// <summary>
+    /// Like <see cref="ConstrainedSmooth"/> but only relaxes points flagged moveable —
+    /// used by the small-obstacle swerve so a pass bends smoothly around the obstacle
+    /// while the rest of the leg (which may be a whole headland lap) keeps its shape.
+    /// No resampling, so the mask stays aligned with the points.
+    /// </summary>
+    private static List<Vec2> ConstrainedSmoothMasked(List<Vec2> pts, List<List<Vec2>> rings,
+        List<bool> moveable, int iterations)
+    {
+        int n = pts.Count;
+        if (n < 3) return pts;
+        var work = new List<Vec2>(pts);
+        for (int it = 0; it < iterations; it++)
+        {
+            var np = new List<Vec2>(work);
+            for (int i = 1; i < n - 1; i++)
+            {
+                if (!moveable[i]) continue;
+                double mx = 0.5 * (work[i - 1].Easting + work[i + 1].Easting);
+                double my = 0.5 * (work[i - 1].Northing + work[i + 1].Northing);
+                np[i] = new Vec2(work[i].Easting + 0.5 * (mx - work[i].Easting),
+                                 work[i].Northing + 0.5 * (my - work[i].Northing));
+            }
+            for (int i = 1; i < n - 1; i++)
+            {
+                if (!moveable[i]) continue;
+                foreach (var ring in rings)
+                    if (ring.Count >= 3 && GeometryMath.IsPointInPolygon(ring, np[i]))
+                        np[i] = NearestOnPolygon(ring, np[i]);
+            }
+            work = np;
+        }
+        return work;
+    }
+
+    /// <summary>Resample a polyline to roughly uniform <paramref name="ds"/>-meter spacing,
+    /// keeping the exact endpoints.</summary>
+    private static List<Vec2> ResampleUniform(List<Vec2> pts, double ds)
+    {
+        if (pts.Count < 2 || ds <= 0.01) return new List<Vec2>(pts);
+        var outp = new List<Vec2> { pts[0] };
+        double carry = 0;
+        for (int i = 1; i < pts.Count; i++)
+        {
+            var a = pts[i - 1]; var b = pts[i];
+            double seg = Distance(a, b);
+            if (seg < 1e-6) continue;
+            double t = ds - carry;
+            while (t <= seg)
+            {
+                double f = t / seg;
+                outp.Add(new Vec2(a.Easting + (b.Easting - a.Easting) * f,
+                                  a.Northing + (b.Northing - a.Northing) * f));
+                t += ds;
+            }
+            carry = seg - (t - ds);
+        }
+        if (Distance(outp[^1], pts[^1]) > 1e-6) outp.Add(pts[^1]);
+        return outp;
+    }
+
+    /// <summary>Nearest point to <paramref name="p"/> on the boundary (edges) of a polygon.</summary>
+    private static Vec2 NearestOnPolygon(IReadOnlyList<Vec2> poly, Vec2 p)
+    {
+        Vec2 best = poly[0]; double bestD = double.MaxValue;
+        for (int i = 0; i < poly.Count; i++)
+        {
+            var a = poly[i]; var b = poly[(i + 1) % poly.Count];
+            var q = Vec2.ProjectOnSegment(p, a, b);
+            double d = Distance(p, q);
+            if (d < bestD) { bestD = d; best = q; }
+        }
+        return best;
     }
 
     /// <summary>
@@ -1451,18 +1855,140 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// ≥ the turn radius) suffices. When they're closer than 2R, an omega/sagitta
     /// turn at radius R is used instead — so the path stays physically drivable.
     /// </summary>
-    private static List<Vec3> BuildTurn(Vec3 from, Vec2 to, double turnRadius)
+    private static List<Vec3> BuildTurn(Vec3 from, Vec3 to, double turnRadius,
+        IReadOnlyList<Vec2>? limit, List<List<Vec2>>? holes)
+    {
+        var toPt = new Vec2(to.Easting, to.Northing);
+
+        // No radius limit configured — keep the simple, exact semicircle.
+        if (turnRadius <= 0.1)
+            return BuildSemicircleTurn(from, toPt);
+
+        // 1. Direct Dubins turn at the min radius. Shortest-valid picks the tidy
+        //    headland omega when it fits, or a longer loop into open space when
+        //    the omega would poke past the fence / into an obstacle.
+        var direct = ValidatedDubinsTurn(from, 0, to, turnRadius, limit, holes);
+        if (direct != null) return direct;
+
+        // 2. Nothing fit at the pass end. Drive further forward first (into the
+        //    open headland / paddock) so the loop has room, growing the run until
+        //    a valid turn appears — "drive on, turn where there's space, come back".
+        for (double d = turnRadius; d <= turnRadius * 6.0 + 1e-6; d += turnRadius)
+        {
+            var extended = ValidatedDubinsTurn(from, d, to, turnRadius, limit, holes);
+            if (extended != null) return extended;
+        }
+
+        // 3. No fully-in-bounds turn found. Prefer the shortest *min-radius* Dubins
+        //    path even though it clips the boundary/an obstacle: it's smooth and
+        //    drivable, and the later RouteAroundHoles / CloseTransitGaps stages
+        //    detour it around obstacles. This is the common case for long
+        //    block-transition connectors around a pond. Only if Dubins yields
+        //    nothing at all do we drop to the legacy omega.
+        var fallback = DubinsTurn.AllPaths(from, to, turnRadius);
+        if (fallback.Count > 0)
+            return DensifyToVec3(fallback[0].Coords, from.Heading);
+        return LegacyOmega(from, toPt, turnRadius);
+    }
+
+    /// <summary>
+    /// Build a turn that first drives straight <paramref name="forward"/> meters
+    /// from <paramref name="from"/> along its heading, then follows the shortest
+    /// Dubins arc (at <paramref name="turnRadius"/>) to <paramref name="to"/>.
+    /// Returns the path (sub-sampled Vec3 with headings) only if every point stays
+    /// inside <paramref name="limit"/> and outside <paramref name="holes"/>; else null.
+    /// </summary>
+    private static List<Vec3>? ValidatedDubinsTurn(Vec3 from, double forward, Vec3 to,
+        double turnRadius, IReadOnlyList<Vec2>? limit, List<List<Vec2>>? holes)
+    {
+        double dE = Math.Sin(from.Heading), dN = Math.Cos(from.Heading);
+        var arcStart = new Vec3(from.Easting + forward * dE, from.Northing + forward * dN, from.Heading);
+
+        foreach (var (coords, _) in DubinsTurn.AllPaths(arcStart, to, turnRadius))
+        {
+            // Prepend the straight forward leg (sampled) so it's validated too.
+            var dense = new List<Vec2>();
+            if (forward > 0.01)
+            {
+                int n = Math.Max(1, (int)Math.Ceiling(forward / 0.25));
+                for (int i = 0; i < n; i++)
+                {
+                    double t = forward * i / n;
+                    dense.Add(new Vec2(from.Easting + t * dE, from.Northing + t * dN));
+                }
+            }
+            dense.AddRange(coords);
+
+            if (!PathInside(dense, limit)) continue;
+            if (!PathClearsHoles(dense, holes)) continue;
+            return DensifyToVec3(dense, from.Heading);
+        }
+        return null;
+    }
+
+    private static bool PathInside(IReadOnlyList<Vec2> pts, IReadOnlyList<Vec2>? limit)
+    {
+        if (limit is not { Count: >= 3 }) return true;
+        foreach (var p in pts)
+            if (!GeometryMath.IsPointInPolygon(limit, p)) return false;
+        return true;
+    }
+
+    private static bool PathClearsHoles(IReadOnlyList<Vec2> pts, List<List<Vec2>>? holes)
+    {
+        if (holes is not { Count: > 0 }) return true;
+        foreach (var hole in holes)
+        {
+            if (hole.Count < 3) continue;
+            foreach (var p in pts)
+                if (GeometryMath.IsPointInPolygon(hole, p)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Sub-sample dense (0.05 m) Dubins coordinates to ~0.4 m spacing and attach
+    /// travel headings (dE = sin, dN = cos).
+    /// </summary>
+    private static List<Vec3> DensifyToVec3(IReadOnlyList<Vec2> coords, double startHeading)
+    {
+        if (coords.Count == 0) return new List<Vec3>();
+
+        var pts = new List<Vec2> { coords[0] };
+        double acc = 0; Vec2 last = coords[0];
+        for (int i = 1; i < coords.Count; i++)
+        {
+            acc += Distance(last, coords[i]); last = coords[i];
+            if (acc >= 0.4) { pts.Add(coords[i]); acc = 0; }
+        }
+        if (pts.Count < 2 || pts[^1] != coords[^1]) pts.Add(coords[^1]);
+
+        var outp = new List<Vec3>(pts.Count);
+        for (int i = 0; i < pts.Count - 1; i++)
+        {
+            double hE = pts[i + 1].Easting - pts[i].Easting;
+            double hN = pts[i + 1].Northing - pts[i].Northing;
+            double hdg = (Math.Abs(hE) < 1e-9 && Math.Abs(hN) < 1e-9)
+                ? (i > 0 ? outp[i - 1].Heading : startHeading)
+                : Math.Atan2(hE, hN);
+            outp.Add(new Vec3(pts[i].Easting, pts[i].Northing, hdg));
+        }
+        outp.Add(new Vec3(pts[^1].Easting, pts[^1].Northing, outp.Count > 0 ? outp[^1].Heading : startHeading));
+        return outp;
+    }
+
+    /// <summary>
+    /// Legacy omega/semicircle turn (no boundary awareness) used as a last-resort
+    /// fallback when no Dubins turn fits even with a forward run.
+    /// </summary>
+    private static List<Vec3> LegacyOmega(Vec3 from, Vec2 to, double turnRadius)
     {
         var p0 = new Vec2(from.Easting, from.Northing);
         double gap = Distance(p0, to);
 
-        // Wide enough for a clean semicircle (its radius gap/2 ≥ R), or no radius
-        // limit configured: keep the simple, exact semicircle.
-        if (turnRadius <= 0.1 || gap >= 2.0 * turnRadius - 0.05)
+        if (gap >= 2.0 * turnRadius - 0.05)
             return BuildSemicircleTurn(from, to);
 
-        // Too tight for a semicircle at this radius — use the sagitta/omega turn
-        // at R. Direction depends on which side the next pass is on.
         double fE = Math.Sin(from.Heading), fN = Math.Cos(from.Heading);   // exit travel
         double rightE = fN, rightN = -fE;                                  // right normal
         double latE = to.Easting - p0.Easting, latN = to.Northing - p0.Northing;
@@ -1473,7 +1999,6 @@ public sealed class RoutePlanningService : IRoutePlanningService
             new Vec3(from.Easting, from.Northing, from.Heading),
             from.Heading, turnRight, turnRadius, offset, Math.PI);
 
-        // Close any small residual to the actual pass entry so the route connects.
         if (arc.Count >= 2)
         {
             var end = arc[^1];
@@ -1607,5 +2132,21 @@ public sealed class RoutePlanningService : IRoutePlanningService
         }
         double est = EstimateSpeedMps > 0 ? total / EstimateSpeedMps : 0;
         return new RoutePlanMetadata(swaths, total, est, work, turn, turns, toolWidth);
+    }
+
+    /// <summary>
+    /// Estimated time to drive a route, in seconds: worked distance at the working
+    /// speed, non-working (turn + transport) distance at the turn speed, plus a fixed
+    /// per-turn overhead for the decelerate / manoeuvre / accelerate each U-turn costs
+    /// beyond its arc length. Used to compare candidate plans (pattern / angle / skip)
+    /// so the planner can pick the genuinely fastest one, not just the shortest.
+    /// </summary>
+    public static double EstimateWorkSeconds(
+        RoutePlanMetadata meta, double workSpeedMps, double turnSpeedMps, double turnOverheadSec)
+    {
+        if (meta == null) return double.MaxValue;
+        double w = meta.WorkDistanceMeters / Math.Max(0.1, workSpeedMps);
+        double t = meta.TurnDistanceMeters / Math.Max(0.1, turnSpeedMps);
+        return w + t + meta.TurnCount * Math.Max(0, turnOverheadSec);
     }
 }

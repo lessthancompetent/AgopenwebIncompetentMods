@@ -631,6 +631,7 @@ function drawRoutePlanSk(canvas) {
   }
 }
 function rpRender() {
+  rpFillSpeeds();
   for (const b of document.querySelectorAll('#routeplan .rp-pat'))
     b.classList.toggle('on', +b.dataset.pat === rpPattern);
   document.getElementById('rp-hl').textContent = rpHeadland === 0 ? 'Auto' : rpHeadland;
@@ -680,13 +681,30 @@ function deleteObstacle() {
 }
 function openRoutePlanner() { lnOpen('routeplan', 'ln-fieldtools', rpRender); }
 function openObstacles() { lnOpen('obstacles', 'ln-fieldtools', rpRender); }
+// Route speed model (per-machine, persists with Save Profile): work/turn km/h + s/turn.
+for (const [id, key] of [['rp-wspd','uturn.routeWorkSpeedKmh'],['rp-tspd','uturn.routeTurnSpeedKmh'],['rp-tovh','uturn.routeTurnOverheadSec']]) {
+  const el = document.getElementById(id);
+  el.addEventListener('change', () => { const v = parseFloat(el.value); if (Number.isFinite(v)) cfgSend(key, v); });
+}
+function rpFillSpeeds() {
+  for (const [id, key] of [['rp-wspd','uturn.routeWorkSpeedKmh'],['rp-tspd','uturn.routeTurnSpeedKmh'],['rp-tovh','uturn.routeTurnOverheadSec']]) {
+    const el = document.getElementById(id);
+    if (document.activeElement === el) continue;
+    const v = cfgGet(key);
+    if (typeof v === 'number') el.value = Math.round(v * 10) / 10;
+  }
+}
 function planRoute() {
   transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0].join(','));
   document.getElementById('rp-stats').textContent = 'Planning…';
-  // The command runs on the backend dispatcher; give it a beat, then fetch the result.
-  setTimeout(() => {
+  // The command runs on the backend dispatcher and can take a while on big fields
+  // (obstacle-aware Dubins turns). Poll the result a few times before giving up.
+  let tries = 0;
+  const poll = () => {
+    tries++;
     fetch('/api/routeplan').then(r => r.json()).then(d => {
       if (!d || !d.segments || d.segments.length === 0) {
+        if (tries < 28) { setTimeout(poll, 250); return; }   // up to ~4 s
         routePlan = null;
         document.getElementById('rp-stats').textContent = 'No route (open a field with a boundary).';
         return;
@@ -696,8 +714,12 @@ function planRoute() {
       const km = ((m.distanceM || 0) / 1000).toFixed(2);
       document.getElementById('rp-stats').textContent =
         `${m.swaths || 0} passes · ${m.turns || 0} turns · ${km} km · ${(m.toolWidthM || 0).toFixed(2)} m tool`;
-    }).catch(() => { document.getElementById('rp-stats').textContent = 'Plan fetch failed.'; });
-  }, 250);
+    }).catch(() => {
+      if (tries < 28) { setTimeout(poll, 250); return; }
+      document.getElementById('rp-stats').textContent = 'Plan fetch failed.';
+    });
+  };
+  setTimeout(poll, 250);
 }
 function clearRoute() {
   transport.send('route.clear');

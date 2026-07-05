@@ -315,10 +315,11 @@ public record ToolConfigDto(
     double SlowSpeedCutoff, double CoverageMargin,
     bool IsWorkSwitchEnabled, bool IsWorkSwitchActiveLow, bool IsWorkSwitchManualSections,
     bool IsSteerSwitchEnabled, bool IsSteerSwitchManualSections,
-    double TotalWidth);
+    double TotalWidth, double PhysicalWidth);
 
 /// <summary>U-Turn tab (ConfigStore.Guidance). Style: 0 Omega, 1 Sagitta.</summary>
-public record UturnConfigDto(int Style, double Extension, int Smoothing, double Radius, double DistanceFromBoundary);
+public record UturnConfigDto(int Style, double Extension, int Smoothing, double Radius, double DistanceFromBoundary,
+    double RouteWorkSpeedKmh, double RouteTurnSpeedKmh, double RouteTurnOverheadSec);
 
 /// <summary>Tram Lines tab (ConfigStore.Guidance tram fields).</summary>
 public record TramConfigDto(int Passes, bool Display, int Line);

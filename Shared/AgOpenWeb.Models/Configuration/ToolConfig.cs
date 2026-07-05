@@ -45,6 +45,18 @@ public class ToolConfig : ObservableObject
 
     public double HalfWidth => Width / 2.0;
 
+    // Physical frame width (meters): the actual lateral extent of the machine that must
+    // clear obstacles, as distinct from the working/spread Width used for swath spacing
+    // and coverage (e.g. a spreader throws 15 m but is physically ~2.8 m wide). 0 = not
+    // set → obstacle clearance falls back to the working Width. Route planner uses this to
+    // swerve small obstacles by only the frame width instead of routing around the spread.
+    private double _physicalWidth;
+    public double PhysicalWidth
+    {
+        get => _physicalWidth;
+        set => SetProperty(ref _physicalWidth, Math.Max(0, value));
+    }
+
     private double _overlap;
     public double Overlap
     {

@@ -146,6 +146,9 @@ public static class VehicleProfileJsonService
             SkipWidth = store.Guidance.UTurnSkipWidth,
             Style = store.Guidance.UTurnStyle,
             Smoothing = store.Guidance.UTurnSmoothing,
+            RouteWorkSpeedKmh = store.Guidance.RouteWorkSpeedKmh,
+            RouteTurnSpeedKmh = store.Guidance.RouteTurnSpeedKmh,
+            RouteTurnOverheadSec = store.Guidance.RouteTurnOverheadSec,
         },
         General = new GeneralDto
         {
@@ -202,6 +205,9 @@ public static class VehicleProfileJsonService
 
         // YouTurn (mirrored onto Guidance.UTurn* fields per current store layout)
         store.Guidance.UTurnRadius = dto.YouTurn?.TurnRadius ?? 8.0;
+        store.Guidance.RouteWorkSpeedKmh = dto.YouTurn?.RouteWorkSpeedKmh ?? 8.0;
+        store.Guidance.RouteTurnSpeedKmh = dto.YouTurn?.RouteTurnSpeedKmh ?? 6.0;
+        store.Guidance.RouteTurnOverheadSec = dto.YouTurn?.RouteTurnOverheadSec ?? 4.0;
         store.Guidance.UTurnExtension = dto.YouTurn?.ExtensionLength ?? 20.0;
         store.Guidance.UTurnDistanceFromBoundary = dto.YouTurn?.DistanceFromBoundary ?? 2.0;
         store.Guidance.UTurnSkipWidth = dto.YouTurn?.SkipWidth ?? 1;
@@ -272,6 +278,9 @@ public static class VehicleProfileJsonService
 
     internal class YouTurnDto
     {
+        public double? RouteWorkSpeedKmh { get; set; }
+        public double? RouteTurnSpeedKmh { get; set; }
+        public double? RouteTurnOverheadSec { get; set; }
         public double TurnRadius { get; set; }
         public double ExtensionLength { get; set; }
         public double DistanceFromBoundary { get; set; }

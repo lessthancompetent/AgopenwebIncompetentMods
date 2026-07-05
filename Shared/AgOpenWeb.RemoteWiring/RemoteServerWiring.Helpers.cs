@@ -107,6 +107,7 @@ public static partial class RemoteServerWiring
             case "tool.turnOffDelay": if (D(out var t7)) tool.TurnOffDelay = t7; return;
             case "tool.offset": if (D(out var t8)) tool.Offset = t8; return;
             case "tool.overlap": if (D(out var t9)) tool.Overlap = t9; return;
+            case "tool.physicalWidth": if (D(out var tpw)) tool.PhysicalWidth = tpw; return;
             case "tool.trailingToolToPivotLength": if (D(out var t10)) tool.TrailingToolToPivotLength = t10; return;
             case "tool.slowSpeedCutoff": if (D(out var t11)) tool.SlowSpeedCutoff = t11; return;
             case "tool.coverageMargin": if (D(out var t12)) tool.CoverageMargin = t12; return;
@@ -142,6 +143,9 @@ public static partial class RemoteServerWiring
             case "uturn.smoothing": if (I(out var u3)) gd.UTurnSmoothing = u3; return;
             case "uturn.radius": if (D(out var u4)) gd.UTurnRadius = u4; return;
             case "uturn.distanceFromBoundary": if (D(out var u5)) gd.UTurnDistanceFromBoundary = u5; return;
+            case "uturn.routeWorkSpeedKmh": if (D(out var u6)) gd.RouteWorkSpeedKmh = u6; return;
+            case "uturn.routeTurnSpeedKmh": if (D(out var u7)) gd.RouteTurnSpeedKmh = u7; return;
+            case "uturn.routeTurnOverheadSec": if (D(out var u8)) gd.RouteTurnOverheadSec = u8; return;
             // --- Tram (ConfigStore.Guidance) ---
             case "tram.passes": if (I(out var tp)) gd.TramPasses = tp; return;
             case "tram.display": gd.TramDisplay = B(); return;

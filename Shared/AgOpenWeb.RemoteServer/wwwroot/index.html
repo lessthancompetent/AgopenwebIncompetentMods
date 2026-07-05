@@ -1211,6 +1211,8 @@
       <div class="rp-step"><button class="rp-sb" data-rp="block" data-d="-1">−</button><span id="rp-block">3</span><button class="rp-sb" data-rp="block" data-d="1">+</button></div></div>
     <div class="rp-row" id="rp-angle-row"><span class="cfg-label">Angle °</span>
       <div class="rp-step"><button class="rp-sb" data-rp="angle" data-d="-5">−</button><span id="rp-angle">0</span><button class="rp-sb" data-rp="angle" data-d="5">+</button></div></div>
+    <div class="rp-row" id="rp-speeds-row" title="Machine speed model for route comparison and ETA: work km/h, turn km/h, seconds lost per turn"><span class="cfg-label">Spd W/T · s/turn</span>
+      <input id="rp-wspd" type="number" step="0.5" min="0.5" style="width:46px"><input id="rp-tspd" type="number" step="0.5" min="0.5" style="width:46px"><input id="rp-tovh" type="number" step="0.5" min="0" style="width:46px"></div>
     <div class="rp-pats" id="rp-cornerfill-row" style="grid-template-columns:1fr">
       <button class="rp-pat" id="rp-cornerfill">Corner fill (spiral)</button>
     </div>
@@ -1462,6 +1464,7 @@
             <label data-show="trailtbt">Trailing hitch (m)</label><input class="cfg-num" data-key="tool.trailingHitchLength" data-show="trailtbt" type="number" step="0.01">
             <label data-show="tbt">Tank trailing hitch (m)</label><input class="cfg-num" data-key="tool.tankTrailingHitchLength" data-show="tbt" type="number" step="0.01">
             <label>Implement length (m)</label><input class="cfg-num" data-key="tool.length" type="number" step="0.01">
+            <label>Physical width (m)</label><input class="cfg-num" data-key="tool.physicalWidth" type="number" step="0.01" title="Actual frame width for obstacle clearance; 0 = use working width. Route planner swerves small obstacles by this instead of the full spread.">
           </div>
         </div>
       </div>
