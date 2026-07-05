@@ -333,7 +333,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
             // Tangent link between the two poses at the machine's radius.
             var link = BuildTurn(new Vec3(A.Easting, A.Northing, ha),
-                                 new Vec3(B.Easting, B.Northing, hb), radius, limit, holesForLink);
+                                 new Vec3(B.Easting, B.Northing, hb), radius, limit, holesForLink,
+                                 allowReverse: true);
 
             bool clear = link.Count >= 2;
             if (clear && holesForLink.Count > 0)
@@ -1856,7 +1857,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// turn at radius R is used instead — so the path stays physically drivable.
     /// </summary>
     private static List<Vec3> BuildTurn(Vec3 from, Vec3 to, double turnRadius,
-        IReadOnlyList<Vec2>? limit, List<List<Vec2>>? holes)
+        IReadOnlyList<Vec2>? limit, List<List<Vec2>>? holes, bool allowReverse = false)
     {
         var toPt = new Vec2(to.Easting, to.Northing);
 
@@ -1879,7 +1880,25 @@ public sealed class RoutePlanningService : IRoutePlanningService
             if (extended != null) return extended;
         }
 
-        // 3. No fully-in-bounds turn found. Prefer the shortest *min-radius* Dubins
+        // 3. Reverse K-turn (Reeds-Shepp): where forward-only motion physically can't
+        //    work — e.g. a pass ending at an obstacle face pointing straight at it —
+        //    a 3-point turn can. Validated like the Dubins candidates; waypoint
+        //    headings are vehicle-facing so reverse legs render/steer correctly.
+        if (allowReverse)
+            try
+            {
+                var rs = new ReedsSheppPathService(turnRadius).GetShortestPath(from, to, 0.2);
+                if (rs.Waypoints.Count >= 2)
+                {
+                    var rsPts = new List<Vec2>(rs.Waypoints.Count);
+                    foreach (var w in rs.Waypoints) rsPts.Add(new Vec2(w.Easting, w.Northing));
+                    if (PathInside(rsPts, limit) && PathClearsHoles(rsPts, holes))
+                        return new List<Vec3>(rs.Waypoints);
+                }
+            }
+            catch { /* degenerate poses — fall through to the clamped fallback */ }
+
+        // 4. No fully-in-bounds turn found. Prefer the shortest *min-radius* Dubins
         //    path even though it clips the boundary/an obstacle: it's smooth and
         //    drivable, and the later RouteAroundHoles / CloseTransitGaps stages
         //    detour it around obstacles. This is the common case for long
