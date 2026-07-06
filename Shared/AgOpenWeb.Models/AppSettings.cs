@@ -31,6 +31,8 @@ namespace AgOpenWeb.Models
         public bool SvennArrowVisible { get; set; } = false;
         public bool KeyboardEnabled { get; set; } = false;
         public bool HeadlandDistanceVisible { get; set; } = true;
+        public bool ObstacleAlarmEnabled { get; set; } = false;
+        public int ObstacleAlarmDistanceM { get; set; } = 10;
         public bool ExtraGuidelines { get; set; } = false;
         public int ExtraGuidelinesCount { get; set; } = 10;
         public bool AutoTrack { get; set; } = true;

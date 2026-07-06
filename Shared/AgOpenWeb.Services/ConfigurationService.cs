@@ -463,6 +463,8 @@ public class ConfigurationService(
         store.Display.SvennArrowVisible = settings.SvennArrowVisible;
         store.Display.KeyboardEnabled = settings.KeyboardEnabled;
         store.Display.HeadlandDistanceVisible = settings.HeadlandDistanceVisible;
+        store.Display.ObstacleAlarmEnabled = settings.ObstacleAlarmEnabled;
+        store.Display.ObstacleAlarmDistanceM = settings.ObstacleAlarmDistanceM;
         store.Display.ExtraGuidelines = settings.ExtraGuidelines;
         store.Display.ExtraGuidelinesCount = settings.ExtraGuidelinesCount;
         store.Display.AutoTrack = settings.AutoTrack;
@@ -533,6 +535,8 @@ public class ConfigurationService(
         settings.SvennArrowVisible = store.Display.SvennArrowVisible;
         settings.KeyboardEnabled = store.Display.KeyboardEnabled;
         settings.HeadlandDistanceVisible = store.Display.HeadlandDistanceVisible;
+        settings.ObstacleAlarmEnabled = store.Display.ObstacleAlarmEnabled;
+        settings.ObstacleAlarmDistanceM = store.Display.ObstacleAlarmDistanceM;
         settings.ExtraGuidelines = store.Display.ExtraGuidelines;
         settings.ExtraGuidelinesCount = store.Display.ExtraGuidelinesCount;
         settings.AutoTrack = store.Display.AutoTrack;
