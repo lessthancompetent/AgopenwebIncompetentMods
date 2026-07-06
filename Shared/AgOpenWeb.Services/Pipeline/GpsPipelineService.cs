@@ -406,7 +406,14 @@ public sealed class GpsPipelineService : IGpsPipelineService
         var intents = _intents.Drain();
         if (intents.ClearYouTurn)
             YouTurnStateMachine.ClearState(_youTurn);
-        if (intents.GuidanceSnap.HasValue)
+        // #50. A snap mid-turn is IGNORED entirely: applying it would shift the
+        // displayed track (HowManyPathsAway) while the tractor is committed to the
+        // executing arc's already-computed target — so it lands on the OLD pass and
+        // then laterally seeks across to the just-snapped one (operator-confirmed as
+        // the confusing behavior). The arc can't be safely re-planned mid-swing, so
+        // we drop the snap outright; the client also hints "finish the turn first".
+        // The armed-but-not-executing case still re-plans cleanly below (#408).
+        if (intents.GuidanceSnap.HasValue && !_youTurn.IsExecuting)
         {
             // Phase D D4. IsHeadingSameWay is the cycle's view of whether the
             // tractor is aligned with the track direction. Snap "left" from
@@ -425,8 +432,7 @@ public sealed class GpsPipelineService : IGpsPipelineService
             // armed arc and lands on the *old* NextTrack (the original
             // exit pass) instead of replanning for the just-snapped pass.
             // Mirrors the direction-override re-arm in YouTurnStateMachine.
-            // Mid-arc snaps are unsafe and stay no-op.
-            if (_youTurn.TurnPath != null && !_youTurn.IsExecuting)
+            if (_youTurn.TurnPath != null)
             {
                 _youTurn.TurnPath = null;
                 _youTurn.NextTrack = null;
@@ -513,12 +519,21 @@ public sealed class GpsPipelineService : IGpsPipelineService
             _nextUTurnDirectionLeftOverride = null;
         }
 
-        // No-headland workflow: substitute a synthetic headland line that
-        // sits one (turn radius + UTurnDistanceFromBoundary) inset from the
-        // outer boundary, so the auto-uturn arc's apex lands inside the
-        // outer boundary. headlandCalculatedWidth is set to the inset so
-        // downstream U-turn geometry (HeadlandWidth, leg lengths) is
-        // consistent with the synthesized line.
+        // Boundary-follow curve (NoPassOffset): only SUPPRESS the free-drive nearest-pass snap
+        // (below) so it stays where you put it — it starts on the boundary (pass 0, seeded from
+        // NudgeDistance) instead of jumping to the pass nearest a parked tractor. Laterals,
+        // nudges and U-turns still change the pass normally; we don't pin it here.
+        bool noPassOffset = track != null && track.NoPassOffset;
+
+        // No-headland workflow: substitute the outer-boundary TURN LINE for the
+        // missing headland line — the AgOpen model (CTurn.BuildTurnLines): the
+        // fence offset inward by just UTurnDistanceFromBoundary. This line is the
+        // "in-turn-bounds" polygon the state machine gates arming on and raycasts
+        // distance to; a fence-hugging boundary-follow pass (offset ~half a tool
+        // inside the fence) sits INSIDE it, so it arms via the normal cultivated-
+        // zone path. The turn's actual geometry is anchored on the turn boundary
+        // built inside BuildCreationInput (also offset by UTurnDistanceFromBoundary)
+        // and fitted by MoveTurnInsideTurnLine, so this line does not shape the arc.
         if (headlandLine == null && boundary?.OuterBoundary != null && boundary.OuterBoundary.IsValid)
         {
             var synth = GetOrComputeSyntheticHeadland(boundary);
@@ -916,7 +931,7 @@ public sealed class GpsPipelineService : IGpsPipelineService
                 _autoSteerService.UpdateGuidanceResults(steerAngle, crossTrackError);
             }
         }
-        if (!autoSteerEngaged && hasTrack)
+        if (!autoSteerEngaged && hasTrack && !noPassOffset)
         {
             // Display-only: auto-detect nearest pass and update visualization.
             // Phase D D3: write the detected pass directly into the cycle's
@@ -1582,13 +1597,13 @@ public sealed class GpsPipelineService : IGpsPipelineService
     private (List<Vec3>? Line, double Inset) GetOrComputeSyntheticHeadland(Boundary boundary)
     {
         var guidanceConfig = _configStore.Guidance;
-        double turnRadius = guidanceConfig.UTurnRadius;
-        double distFromBoundary = guidanceConfig.UTurnDistanceFromBoundary;
-        double inset = turnRadius + distFromBoundary;
-        // Pack the two doubles into a single key. UTurnRadius is small (<20m)
-        // so multiplying by 1000 and adding distance keeps both contributions
-        // distinguishable for cache invalidation purposes.
-        double configKey = turnRadius * 1000.0 + distFromBoundary;
+        // AgOpen CTurn.BuildTurnLines: turn line = fence inset by uturnDistanceFromBoundary
+        // ONLY (no turn-radius inset). A deeper inset would push a fence-hugging boundary
+        // pass outside the "in-turn-bounds" polygon and it would never arm; the turn radius
+        // is accounted for by MoveTurnInsideTurnLine fitting the arc, not by pre-insetting
+        // this line.
+        double inset = guidanceConfig.UTurnDistanceFromBoundary;
+        double configKey = inset;
 
         if (ReferenceEquals(boundary, _syntheticHeadlandSourceBoundary)
             && Math.Abs(configKey - _syntheticHeadlandConfigKey) < 1e-9)
@@ -1606,8 +1621,8 @@ public sealed class GpsPipelineService : IGpsPipelineService
         _syntheticHeadlandSourceBoundary = boundary;
         _syntheticHeadlandConfigKey = configKey;
         _syntheticHeadlandInsetUsed = inset;
-        _logger.LogDebug("[YouTurn] Synthesized headland (no user headland): inset={I:F1}m (turnR={R:F1}+dist={D:F1}), pts={P}",
-            inset, turnRadius, distFromBoundary, _syntheticHeadlandLine?.Count ?? 0);
+        _logger.LogDebug("[YouTurn] Synthesized turn line (no user headland): inset={I:F1}m (uturnDistanceFromBoundary), pts={P}",
+            inset, _syntheticHeadlandLine?.Count ?? 0);
         return (_syntheticHeadlandLine, _syntheticHeadlandInsetUsed);
     }
 

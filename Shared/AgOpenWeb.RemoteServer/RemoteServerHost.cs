@@ -97,6 +97,16 @@ public sealed class RemoteServerHost
     /// metadata) in the active map plane. Served at GET /api/routeplan.</summary>
     public Func<string>? RoutePlanJsonProvider { get; set; }
 
+    /// <summary>Host-supplied persisted web-camera view (pitch radians, zoom px/m).
+    /// Read once per connection and sent in the seed so the client restores its last
+    /// tilt+zoom (issue #35). Set after <see cref="StartAsync"/>.</summary>
+    public Func<(double Pitch, double Zoom)?>? ViewPrefsProvider
+    {
+        get => _broadcaster?.ViewPrefsProvider;
+        set { _viewPrefsProvider = value; if (_broadcaster is not null) _broadcaster.ViewPrefsProvider = value; }
+    }
+    private Func<(double Pitch, double Zoom)?>? _viewPrefsProvider;
+
     /// <summary>Host-supplied projector for the Field Builder Headland-tab segment list
     /// (VM-owned, rides the Scene frame). Set after <see cref="StartAsync"/>.</summary>
     public Func<IReadOnlyList<HeadlandSegInfoDto>>? HeadlandSegsProvider
@@ -175,6 +185,7 @@ public sealed class RemoteServerHost
         _broadcaster.WizardProvider = _wizardProvider;
         _broadcaster.RecordedPathProvider = _recordedPathProvider;
         _broadcaster.BoundaryProvider = _boundaryProvider;
+        _broadcaster.ViewPrefsProvider = _viewPrefsProvider;
         _broadcaster.Projector.HeadlandSegsProvider = _headlandSegsProvider;
         _broadcaster.Projector.TramLinesProvider = _tramLinesProvider;
 

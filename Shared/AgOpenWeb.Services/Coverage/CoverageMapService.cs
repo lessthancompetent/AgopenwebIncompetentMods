@@ -182,6 +182,29 @@ public class CoverageMapService : ICoverageMapService
         }
     }
 
+    // ---- Vector perimeter (server-fed crisp edge) ----
+    // The swept tool-edge ribbon per mapping run, as distance-gated (left,right) pairs.
+    // GetCoveragePerimeter() walks these and keeps only vertices whose OUTWARD side is
+    // unworked — the true worked-area boundary — which self-prunes as adjacent passes fill
+    // in, so it stays bounded by perimeter length, not worked area. Live-only: a reloaded
+    // field's coverage has no ribbons and falls back to the alpha-AA feather until re-driven.
+    // All of this is mutated/read under _coverageLock.
+    private sealed class EdgeRun { public readonly List<Vec2> Left = new(); public readonly List<Vec2> Right = new(); }
+    private readonly Dictionary<int, EdgeRun> _edgeRunByZone = new();
+    private readonly List<EdgeRun> _edgeRuns = new();
+    private readonly Dictionary<int, (double E, double N)> _edgeGateLast = new();
+    private int _edgePointCount;
+    private const double EDGE_GATE = 2.0;          // metres between committed edge vertex pairs
+    private const int EDGE_MAX_POINTS = 200_000;   // safety cap on total accumulated points
+
+    private void ClearEdges()
+    {
+        _edgeRunByZone.Clear();
+        _edgeRuns.Clear();
+        _edgeGateLast.Clear();
+        _edgePointCount = 0;
+    }
+
     public void StartMapping(int zoneIndex, Vec2 leftEdge, Vec2 rightEdge, CoverageColor? color = null)
     {
         lock (_coverageLock)
@@ -193,6 +216,18 @@ public class CoverageMapService : ICoverageMapService
             _lastEdgesPerSection[zoneIndex] = (
                 (leftEdge.Easting, leftEdge.Northing),
                 (rightEdge.Easting, rightEdge.Northing));
+
+            // Open a fresh edge ribbon for this run, seeded with the first pair.
+            if (_edgePointCount < EDGE_MAX_POINTS)
+            {
+                var run = new EdgeRun();
+                run.Left.Add(leftEdge); run.Right.Add(rightEdge);
+                _edgeRunByZone[zoneIndex] = run;
+                _edgeRuns.Add(run);
+                _edgeGateLast[zoneIndex] =
+                    ((leftEdge.Easting + rightEdge.Easting) * 0.5, (leftEdge.Northing + rightEdge.Northing) * 0.5);
+                _edgePointCount++;
+            }
         }
     }
 
@@ -205,6 +240,9 @@ public class CoverageMapService : ICoverageMapService
 
             _activeSections.Remove(zoneIndex);
             _lastEdgesPerSection.Remove(zoneIndex);
+            // Close the edge ribbon (it stays in _edgeRuns for the perimeter walk).
+            _edgeRunByZone.Remove(zoneIndex);
+            _edgeGateLast.Remove(zoneIndex);
         }
     }
 
@@ -286,6 +324,9 @@ public class CoverageMapService : ICoverageMapService
         // Rasterize the quad to the coverage bitmap for O(1) detection
         RasterizeQuadToBitmap(zoneIndex, leftEdge, rightEdge);
 
+        // Vector perimeter: append this swept edge pair if the tool moved past the gate.
+        AccumulateEdge(zoneIndex, leftEdge, rightEdge);
+
         // Calculate area of the quad (two triangles)
         double area = CalculateQuadArea(
             lastEdges.Left, lastEdges.Right,
@@ -301,6 +342,80 @@ public class CoverageMapService : ICoverageMapService
         _lastEdgesPerSection[zoneIndex] = (
             (leftEdge.Easting, leftEdge.Northing),
             (rightEdge.Easting, rightEdge.Northing));
+    }
+
+    // Append a swept edge pair to the zone's ribbon, distance-gated. Caller holds _coverageLock.
+    // Only reached for an actively-mapping zone (AddCoveragePoint gates on _activeSections).
+    private void AccumulateEdge(int zoneIndex, Vec2 leftEdge, Vec2 rightEdge)
+    {
+        if (_edgePointCount >= EDGE_MAX_POINTS) return;
+        if (!_edgeRunByZone.TryGetValue(zoneIndex, out var run))
+        {
+            // The zone is actively mapping but has no open ribbon. This happens when ClearEdges
+            // ran while the section stayed on — notably the no-boundary path, where the coverage
+            // grid auto-inits (SetFieldBounds → ClearEdges) AFTER mapping started, wiping the
+            // ribbon that StartMapping opened. StartMapping won't re-open it (it only fires on the
+            // off→on edge), so the crisp worked-area perimeter would silently never appear for the
+            // rest of the run. Re-open the ribbon here so the perimeter keeps building.
+            run = new EdgeRun();
+            run.Left.Add(leftEdge); run.Right.Add(rightEdge);
+            _edgeRunByZone[zoneIndex] = run;
+            _edgeRuns.Add(run);
+            _edgeGateLast[zoneIndex] = ((leftEdge.Easting + rightEdge.Easting) * 0.5,
+                                        (leftEdge.Northing + rightEdge.Northing) * 0.5);
+            _edgePointCount++;
+            return;
+        }
+        double cx = (leftEdge.Easting + rightEdge.Easting) * 0.5;
+        double cy = (leftEdge.Northing + rightEdge.Northing) * 0.5;
+        if (_edgeGateLast.TryGetValue(zoneIndex, out var last))
+        {
+            double dx = cx - last.E, dy = cy - last.N;
+            if (dx * dx + dy * dy < EDGE_GATE * EDGE_GATE) return;
+        }
+        run.Left.Add(leftEdge); run.Right.Add(rightEdge);
+        _edgeGateLast[zoneIndex] = (cx, cy);
+        _edgePointCount++;
+    }
+
+    /// <summary>
+    /// Worked-area perimeter as polylines for the crisp vector edge. Walks the accumulated
+    /// swept tool-edge ribbons and keeps only vertices whose OUTWARD side is unworked (probed
+    /// against the detection grid), so interior pass-to-pass seams are dropped and only the
+    /// true boundary remains — bounded by perimeter length, not worked area. Live-only (a
+    /// reloaded field has no ribbons). Cheap O(1) probes; safe to call off the control thread.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<Vec2>> GetCoveragePerimeter()
+    {
+        var result = new List<IReadOnlyList<Vec2>>();
+        lock (_coverageLock)
+        {
+            foreach (var run in _edgeRuns)
+            {
+                EmitPerimeterSide(run.Left, run.Right, result);
+                EmitPerimeterSide(run.Right, run.Left, result);
+            }
+        }
+        return result;
+    }
+
+    // Emit contiguous runs of `edge` vertices whose outward side (away from `other`) is
+    // unworked — those are on the worked-area boundary. 0.2 m probe ≈ 2 detection cells out.
+    private void EmitPerimeterSide(List<Vec2> edge, List<Vec2> other, List<IReadOnlyList<Vec2>> result)
+    {
+        List<Vec2>? cur = null;
+        int n = Math.Min(edge.Count, other.Count);
+        for (int i = 0; i < n; i++)
+        {
+            double ox = edge[i].Easting - other[i].Easting;
+            double oy = edge[i].Northing - other[i].Northing;
+            double len = Math.Sqrt(ox * ox + oy * oy);
+            bool perim = len > 1e-6 &&
+                !IsPointCovered(edge[i].Easting + ox / len * 0.2, edge[i].Northing + oy / len * 0.2);
+            if (perim) { (cur ??= new List<Vec2>()).Add(edge[i]); }
+            else if (cur != null) { if (cur.Count >= 2) result.Add(cur); cur = null; }
+        }
+        if (cur != null && cur.Count >= 2) result.Add(cur);
     }
 
     /// <summary>
@@ -687,6 +802,34 @@ public class CoverageMapService : ICoverageMapService
     }
 
     /// <summary>
+    /// Coverage fraction (0..255) of a display cell: the share of its underlying 0.1 m
+    /// detection cells that are covered. 255 = fully covered (interior, opaque); a partial
+    /// value is an edge cell the client draws with that alpha, so the boundary feathers
+    /// instead of stair-stepping. Reads detection bits lock-free (same as the emit scans);
+    /// a race only yields a slightly stale fraction, which is harmless.
+    /// </summary>
+    public int GetDisplayCellAlpha255(int displayX, int displayY)
+    {
+        if (_detectionBits == null || !_fieldBoundsSet) return 255;
+        int span = (int)Math.Round(_displayCellSize / BITMAP_CELL_SIZE);
+        if (span < 1) span = 1;
+        // Display cell's world origin → its first underlying detection cell.
+        int ce0 = (int)Math.Floor((_fieldMinE + displayX * _displayCellSize) / BITMAP_CELL_SIZE);
+        int cn0 = (int)Math.Floor((_fieldMinN + displayY * _displayCellSize) / BITMAP_CELL_SIZE);
+        int covered = 0, total = span * span;
+        for (int j = 0; j < span; j++)
+            for (int i = 0; i < span; i++)
+                if (IsCellCovered(ce0 + i, cn0 + j)) covered++;
+        // Near-full cells snap to opaque: the rasterizer center-samples, so interior cells
+        // occasionally miss a stray detection cell at quad seams. A literal fraction would
+        // let the (often dark) map fleck through those — the old binary "any → opaque" rule
+        // hid it. Only cells well below FULL (genuine worked-area edge) feather.
+        const double FULL = 0.75;
+        double frac = (double)covered / total;
+        return frac >= FULL ? 255 : (int)(frac / FULL * 255.0);
+    }
+
+    /// <summary>
     /// Mark a rectangular area as covered. Useful for tests that need pre-applied coverage
     /// without driving through the area.
     /// </summary>
@@ -840,6 +983,57 @@ public class CoverageMapService : ICoverageMapService
     }
 
     /// <summary>
+    /// Enumerate ONLY the painted display cells, for the full-coverage snapshot (server
+    /// re-init / new-client seed). Reads the RGB565 display buffer directly, walking just the
+    /// tracked painted bounding box (_minCellE.._maxCellN) — so cost is O(painted area), never
+    /// the O(whole-field 0.1 m) walk that <see cref="GetCoverageBitmapCells"/> does. That scan
+    /// touched every cell in the field (tens of millions on a large field) even to find a tiny
+    /// worked strip, which stalled the coverage rebuild; this touches only ground that has
+    /// actually been worked. Output cells are in display coordinates (x = col, y = row from the
+    /// SW origin), matching the CoverageInit grid the client renders into. Lock-free read (same
+    /// as the other emit scans); a race yields a slightly stale cell, which is harmless.
+    /// </summary>
+    public IReadOnlyList<(int X, int Y, CoverageColor Color, int Alpha)> GetPaintedDisplayCells()
+    {
+        var result = new List<(int, int, CoverageColor, int)>();
+        // MUST hold _coverageLock: a bounds-expansion on the control thread clears the display
+        // buffer in SetFieldBounds and then spends tens of ms resampling the old pixels back in
+        // (CheckAndExpandBounds) — all under this lock. A lock-free read here could catch the
+        // buffer cleared-but-not-yet-refilled and return an EMPTY snapshot, which (with the client
+        // tearing down on a reset init and re-anchor no longer resending) permanently dropped the
+        // pre-expansion coverage on the first cell-size-change expansion. Locking waits for the
+        // fully-resampled buffer. Alpha is folded in here too so it's consistent with the cells.
+        lock (_coverageLock)
+        {
+            var buf = _displayPixels;
+            int w = _displayWidth, h = _displayHeight;
+            if (buf == null || !_fieldBoundsSet || !_boundsValid || w <= 0 || h <= 0)
+                return result;
+            double cell = _displayCellSize, fMinE = _fieldMinE, fMinN = _fieldMinN;
+
+            // Painted bounding box (detection cells at 0.1 m) → display-pixel index window, clamped.
+            int dxMin = ClampIndex((int)Math.Floor((_minCellE * BITMAP_CELL_SIZE - fMinE) / cell), w);
+            int dxMax = ClampIndex((int)Math.Floor(((_maxCellE + 1) * BITMAP_CELL_SIZE - fMinE) / cell), w);
+            int dyMin = ClampIndex((int)Math.Floor((_minCellN * BITMAP_CELL_SIZE - fMinN) / cell), h);
+            int dyMax = ClampIndex((int)Math.Floor(((_maxCellN + 1) * BITMAP_CELL_SIZE - fMinN) / cell), h);
+
+            for (int dy = dyMin; dy <= dyMax; dy++)
+            {
+                long row = (long)dy * w;
+                for (int dx = dxMin; dx <= dxMax; dx++)
+                {
+                    ushort px = buf[row + dx];
+                    if (px == 0) continue; // unpainted display pixel
+                    result.Add((dx, dy, Rgb565ToColor(px), GetDisplayCellAlpha255(dx, dy)));
+                }
+            }
+        }
+        return result;
+    }
+
+    private static int ClampIndex(int v, int size) => v < 0 ? 0 : (v >= size ? size - 1 : v);
+
+    /// <summary>
     /// Get newly added coverage cells since last call.
     /// Clears the pending list after returning.
     /// Uses fixed field bounds if set, otherwise coverage bounds.
@@ -976,6 +1170,7 @@ public class CoverageMapService : ICoverageMapService
         // Clear tracking state
         _activeSections.Clear();
         _lastEdgesPerSection.Clear();
+        ClearEdges();
 
         // Reset totals
         _totalWorkedArea = 0;
@@ -1008,6 +1203,8 @@ public class CoverageMapService : ICoverageMapService
         SetFieldBounds(easting - halfSize, easting + halfSize, northing - halfSize, northing + halfSize);
         Console.WriteLine($"[Coverage] Auto-initialized bounds from position ({easting:F1}, {northing:F1}), {halfSize * 2}m x {halfSize * 2}m");
     }
+
+    private bool _inExpansion; // set by CheckAndExpandBounds so SetFieldBounds keeps the edge ribbons
 
     public void SetFieldBounds(double minE, double maxE, double minN, double maxN)
     {
@@ -1047,6 +1244,9 @@ public class CoverageMapService : ICoverageMapService
             Array.Clear(_detectionBits, 0, _detectionBits.Length);
         else
             _detectionBits = new byte[totalBytes];
+        // New field → drop stale ribbons. Expansion keeps them: edges are absolute-coordinate
+        // and CheckAndExpandBounds copies the detection bits across, so the perimeter stays valid.
+        if (!_inExpansion) ClearEdges();
 
         // Compute display resolution + dimensions (pillared on
         // DisplayConfig.DisplayResolutionMultiplier and a 25M-pixel cap)
@@ -1197,8 +1397,10 @@ public class CoverageMapService : ICoverageMapService
         double oldMinE = _fieldMinE;
         double oldMinN = _fieldMinN;
 
-        // Reallocate with new bounds
-        SetFieldBounds(newMinE, newMaxE, newMinN, newMaxN);
+        // Reallocate with new bounds (keep the edge ribbons — detection is copied below)
+        _inExpansion = true;
+        try { SetFieldBounds(newMinE, newMaxE, newMinN, newMaxN); }
+        finally { _inExpansion = false; }
 
         // Copy old detection bits to new array
         if (oldBits != null && _detectionBits != null)
@@ -1287,6 +1489,7 @@ public class CoverageMapService : ICoverageMapService
         // 981-996). Nulling here silently defeats the reuse on every
         // close+reopen and forces a fresh ~73 MB LOH alloc.
         _dirtyValid = false;
+        ClearEdges();
         Console.WriteLine("[Coverage] Field bounds cleared");
     }
 
@@ -1966,6 +2169,17 @@ public class CoverageMapService : ICoverageMapService
         byte g = (byte)((rgb888 >> 8) & 0xFF);
         byte b = (byte)(rgb888 & 0xFF);
         return (ushort)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+    }
+
+    // Expand a packed RGB565 display pixel back to 8-bit-per-channel (replicate the high bits
+    // into the dropped low bits so full-scale stays full-scale).
+    private static CoverageColor Rgb565ToColor(ushort px)
+    {
+        int r5 = (px >> 11) & 0x1F, g6 = (px >> 5) & 0x3F, b5 = px & 0x1F;
+        return new CoverageColor(
+            (byte)((r5 << 3) | (r5 >> 2)),
+            (byte)((g6 << 2) | (g6 >> 4)),
+            (byte)((b5 << 3) | (b5 >> 2)));
     }
 
     /// <summary>

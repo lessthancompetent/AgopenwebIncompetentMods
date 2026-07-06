@@ -153,6 +153,15 @@ public interface ICoverageMapService
         double cellSize, double viewMinE, double viewMaxE, double viewMinN, double viewMaxN);
 
     /// <summary>
+    /// The full-coverage snapshot for a server re-init / new-client seed: ONLY the painted
+    /// display cells (display-cell coords) with their edge-feather alpha (0..255). Walks just the
+    /// tracked painted bounding box of the RGB565 display buffer, so cost is O(painted area) — it
+    /// never scans the empty field the way <see cref="GetCoverageBitmapCells"/> does. Materialized
+    /// under the coverage lock so it can't observe a mid-expansion (half-resampled) display buffer.
+    /// </summary>
+    IReadOnlyList<(int X, int Y, CoverageColor Color, int Alpha)> GetPaintedDisplayCells();
+
+    /// <summary>
     /// Get newly added coverage cells since last call (for incremental bitmap updates).
     /// Clears the pending list after returning.
     /// </summary>
@@ -167,6 +176,23 @@ public interface ICoverageMapService
     /// consumers don't steal cells from each other.
     /// </summary>
     IEnumerable<(int CellX, int CellY, CoverageColor Color)> GetNewCoverageBitmapCellsServer(double cellSize);
+
+    /// <summary>
+    /// Coverage fraction (0..255) of a DISPLAY cell — the share of its underlying 0.1 m
+    /// detection cells that are covered. 255 = fully covered (interior); a partial value
+    /// marks an edge cell, which the client renders as a soft alpha so the worked-area
+    /// boundary feathers instead of stair-stepping. Coords are display-cell coords (same
+    /// space as GetCoverageBitmapCells output).
+    /// </summary>
+    int GetDisplayCellAlpha255(int displayX, int displayY);
+
+    /// <summary>
+    /// Worked-area perimeter as polylines (field-local metres) for the crisp vector edge:
+    /// the swept tool-edge segments whose outward side is unworked, so interior pass-to-pass
+    /// seams are excluded and the result is bounded by perimeter length, not worked area.
+    /// Live-driven coverage only (a reloaded field has no ribbons).
+    /// </summary>
+    IReadOnlyList<IReadOnlyList<Vec2>> GetCoveragePerimeter();
 
     /// <summary>
     /// Get patches for a specific zone

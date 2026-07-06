@@ -47,6 +47,13 @@ const POSE_BUF_MAX = 12; // ~1.2 s @ 10 Hz — plenty of bracket for the delay +
 // drain the buffer are bridged by EXTRAPOLATION (sample(), below) rather than a freeze, so
 // we get smoothness without the lag. ~130 ms covers the pose interval + interpolation room.
 const RENDER_DELAY = 130; // ms
+// Max coverage cells rasterized per frame. A full-coverage snapshot (sent by the host on
+// grid bounds-expansion / reconnect / field reload) can be hundreds of thousands of cells;
+// draining it all in one frame is a multi-hundred-ms main-thread block that froze the map
+// then jumped the tractor forward (issue #34). We instead drain up to this many cells per
+// frame and resume the rest next frame (progress stored on batch.off), so a big snapshot
+// paints over a handful of frames with no visible hitch. ~40k rects ≈ 1-2 ms/frame.
+const COV_DRAIN_BUDGET = 40000;
 // Max time we'll extrapolate past the newest pose when the buffer underruns (WiFi spike /
 // dropped pose) before settling to a hold — bridges spikes without flying off on a real
 // dropout. At field speed 200 ms is well under a pose-pair's worth of travel.
@@ -81,6 +88,8 @@ let wizard = null;     // Steer Wizard frame (host-driven); null when not open
 let wizardDirty = false;
 let fps = 0;           // smoothed client render rate (for the GPS-detail card)
 let _fpsFrames = 0, _fpsT0 = 0;
+let _diagT0 = 0;       // throttle (~4 Hz) for the marker-gated diag line's DOM writes
+let linkRttMs = null;  // EMA of server↔client round-trip (ms), from diag.ping/PONG
 // Remote actuation authority (Phase 2 safety layer): our connection id (from the
 // Hello frame), the latest broadcast control state, and whether we hold control.
 let myClientId = null;
@@ -91,6 +100,9 @@ let iHoldControl = false;
 //      blitted to world space each frame. Snapshot on connect, deltas after. ----
 let cov = null;        // { cellSize, originE, originN, width, height, canvas, cctx }
 let covCells = 0;
+let coverageEdges = null;   // crisp worked-area perimeter polylines (server-fed, field-local m)
+let covEdgeRgb = 0x98fb98;  // last coverage colour seen → the perimeter stroke matches the fill
+const EDGE_OFF = new URLSearchParams(location.search).has('noedge'); // ?noedge → A/B the edge off
 
 // ---- ground texture: the tiled field backdrop. Two variants — a dark (night) and a
 //      light (day) version of the same texture — picked by mapIsDay so the field reads
@@ -154,6 +166,24 @@ let perspMInv = null;   // cached 4×4 inverse of perspM (CSS px→world ray); n
 const DEFAULT_PITCH = Math.PI / 3;        // 60° — the one-key tilt
 const MAX_PITCH = 65 * Math.PI / 180;     // v1 cap: keeps the local field in front
 const PITCH_STEP = 5 * Math.PI / 180;
+// Persist the 3D tilt + zoom across reloads (issue #35: tilting to 3D was lost on
+// restart). The camera is client-owned live, but its last tilt+zoom are stored
+// HOST-side (appstate.json, via the view.save command) and replayed to every client
+// in the connection seed (onViewPrefs). This restores identically on any client —
+// browser or WebView — independent of browser localStorage behaviour.
+let _savedPitch = pitch, _savedZoom = pxPerM, _viewSaveT = 0;
+function applyViewPrefs(p, z) {
+  if (typeof p === 'number' && isFinite(p)) pitch = Math.max(0, Math.min(MAX_PITCH, p));
+  if (typeof z === 'number' && isFinite(z)) pxPerM = Math.min(200, Math.max(0.2, z));
+  _savedPitch = pitch; _savedZoom = pxPerM; // hydrated value == saved, so no echo-back save
+}
+function maybeSaveView() {
+  if (pitch === _savedPitch && pxPerM === _savedZoom) return;
+  const now = performance.now();
+  if (now - _viewSaveT < 800) return;        // debounce: at most ~1.25 writes/s while adjusting
+  _viewSaveT = now; _savedPitch = pitch; _savedZoom = pxPerM;
+  transport.send('view.save|' + pitch + '|' + pxPerM); // host writes it to appstate.json
+}
 const PERSP_FOV = 0.7;                     // rad, matches native SkiaMapControl
 
 // ---- transport wiring (the only coupling point) ----
@@ -225,30 +255,24 @@ const transport = RemoteTransport.create({
     pushChartData(t);
   },
   onCoverageInit(init) {
-    if (cov) { // tear down a prior coverage (field/resolution change)
+    const cs = init.cellSize;
+    // Grid GROWTH at the same cell size (host bounds-expansion, reset=false): the added ground is
+    // empty, so the host resends nothing. Keep the coverage we already have, re-anchor it into the
+    // larger grid, and carry on with incremental deltas — no rescan, no repaint, no flicker. A
+    // reset init (new field / reload / cell-size change) always falls through to a clean rebuild.
+    if (!init.reset && cov && Math.abs(cov.cellSize - cs) < 1e-9 &&
+        (init.width !== cov.width || init.height !== cov.height ||
+         Math.abs(init.originE - cov.originE) > 1e-9 || Math.abs(init.originN - cov.originN) > 1e-9)) {
+      reanchorCoverage(init);
+      return;
+    }
+    // Fresh field / resolution (cell-size) change: tear down and rebuild. A full snapshot follows.
+    if (cov) {
       if (cov.skImg) cov.skImg.delete();
       if (cov.surface) cov.surface.delete();
       if (cov.covPaint) cov.covPaint.delete();
     }
-    const w = init.width, h = init.height;
-    // Primary: a persistent GPU render target. New cells are drawn straight onto it each
-    // update (cheap, only the new cells) and snapshotted (texture copy-on-write) — NO
-    // whole-texture re-upload, which was the regular per-rebuild stutter. Fallback: the
-    // offscreen 2D canvas + full re-upload (throttled) if the render target can't be made.
-    let surface = null;
-    if (CK && grCtx) { try { surface = CK.MakeRenderTarget(grCtx, w, h); } catch (e) { surface = null; } }
-    let canvas = null, cctx = null, covPaint = null;
-    if (surface) {
-      surface.getCanvas().clear(CK.TRANSPARENT);
-      covPaint = new CK.Paint(); covPaint.setStyle(CK.PaintStyle.Fill); covPaint.setAntiAlias(false);
-    } else {
-      canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h; cctx = canvas.getContext('2d');
-    }
-    cov = {
-      cellSize: init.cellSize, originE: init.originE, originN: init.originN,
-      width: w, height: h, surface, covPaint, pending: [],
-      canvas, cctx, dirty: true, skImg: null, lastBuild: 0,
-    };
+    cov = makeCovGrid(init);
     covCells = 0;
   },
   onCoverageCells(msg) {
@@ -262,6 +286,7 @@ const transport = RemoteTransport.create({
     // playback exactly (same socket/latency), so the front now tracks the tool at any speed.
     cov.pending.push({ cells: msg.cells, t: performance.now() });
   },
+  onCoverageEdge(polylines) { coverageEdges = polylines; }, // crisp worked-area perimeter (~2 Hz)
   onStatusBar(s) { statusBar = s; if (typeof applySimBarVisible === 'function') applySimBarVisible(); syncUnsavedCov(); },
   onConfig(c) { config = c; configDirty = true; applyTheme(c && c.display && c.display.isDayMode); },
   onProfiles(p) { profiles = p; profilesDirty = true; },
@@ -280,7 +305,15 @@ const transport = RemoteTransport.create({
   onHello(id) { myClientId = id; updateControlUi(); claimSeatIfFree(); applyMobileQualityCap(); },
   onControlState(s) { lastControl = s; updateControlUi(); claimSeatIfFree(); },
   onSound(id) { Sounds.play(id); },
+  // Round-trip link probe reply: token is the performance.now() we sent in diag.ping, so
+  // RTT = now − token measures the pure server↔client link (one client clock, no skew).
+  onPong(token) {
+    const rtt = performance.now() - parseFloat(token);
+    if (rtt >= 0 && rtt < 60000) linkRttMs = (linkRttMs === null) ? rtt : linkRttMs + 0.3 * (rtt - linkRttMs);
+  },
   onStatus(s) { connState = s; renderRole(); claimSeatIfFree(); },
+  // Persisted web-camera view (issue #35): restore last tilt+zoom from the host seed.
+  onViewPrefs(pitch, zoom) { applyViewPrefs(pitch, zoom); },
 });
 
 // ---- Alert sounds ----------------------------------------------------------
@@ -320,9 +353,14 @@ const Sounds = (() => {
     if (unlocked) return;
     unlocked = true;
     // Nudge each element into a "played once" state so later programmatic play()
-    // (not tied to a gesture) is allowed by the autoplay policy.
+    // (not tied to a gesture) is allowed by the autoplay policy. Do it MUTED: the pause
+    // lands asynchronously in .then(), so an unmuted prime plays a burst of every alert
+    // audibly on the first UI click — notably the Hyd up/down 3-pt-hitch sounds. Muted
+    // playback still primes the element (and is always autoplay-allowed). Real plays clone
+    // the element, so they're unaffected by this temporary mute; restore it afterward anyway.
     for (const a of cache.values()) {
-      a.play().then(() => { a.pause(); a.currentTime = 0; }).catch(() => {});
+      a.muted = true;
+      a.play().then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; });
     }
     window.removeEventListener('pointerdown', unlock);
     window.removeEventListener('keydown', unlock);
@@ -495,6 +533,17 @@ for (const t of ['gesturestart', 'gesturechange', 'gestureend'])
 // 2+-finger move is a pinch — swallow it so the page can't zoom/pan. Single-finger
 // touches pass through to the map pan / panel scroll untouched.
 addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+// iOS double-tap-to-zoom is NOT a gesture* event and slips past per-element touch-action when
+// rapid taps land between/across nav buttons → it magnifies the whole page (chrome off-screen)
+// and thrashes layout (render stutter / audio glitch / LINK spike are that main-thread jank).
+// Swallow the 2nd tap's default within 300 ms; the UI runs on pointerdown, so button presses
+// still register.
+let _lastTapEnd = 0;
+addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - _lastTapEnd <= 300) e.preventDefault();
+  _lastTapEnd = now;
+}, { passive: false });
 
 // Pan + tap. A gesture that moves past TAP_SLOP px pans (and drops to Free mode); one
 // that stays put is a TAP. Overlays (panels/toolbars) stopPropagation their pointerdown,
@@ -522,6 +571,11 @@ addEventListener('pointerup', e => {
   gestureOnMap = false;
 });
 addEventListener('pointermove', e => {
+  // #40: the crosshair letter is a MOUSE-hover affordance — only for a real pointer. On
+  // touch/pen there's no hover to ride, and a tap's micro-move would drop the "big A" under
+  // the finger/button and clash with the placed-dot label; touch relies on the dot letters
+  // + the "Tap Point A/B" banner instead.
+  if (mapTap && (abFlow === 'straight' || abFlow === 'curve') && e.pointerType === 'mouse') updateAbCursorLabel(e.clientX, e.clientY);
   if (editDragIdx >= 0 && editSession) {       // drag the grabbed handle
     const w = s2w(e.clientX, e.clientY);
     if (w) editSession.points[editDragIdx] = editSession.kind === 'headland' ? hlSnap(w.e, w.n) : { e: w.e, n: w.n };
@@ -551,12 +605,19 @@ function startMapTap(cfg) {
   document.body.classList.add('maptap'); // crosshair cursor (CSS)
   const h = document.getElementById('maptap-hint');
   h.textContent = cfg.hint || 'Tap the map'; h.classList.add('show');
+  // Touch cancel: only for bare flows (no draw toolbar) — flag placement. The AB/sat/headland
+  // flows show the toolbar whose own Cancel handles them, so don't double it up.
+  const tbUp = document.getElementById('draw-toolbar').classList.contains('show');
+  document.getElementById('maptap-cancel').classList.toggle('show', !tbUp);
 }
 function endMapTap() {
   mapTap = null;
   pickOutlines = null; pickNamed = null; // stop drawing / hit-testing pick outlines once a pick/cancel happens
   document.body.classList.remove('maptap');
   document.getElementById('maptap-hint').classList.remove('show');
+  document.getElementById('maptap-cancel').classList.remove('show'); // hide the touch-cancel pill
+  if (abLabelEl) abLabelEl.classList.remove('show'); // #40 hide the A/B crosshair letter
+  if (abDotLabelsEl) for (const s of abDotLabelsEl.children) s.style.display = 'none'; // + the dot letters
 }
 // Pick-from-map (ported from AgValoniaGPS-RoutePlanner): arm a tap that SELECTS the
 // field at the tapped point inside the Fields and Jobs panel, so the operator can
@@ -1052,13 +1113,21 @@ onScreenBtns.addEventListener('pointerdown', e => {
   const btn = e.target.closest('button[data-cmd]');
   if (!btn) return;
   e.stopPropagation(); // tap the glyph, don't pan the map
+  // #50: mid-turn snaps/u-turns are ignored by the pipeline (they'd shift the
+  // displayed track while the tractor stays committed to the executing arc, then
+  // seek across after). Block them here with a hint instead of silently no-op'ing.
+  if (tick && tick.op && tick.op.executing) { flashHint('Finish the U-turn first'); return; }
   transport.send(btn.dataset.cmd);
 });
 function applyOnScreenButtons() {
   const d = config && config.display;
   const hasField = !!(scene && scene.hasField); // native gate: IsFieldOpen
-  document.getElementById('osb-uturn').hidden = !(hasField && d && d.uTurnButtonVisible);
-  document.getElementById('osb-lateral').hidden = !(hasField && d && d.lateralButtonVisible);
+  // U-turn (manual you-turn) and Lateral (snap track) only act while AutoSteer is engaged,
+  // so hide them otherwise (issue #36). Runs every frame via renderBottomNav, so it tracks
+  // engage/disengage live.
+  const asActive = !!(tick && tick.op && tick.op.autoSteer);
+  document.getElementById('osb-uturn').hidden = !(hasField && asActive && d && d.uTurnButtonVisible);
+  document.getElementById('osb-lateral').hidden = !(hasField && asActive && d && d.lateralButtonVisible);
 }
 function bnToggleFly(fly, btn) {
   const open = !fly.classList.contains('open');
@@ -1178,7 +1247,9 @@ document.getElementById('bn-abmenu').addEventListener('pointerdown', e => { e.st
 let drawMode = null;     // 'straight' | 'curve' (map-tap modes only) — drives the preview
 let drawPts = [];        // [{e,n}] captured so far — preview only (host holds the real list)
 let abFlow = null;       // 'straight' | 'curve' | 'driveAB' | 'recordCurve' | null
-let driveStep = 0;       // Drive-AB: 0 → next press sets A, 1 → next sets B
+let driveStep = 0;       // Drive-AB / record-curve step: 0 → next press sets A/Start, 1 → sets B/End
+let curveMarks = [];     // client-side path dots dropped while driving a record-curve (Set Start→End)
+let _lastCurveMark = null;
 const drawBar = document.getElementById('draw-toolbar');
 const hintEl = document.getElementById('maptap-hint');
 function abHint() {
@@ -1186,11 +1257,50 @@ function abHint() {
     case 'straight': return drawPts.length === 0 ? 'Tap Point A' : 'Tap Point B';
     case 'curve': return `Tap points (${drawPts.length}) — Finish when done`;
     case 'driveAB': return driveStep === 0 ? 'Drive to A, then Set Point' : 'Drive to B, then Set Point';
-    case 'recordCurve': return 'Driving curve — Finish when done';
+    case 'recordCurve': return driveStep === 0 ? 'Drive to A, then Set Point A' : 'Drive the curve to B, then Set Point B';
   }
   return '';
 }
 function setAbHint() { hintEl.textContent = abHint(); }
+// #40: while drawing a straight AB line, ride an "A"/"B" letter on the crosshair so it's
+// clear which point the next tap places, and render the placed points as native-style dots
+// (orange A / blue B, matching FormABDraw's DrawABTouchPoints colours).
+const AB_A_COLOR = '#FFBF59', AB_B_COLOR = '#8080FF';
+const abLabelEl = document.getElementById('maptap-ab');
+const abDotLabelsEl = document.getElementById('ab-dot-labels');
+// Sequential point label: A, B, C … then 27, 28 … for very long curves.
+function abLetter(i) { return i < 26 ? String.fromCharCode(65 + i) : String(i + 1); }
+function abLabelColor(i) { return i === 0 ? AB_A_COLOR : i === 1 ? AB_B_COLOR : '#FFFFFF'; }
+// A/B (straight) or A,B,C… (curve) letter riding the crosshair — the letter the NEXT tap places.
+function updateAbCursorLabel(x, y) {
+  if (!abLabelEl) return;
+  if (mapTap && (abFlow === 'straight' || abFlow === 'curve')) {
+    const i = drawPts.length;
+    abLabelEl.textContent = abLetter(i);
+    abLabelEl.style.color = abLabelColor(i);
+    if (x != null) { abLabelEl.style.left = x + 'px'; abLabelEl.style.top = y + 'px'; }
+    abLabelEl.classList.add('show');
+  } else {
+    abLabelEl.classList.remove('show');
+  }
+}
+// Persistent letter beside each dropped point (straight A/B, curve A,B,C…). Positioned per
+// frame from drawPts (world→screen); cleared when the draw ends. DOM (CanvasKit has no text).
+function renderAbDotLabels() {
+  if (!abDotLabelsEl) return;
+  const n = drawPts.length || 0; // letters for map-tap AND Drive-AB markers (drawMode may be null)
+  while (abDotLabelsEl.children.length < n) abDotLabelsEl.appendChild(document.createElement('span'));
+  for (let i = 0; i < abDotLabelsEl.children.length; i++) {
+    const span = abDotLabelsEl.children[i];
+    if (i >= n || pw(drawPts[i].e, drawPts[i].n) < 1.0) { span.style.display = 'none'; continue; }
+    const xy = w2s(drawPts[i].e, drawPts[i].n);
+    span.textContent = abLetter(i);
+    span.style.color = abLabelColor(i);
+    span.style.left = xy[0] + 'px';
+    span.style.top = xy[1] + 'px';
+    span.style.display = 'block';
+  }
+}
 // Configure the bottom toolbar buttons for the active flow.
 function showAbBar(setPoint, undo, finish) {
   drawBar.querySelector('#draw-setpoint').style.display = setPoint ? '' : 'none';
@@ -1205,16 +1315,43 @@ function startDrawTrack(mode) {           // map-tap straight/curve (ungated —
   startMapTap({ hint: abHint(), onTap: drawTap });
 }
 function startDriveAB() {                  // GPS: set A then B at the vehicle (ungated)
-  abFlow = 'driveAB'; driveStep = 0;
+  abFlow = 'driveAB'; driveStep = 0; drawPts = []; // drawPts holds the dropped A/B markers
   transport.send('track.driveAB');
   showAbBar(true, false, false);
+  document.getElementById('draw-setpoint').textContent = 'Set Point A';
   hintEl.classList.add('show'); setAbHint();
 }
-function startRecordCurve() {              // GPS: record by driving (ungated)
-  abFlow = 'recordCurve';
-  transport.send('track.recordCurve');
-  showAbBar(false, false, true);
+function startRecordCurve() {              // GPS: record by driving — Set Start → Set End (ungated)
+  abFlow = 'recordCurve'; driveStep = 0; curveMarks = []; _lastCurveMark = null;
+  // Recording doesn't begin until "Set Start" (deferred track.recordCurve), so the operator
+  // can position at the curve's start first. The set-point button drives the two-step.
+  showAbBar(true, false, false);
+  document.getElementById('draw-setpoint').textContent = 'Set Point A';
   hintEl.classList.add('show'); setAbHint();
+}
+// "Bnd. Curve" — tap point A then point B on the boundary; the host walks the shorter arc
+// between them and builds a curve following the boundary. Points snap to the nearest boundary
+// vertex for display; the host re-snaps authoritatively.
+function nearestBoundaryPt(e, n) {
+  let best = null, bd = Infinity;
+  const bs = scene && scene.boundaries;
+  if (bs) for (const ring of bs) for (const p of ring) {
+    const dx = p.e - e, dy = p.n - n, d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best ? { e: best.e, n: best.n } : { e, n };
+}
+function startBoundaryCurve() {
+  abFlow = 'boundaryCurve'; drawPts = [];
+  showAbBar(false, false, false);          // draw toolbar shows just Cancel
+  startMapTap({ hint: 'Tap point A on the boundary', onTap: boundaryCurveTap });
+}
+function boundaryCurveTap(e, n) {
+  drawPts.push(nearestBoundaryPt(e, n));   // snap A/B to the nearest boundary vertex (dot shown)
+  if (drawPts.length < 2) { hintEl.textContent = 'Tap point B on the boundary'; return; }
+  const a = drawPts[0], b = drawPts[1];
+  transport.send('track.boundaryCurveSeg|' + a.e.toFixed(3) + ',' + a.n.toFixed(3) + ',' + b.e.toFixed(3) + ',' + b.n.toFixed(3));
+  endAbFlow();
 }
 function drawTap(e, n) {                    // map-tap point captured (straight/curve)
   drawPts.push({ e, n });
@@ -1223,11 +1360,35 @@ function drawTap(e, n) {                    // map-tap point captured (straight/
   if (abFlow === 'straight' && drawPts.length >= 2) { endAbFlow(); return; }
   setAbHint();
 }
-function abSetPoint() {                     // Drive-AB "Set Point" press
-  if (abFlow !== 'driveAB') return;
-  transport.send('track.setABGps');        // SetABPoint uses live GPS in DriveAB mode
-  if (driveStep === 0) { driveStep = 1; setAbHint(); }
-  else endAbFlow();                        // B set → host created the line
+function abSetPoint() {                     // Set-point button — drives Drive-AB and record-curve
+  const btn = document.getElementById('draw-setpoint');
+  if (abFlow === 'driveAB') {
+    if (driveStep > 1) return;             // guard a double-B while B lingers
+    transport.send('track.setABGps');      // SetABPoint uses live GPS in DriveAB mode
+    // Drop an A/B marker at the vehicle so the operator sees where each point landed.
+    if (tick && tick.pose) drawPts.push({ e: tick.pose.e, n: tick.pose.n });
+    if (driveStep === 0) { driveStep = 1; btn.textContent = 'Set Point B'; setAbHint(); }
+    else {                                  // B set → host created the line; show B a beat, then clear
+      driveStep = 2;
+      setTimeout(() => { if (abFlow === 'driveAB') endAbFlow(); }, 700);
+    }
+  } else if (abFlow === 'recordCurve') {
+    if (driveStep > 1) return;              // guard a double-B while B lingers
+    if (driveStep === 0) {                  // Set Point A → drop the A endpoint + begin recording
+      transport.send('track.recordCurve');
+      driveStep = 1; btn.textContent = 'Set Point B';
+      if (tick && tick.pose) {
+        drawPts.push({ e: tick.pose.e, n: tick.pose.n });   // labeled "A" endpoint dot (orange)
+        _lastCurveMark = { e: tick.pose.e, n: tick.pose.n }; // seed green-dot spacing; no dot at A itself
+      }
+      setAbHint();
+    } else {                                // Set Point B → drop the B endpoint + finish
+      driveStep = 2;
+      if (tick && tick.pose) drawPts.push({ e: tick.pose.e, n: tick.pose.n }); // labeled "B" endpoint dot (blue)
+      transport.send('track.finishCurve');  // host builds the curve from its recorded points
+      setTimeout(() => { if (abFlow === 'recordCurve') endAbFlow(); }, 700);   // show B a beat, then clear
+    }
+  }
 }
 function abUndo() {
   if (abFlow !== 'curve' || !drawPts.length) return;
@@ -1248,9 +1409,30 @@ function abCancel() {
 }
 function endAbFlow() {
   abFlow = null; drawMode = null; drawPts = []; driveStep = 0;
+  curveMarks = []; _lastCurveMark = null; // clear record-curve path dots
   drawBar.classList.remove('show');
   endMapTap();
   hintEl.classList.remove('show');
+}
+// Drop a path dot every ~1.5 m while recording a drive-curve (between Set Point A and B), so
+// the operator sees the shape being captured. Visual only — the host records the real curve.
+function sampleCurveMark() {
+  if (abFlow !== 'recordCurve' || driveStep !== 1 || !tick || !tick.pose) return;
+  const p = tick.pose;
+  if (_lastCurveMark && Math.hypot(p.e - _lastCurveMark.e, p.n - _lastCurveMark.n) < 1.5) return;
+  _lastCurveMark = { e: p.e, n: p.n };
+  curveMarks.push(_lastCurveMark);
+}
+function drawCurveMarksSk(canvas) {
+  if (!curveMarks.length) return;
+  const rad = Math.max(3, 0.4 * pxPerM);
+  SKP.flagFill.setColor(ckColor('#39FF6A')); // recording green
+  for (const p of curveMarks) {
+    if (pw(p.e, p.n) < 1.0) continue; // behind the near plane
+    const xy = w2s(p.e, p.n);
+    canvas.drawCircle(xy[0], xy[1], rad, SKP.flagFill);
+    canvas.drawCircle(xy[0], xy[1], rad, SKP.flagOutline);
+  }
 }
 // ---- boundary draw-on-map (Phase MT) — native BoundaryMapDialog equivalent ----
 // Shows a Bing aerial underlay (satEnabled) and captures the boundary polygon by tapping
@@ -1398,31 +1580,35 @@ document.getElementById('draw-setpoint').addEventListener('pointerdown', e => { 
 document.getElementById('draw-undo').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); hlFlow ? hlUndo() : satBnd ? satUndo() : abUndo(); });
 document.getElementById('draw-finish').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); editSession ? saveEdit() : hlFlow ? endHeadlandDraw() : satBnd ? satFinish() : abFinish(); });
 document.getElementById('draw-cancel').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); editSession ? endEdit() : hlFlow ? endHeadlandDraw() : satBnd ? satCancel() : abCancel(); });
+// Touch cancel for bare map-tap flows (flag). stopPropagation so the pill isn't taken as a map tap.
+document.getElementById('maptap-cancel').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (mapTap && mapTap.onCancel) mapTap.onCancel(); else endMapTap(); });
 
 // ---- AB flyout launchers → the three creation/management dialogs ----
 function abFlyoutClose() { bnAb.classList.remove('open'); document.getElementById('bn-abmenu').classList.remove('menuopen'); }
 document.getElementById('bn-tracks').addEventListener('pointerdown', e => { e.stopPropagation(); abFlyoutClose(); openTracksManager(); });
 document.getElementById('bn-quickab').addEventListener('pointerdown', e => { e.stopPropagation(); abFlyoutClose(); openDialog('dlg-quickab'); });
-document.getElementById('bn-drawab').addEventListener('pointerdown', e => { e.stopPropagation(); abFlyoutClose(); openDialog('dlg-drawab'); });
 // Quick-AB selector buttons.
+// Quick AB — the single creation hub: GPS-driven, from-boundary, and draw-on-map modes.
 document.getElementById('dlg-quickab').querySelectorAll('[data-qab]').forEach(b => b.addEventListener('pointerdown', e => {
   e.preventDefault(); e.stopPropagation(); closeDialog();
   const m = b.dataset.qab;
-  if (m === 'aPlus') transport.send('track.aPlus');
+  if (m === 'aPlus') {
+    // A+ builds an AB line from the vehicle's current position + heading. It needs a GPS
+    // fix; the host bails silently without one, so give feedback here (StatusMessage isn't
+    // on the wire). flashHint after a tick so it isn't cleared by the dialog close.
+    const p = tick && tick.pose;
+    if (!p || (!p.e && !p.n)) setTimeout(() => flashHint('A+ needs a GPS position — start the simulator or GPS'), 0);
+    else transport.send('track.aPlus');
+  }
   else if (m === 'driveAB') startDriveAB();
   else if (m === 'recordCurve') startRecordCurve();
+  else if (m === 'boundaryEdge') transport.send('track.createFromBoundary');
+  else if (m === 'boundaryCurve') startBoundaryCurve();
+  else if (m === 'allEdges') transport.send('track.allEdges');
+  else if (m === 'drawStraight') startDrawTrack('straight');
+  else if (m === 'drawCurve') startDrawTrack('curve');
 }));
 document.getElementById('dlg-qab-cancel').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); closeDialog(); });
-// Draw-AB selector buttons.
-document.getElementById('dlg-drawab').querySelectorAll('[data-draw]').forEach(b => b.addEventListener('pointerdown', e => {
-  e.preventDefault(); e.stopPropagation(); closeDialog();
-  const m = b.dataset.draw;
-  if (m === 'straight' || m === 'curve') startDrawTrack(m);
-  else if (m === 'boundaryEdge') transport.send('track.createFromBoundary');
-  else if (m === 'boundaryCurve') transport.send('track.boundaryCurve');
-  else if (m === 'allEdges') transport.send('track.allEdges');
-}));
-document.getElementById('dlg-drawab-cancel').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); closeDialog(); });
 
 // ---- Tracks manager (mirrors native TracksDialogPanel) ----
 // View-only without control (just reads scene.trackList); the actions are Tier-2.
@@ -2179,7 +2365,7 @@ function populateToolCfg(force) {
   const wsi = document.getElementById('tc-img-worksw');
   wsi.src = '/icons/' + (t.isWorkSwitchActiveLow ? 'SwitchActiveClosed' : 'SwitchActiveOpen') + '.png';
   // Dynamic lists — rebuild on count change, fill values (skip the focused control).
-  const nSec = Math.max(1, Math.min(16, t.numSections));
+  const nSec = Math.max(1, Math.min(64, t.numSections)); // ToolConfig.MaxSections — backend supports 64
   if (_tcBuilt.sw !== nSec) {
     const g = document.getElementById('tc-sectionwidths'); g.innerHTML = '';
     for (let i = 0; i < nSec; i++) tcDynInput(g, i, 'S' + (i + 1), 'number', inp => { const v = parseFloat(inp.value); if (Number.isFinite(v)) cfgSend('tool.sectionWidth', i + ',' + v); });
@@ -2193,10 +2379,10 @@ function populateToolCfg(force) {
     _tcBuilt.ze = nZone;
   }
   for (const inp of document.querySelectorAll('#tc-zoneends input')) if (force || document.activeElement !== inp) inp.value = t.zoneRanges[+inp.dataset.idx];
-  if (!_tcBuilt.sc) {
+  if (_tcBuilt.sc !== nSec) { // rebuild on count change; one swatch per section (was capped at 16)
     const g = document.getElementById('tc-sectioncolors'); g.innerHTML = '';
-    for (let i = 0; i < 16; i++) tcDynInput(g, i, 'S' + (i + 1), 'color', inp => cfgSend('tool.sectionColor', i + ',' + inp.value.slice(1)));
-    _tcBuilt.sc = true;
+    for (let i = 0; i < nSec; i++) tcDynInput(g, i, 'S' + (i + 1), 'color', inp => cfgSend('tool.sectionColor', i + ',' + inp.value.slice(1)));
+    _tcBuilt.sc = nSec;
   }
   for (const inp of document.querySelectorAll('#tc-sectioncolors input')) if (document.activeElement !== inp) inp.value = hex6(t.sectionColors[+inp.dataset.idx]);
   if (document.activeElement !== tcSingleColor) tcSingleColor.value = hex6(t.singleCoverageColor);
@@ -3573,7 +3759,10 @@ function updateLightbarText() {
     const xte = tick.crossTrackError || 0;
     const onLine = Math.abs(xte) < 0.05;
     const arrow = onLine ? '●' : xte > 0 ? '◀' : '▶'; // arrow = steer direction
-    lbEl.textContent = `${arrow} ${(Math.abs(xte) * 100).toFixed(0)} cm   ${tick.lineLabel || ''}`;
+    // 1-based pass label (human counting): the reference AB line is "Pass 1", one over is
+    // "Pass 2", etc. — magnitude only (the arrow already shows which way to steer).
+    const pass = (tick.op ? tick.op.passNumber : 0) | 0;
+    lbEl.textContent = `${arrow} ${(Math.abs(xte) * 100).toFixed(0)} cm   Pass ${Math.abs(pass) + 1}`;
   }
   lbEl.style.display = 'block';
 }
@@ -3585,7 +3774,11 @@ const hlHud = document.getElementById('headland-hud');
 function updateHeadlandHud() {
   const on = config && config.display && config.display.headlandDistanceVisible;
   const d = tick ? tick.headlandDist : -1;
-  if (!on || d == null || d < 0) { hlHud.style.display = 'none'; return; }
+  // Hide the HUD while a map-tap creation flow is active (Quick AB / boundary curve / draw / …):
+  // the boundary distance isn't needed while placing points, and it would clutter the top-centre
+  // instruction pill + toolbar. body.maptap is set by startMapTap for the duration of the flow.
+  const creating = document.body.classList.contains('maptap');
+  if (!on || creating || d == null || d < 0) { hlHud.style.display = 'none'; return; }
   const metric = !statusBar || statusBar.isMetric;
   hlHud.textContent = metric ? d.toFixed(1) + ' m' : (d * 3.28084).toFixed(0) + ' ft';
   hlHud.classList.toggle('warn', !!(tick && tick.headlandWarn));
@@ -3617,6 +3810,10 @@ const SB = {
   gcHdop: document.getElementById('gc-hdop'), gcFix: document.getElementById('gc-fix'),
   gcAge: document.getElementById('gc-age'), gcHdg: document.getElementById('gc-hdg'),
   gcRoll: document.getElementById('gc-roll'), gcFps: document.getElementById('gc-fps'),
+  // Dev diagnostics line (marker-gated by .show_dev_overlay).
+  diagRow: document.getElementById('sb-diag'),
+  sbdFps: document.getElementById('sbd-fps'), sbdLink: document.getElementById('sbd-link'),
+  sbdCtrl: document.getElementById('sbd-ctrl'),
 };
 // GPS fix-quality → dot colour (matches the native FixQualityToColor intent).
 function fixColor(q) {
@@ -3746,7 +3943,7 @@ addEventListener('pointerdown', () => {
 
 function renderStatusBar() {
   const s = statusBar;
-  if (!s) { SB.bar.style.display = 'none'; return; }
+  if (!s) { SB.bar.style.display = 'none'; if (SB.diagRow) SB.diagRow.style.display = 'none'; return; }
   SB.bar.style.display = 'flex';
   SB.fixDot.style.background = fixColor(s.fixQuality);
   SB.fix.textContent = s.fixText || '—';
@@ -3779,6 +3976,24 @@ function renderStatusBar() {
     SB.gcHdg.textContent = hdgDeg != null ? (((hdgDeg % 360) + 360) % 360).toFixed(1) + '°' : '—';
     SB.gcRoll.textContent = (tick && typeof tick.roll === 'number') ? tick.roll.toFixed(1) + '°' : '—';
     SB.gcFps.textContent = fps.toFixed(0);
+  }
+  // Dev diagnostics line (marker-gated). DOM text only — no canvas overlay — so reading FPS
+  // doesn't perturb the frame loop (an overlay/dialog did, hence the status-line approach).
+  // Throttled to ~4 Hz; that tick also fires the link probe. FPS = client render rate; LINK =
+  // server↔client round-trip (ms, from diag.ping/PONG); CTRL = backend→AiO control-loop
+  // latency (GPS receive → PGN send, ms).
+  if (s.devOverlay) {
+    if (SB.diagRow.style.display !== 'flex') SB.diagRow.style.display = 'flex';
+    const nowMs = performance.now();
+    if (nowMs - _diagT0 >= 250) {
+      _diagT0 = nowMs;
+      transport.send('diag.ping|' + nowMs); // link probe; the PONG reply updates linkRttMs
+      SB.sbdFps.textContent = fps.toFixed(0);
+      SB.sbdLink.textContent = linkRttMs != null ? linkRttMs.toFixed(1) + ' ms' : '—';
+      SB.sbdCtrl.textContent = (s.gpsToPgnLatencyMs || 0).toFixed(1) + ' ms';
+    }
+  } else if (SB.diagRow.style.display !== 'none') {
+    SB.diagRow.style.display = 'none';
   }
 }
 // Heading in AgOpen 000.0° form (constant width). Input degrees, any sign.
@@ -3938,14 +4153,18 @@ function renderCampad() {
   const pad = document.getElementById('campad');
   if (!pad) return;
   pad.addEventListener('pointerdown', e => e.stopPropagation()); // don't pan the map
-  document.getElementById('cp-tiltup').addEventListener('click', () => { pitch = Math.max(0, pitch - PITCH_STEP); });
-  document.getElementById('cp-tiltdown').addEventListener('click', () => {
+  // Bind on POINTERDOWN, not click: the NativeWebView launcher (touch) doesn't reliably fire
+  // `click`, so these camera buttons — notably the mode/heading cycle — did nothing when tapped
+  // on the launcher build (issue #56). pointerdown is the same event the rest of the touch UI
+  // uses; the pad's stopPropagation above already keeps it from panning the map.
+  document.getElementById('cp-tiltup').addEventListener('pointerdown', () => { pitch = Math.max(0, pitch - PITCH_STEP); });
+  document.getElementById('cp-tiltdown').addEventListener('pointerdown', () => {
     pitch = Math.min(MAX_PITCH, pitch + PITCH_STEP);
   });
-  document.getElementById('cp-zoomin').addEventListener('click', () => { pxPerM = Math.min(200, pxPerM * 1.2); });
-  document.getElementById('cp-zoomout').addEventListener('click', () => { pxPerM = Math.max(0.2, pxPerM * 0.83); });
+  document.getElementById('cp-zoomin').addEventListener('pointerdown', () => { pxPerM = Math.min(200, pxPerM * 1.2); });
+  document.getElementById('cp-zoomout').addEventListener('pointerdown', () => { pxPerM = Math.max(0.2, pxPerM * 0.83); });
   // Center: cycle the four native modes H → N → M → C → H; recenter on follow modes.
-  document.getElementById('cp-mode').addEventListener('click', () => {
+  document.getElementById('cp-mode').addEventListener('pointerdown', () => {
     cameraMode = cameraMode === 1 ? 0 : cameraMode === 0 ? 3 : cameraMode === 3 ? 2 : 1;
     if (cameraMode !== 2) { const rp = renderPose(); if (rp) { camE = rp.e; camN = rp.n; } }
   });
@@ -4348,11 +4567,58 @@ function strokePtsSk(canvas, pts, close, paint) {
   if (!pts || pts.length < 2) return;
   strokePtsSk3D(canvas, pts, close, paint);
 }
+// Extend a 2-point AB line far past both ends so the reference line spans the field instead of
+// being a short stub (issue #37). Curves (>2 points) pass through unchanged. The viewport clip
+// in strokePtsSk3D bounds the draw cost of the now-long line. AB_EXTEND covers any field.
+const AB_EXTEND = 3000; // metres added beyond each endpoint
+function extendAbLine(pts) {
+  if (!pts || pts.length !== 2) return pts;
+  const a = pts[0], b = pts[1];
+  let dx = b.e - a.e, dy = b.n - a.n;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return pts;
+  dx /= len; dy /= len;
+  return [
+    { e: a.e - dx * AB_EXTEND, n: a.n - dy * AB_EXTEND },
+    { e: b.e + dx * AB_EXTEND, n: b.n + dy * AB_EXTEND },
+  ];
+}
 // Perspective path for strokePtsSk: a vertex behind the tilted camera (w < EPS)
 // projects through w2s with a negative w → a mirrored ghost segment (the same bug
 // clipNear() fixes for single grid segments). So walk the polyline in WORLD space,
 // split it at every near-plane crossing, and stroke each continuous front-facing run
 // in screen space — only ever feeding w2s points that are in front of the camera.
+// Clip a screen-space polyline to the viewport (+margin) into connected sub-polylines. Under
+// tilt a line recedes to the horizon vanishing point, so its PROJECTED length — and a dashed
+// stroke's dash count — is effectively unbounded, which collapsed FPS. Clipping bounds the work
+// to on-screen length. Cohen–Sutherland per segment, re-joining contiguous pieces. [x,y] arrays.
+function clipScreenPolyline(pts, margin) {
+  const x0 = -margin, y0 = -margin, x1 = vw + margin, y1 = vh + margin;
+  const code = (x, y) => (x < x0 ? 1 : x > x1 ? 2 : 0) | (y < y0 ? 4 : y > y1 ? 8 : 0);
+  const out = [];
+  let cur = null;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    let ax = pts[i][0], ay = pts[i][1], bx = pts[i + 1][0], by = pts[i + 1][1];
+    let ca = code(ax, ay), cb = code(bx, by), accept = false;
+    for (let g = 0; g < 8; g++) {
+      if (!(ca | cb)) { accept = true; break; }   // both inside
+      if (ca & cb) break;                          // both outside the same edge → reject
+      const c = ca || cb; let nx, ny;
+      if (c & 8) { nx = ax + (bx - ax) * (y1 - ay) / (by - ay); ny = y1; }
+      else if (c & 4) { nx = ax + (bx - ax) * (y0 - ay) / (by - ay); ny = y0; }
+      else if (c & 2) { ny = ay + (by - ay) * (x1 - ax) / (bx - ax); nx = x1; }
+      else { ny = ay + (by - ay) * (x0 - ax) / (bx - ax); nx = x0; }
+      if (c === ca) { ax = nx; ay = ny; ca = code(ax, ay); }
+      else { bx = nx; by = ny; cb = code(bx, by); }
+    }
+    if (!accept) { if (cur) { out.push(cur); cur = null; } continue; }
+    if (cur && Math.abs(cur[cur.length - 1][0] - ax) < 0.5 && Math.abs(cur[cur.length - 1][1] - ay) < 0.5)
+      cur.push([bx, by]);
+    else { if (cur) out.push(cur); cur = [[ax, ay], [bx, by]]; }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
 function strokePtsSk3D(canvas, pts, close, paint) {
   const EPS = 1.0;
   const n = pts.length;
@@ -4364,12 +4630,17 @@ function strokePtsSk3D(canvas, pts, close, paint) {
   };
   let run = [];
   const flush = () => {
+    // Clip the front-facing screen run to the viewport before stroking — bounds a dashed
+    // line's dash flattening (and stroke fill) to on-screen length, the tilt FPS fix.
     if (run.length >= 2) {
-      const cmds = [];
-      for (let i = 0; i < run.length; i++)
-        cmds.push(i === 0 ? CK.MOVE_VERB : CK.LINE_VERB, run[i][0], run[i][1]);
-      const path = CK.Path.MakeFromCmds(cmds);
-      if (path) { canvas.drawPath(path, paint); path.delete(); }
+      for (const sub of clipScreenPolyline(run, 48)) {
+        if (sub.length < 2) continue;
+        const cmds = [];
+        for (let i = 0; i < sub.length; i++)
+          cmds.push(i === 0 ? CK.MOVE_VERB : CK.LINE_VERB, sub[i][0], sub[i][1]);
+        const path = CK.Path.MakeFromCmds(cmds);
+        if (path) { canvas.drawPath(path, paint); path.delete(); }
+      }
     }
     run = [];
   };
@@ -4474,6 +4745,21 @@ function drawSatBoundarySk(canvas) {
   for (const p of satPts) {
     if ((pw(p.e, p.n)) < 1.0) continue;
     const xy = w2s(p.e, p.n);
+    canvas.drawCircle(xy[0], xy[1], rad, SKP.flagFill);
+    canvas.drawCircle(xy[0], xy[1], rad, SKP.flagOutline);
+  }
+}
+// #40: preview the AB/curve points being drawn as native-style dots — orange A (first),
+// blue B (last), white interior — so the placed A point is visible before B is set. The
+// host holds the real point list; drawPts is the client's tap echo (preview only).
+function drawAbDrawPreviewSk(canvas) {
+  if (!drawPts.length) return; // renders for map-tap AND Drive-AB markers (drawMode may be null)
+  const rad = Math.max(5, 0.6 * pxPerM);
+  for (let i = 0; i < drawPts.length; i++) {
+    const p = drawPts[i];
+    if (pw(p.e, p.n) < 1.0) continue; // behind the near plane
+    const xy = w2s(p.e, p.n);
+    SKP.flagFill.setColor(ckColor(abLabelColor(i))); // A orange, B blue, rest white — matches labels
     canvas.drawCircle(xy[0], xy[1], rad, SKP.flagFill);
     canvas.drawCircle(xy[0], xy[1], rad, SKP.flagOutline);
   }
@@ -4629,7 +4915,10 @@ const SPR_REAR = 0.245, SPR_FRONT = 0.75, SPR_HALFX = 0.245; // bitmap norm anch
 // stroke in screen space, so set px = worldMetres × pxPerM each frame (min 1 px so lines
 // don't vanish when zoomed far out). Values = native SkiaMapControl widths × 3.
 function updateLineWidths() {
-  const z = pxPerM, w = (m) => Math.max(m * z, 1);
+  // World-metre widths scaled by zoom, but CAPPED at MAXW px so a line can't balloon when
+  // zoomed in and swallow the implement/vehicle (issue #38: a 3 m boundary line covered a
+  // 4 m tool). Min 1 px so it stays visible zoomed out.
+  const z = pxPerM, MAXW = 3.5, w = (m) => Math.min(Math.max(m * z, 1), MAXW);
   SKP.boundary.setStrokeWidth(w(3.0));   // boundaryOuter 1 × 3
   SKP.boundaryInner.setStrokeWidth(w(3.0)); // boundaryInner 1 × 3
   SKP.headland.setStrokeWidth(w(3.0));   // headland 1 × 3
@@ -4766,7 +5055,7 @@ function drawImagerySk(canvas) {
 // (top row = high northing) is placed via a px→world affine, then perspM warps it
 // — Skia does perspective-correct sampling AND near-plane clipping on the GPU, so
 // it stays correct even when part of the rect falls behind the tilted camera.
-function drawImageWorldSk(canvas, img, minE, minN, maxE, maxN, filter) {
+function drawImageWorldSk(canvas, img, minE, minN, maxE, maxN, filter, mipMode) {
   const w = img.width(), h = img.height();
   // Map image px → CAMERA-RELATIVE world (minE-camE …): the world−camera offset is done
   // here in f64 so only small coords reach the f32 matrix — no floating-origin jitter on
@@ -4774,9 +5063,11 @@ function drawImageWorldSk(canvas, img, minE, minN, maxE, maxN, filter) {
   const imgToWorld = [(maxE - minE) / w, 0, minE - camE, 0, -(maxN - minN) / h, maxN - camN, 0, 0, 1];
   // Photo layers (imagery / satellite tiles, Linear filter) recede to the horizon
   // under perspective → heavy minification → shimmer/crawl under motion without a
-  // mip chain. Trilinear mipmaps fix it (matches native's mipmapped imagery). But
-  // Nearest callers (coverage cells = data) must stay crisp — no mipmaps for them.
-  const mip = (filter === CK.FilterMode.Linear) ? CK.MipmapMode.Linear : CK.MipmapMode.None;
+  // mip chain. Trilinear mipmaps fix it (matches native's mipmapped imagery). Callers
+  // may override the mip mode: coverage uses Linear sampling but mip-free, so its edges
+  // smooth (bilinear) without paying the per-update mip-regen on a multi-MP texture.
+  const mip = (mipMode !== undefined) ? mipMode
+    : ((filter === CK.FilterMode.Linear) ? CK.MipmapMode.Linear : CK.MipmapMode.None);
   canvas.save();
   canvas.concat(perspM);
   canvas.concat(imgToWorld);
@@ -4856,12 +5147,79 @@ function drawSatelliteSk(canvas) {
   }
 }
 // Coverage offscreen → SkImage, re-snapshotted only when the cell grid changed
-// (cov.dirty). Nearest filtering = the 2D path's imageSmoothingEnabled=false, so
-// cells stay crisp instead of blurring when zoomed in. The snapshot lives on the
-// cov object so a new coverage-init naturally starts with a fresh (null) image.
+// (cov.dirty). The world blit uses Linear (bilinear) sampling so the cell-grid edge
+// reads smooth instead of stair-stepped; see the blit call below for the mip-free
+// rationale. The snapshot lives on the cov object so a new coverage-init naturally
+// starts with a fresh (null) image.
 // Fallback-path throttle (2D canvas → full re-upload): cap the expensive whole-texture
 // rebuild at ~4 Hz. The GPU render-target path below has no such cost.
 const COV_REBUILD_MS = 250;
+// Build a fresh coverage grid for a CoverageInit. Primary: a persistent GPU render target (new
+// cells drawn straight onto it, snapshotted via texture copy-on-write — no whole-texture
+// re-upload). Fallback: an offscreen 2D canvas + throttled re-upload if the target can't be made.
+function makeCovGrid(init) {
+  const w = init.width, h = init.height;
+  let surface = null;
+  if (CK && grCtx) { try { surface = CK.MakeRenderTarget(grCtx, w, h); } catch (e) { surface = null; } }
+  let canvas = null, cctx = null, covPaint = null;
+  if (surface) {
+    surface.getCanvas().clear(CK.TRANSPARENT);
+    covPaint = new CK.Paint(); covPaint.setStyle(CK.PaintStyle.Fill); covPaint.setAntiAlias(false);
+    // Src (replace), not SrcOver: cells carry a coverage-fraction alpha (edge cells < 1), and a
+    // cell is re-emitted with rising alpha as it fills — replace sets the exact value each time;
+    // SrcOver would blend re-draws and creep edges toward opaque.
+    covPaint.setBlendMode(CK.BlendMode.Src);
+  } else {
+    canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h; cctx = canvas.getContext('2d');
+  }
+  return {
+    cellSize: init.cellSize, originE: init.originE, originN: init.originN,
+    width: w, height: h, surface, covPaint, pending: [],
+    canvas, cctx, dirty: true, skImg: null, lastBuild: 0,
+  };
+}
+
+// Re-anchor existing coverage into a grown grid (bounds expansion, SAME cell size). The old
+// painted surface is copied into the new, larger surface at the integer cell offset between the
+// grids — exact, because the host shifts the grid by a whole number of cells — accounting for the
+// render y-flip (surface row 0 = highest northing). Not-yet-rasterized delta batches are shifted
+// into the new coords too. Nothing is re-sent by the host; the newly-added ground is empty.
+function reanchorCoverage(init) {
+  const cs = init.cellSize;
+  const oldCov = cov;
+  const offX = Math.round((oldCov.originE - init.originE) / cs);
+  const offY = Math.round((oldCov.originN - init.originN) / cs);
+  const nc = makeCovGrid(init);
+  const destX = offX;
+  const destY = (nc.height - oldCov.height) - offY; // y-flip: old image sits (maxN growth) below the top
+
+  if (oldCov.surface && nc.surface) {
+    oldCov.surface.flush();
+    const img = oldCov.surface.makeImageSnapshot();
+    // Nearest + integer offset = exact pixel copy (no resample).
+    nc.surface.getCanvas().drawImageOptions(img, destX, destY, CK.FilterMode.Nearest, CK.MipmapMode.None, null);
+    img.delete();
+    nc.surface.flush();
+  } else if (oldCov.canvas && nc.canvas) {
+    nc.cctx.drawImage(oldCov.canvas, destX, destY);
+  }
+  // else: render-target mode changed across the grow (rare) — old coverage isn't carried; deltas
+  // repaint going forward and the next full reload/reconnect reseeds. No crash, no misplacement.
+  nc.dirty = true;
+
+  // Carry queued (not-yet-drained) delta batches, shifted into the new grid coords.
+  for (const b of oldCov.pending) {
+    const c = b.cells;
+    for (let i = 0; i + 2 < c.length; i += 3) { c[i] += offX; c[i + 1] += offY; }
+    nc.pending.push(b);
+  }
+
+  if (oldCov.skImg) oldCov.skImg.delete();
+  if (oldCov.surface) oldCov.surface.delete();
+  if (oldCov.covPaint) oldCov.covPaint.delete();
+  cov = nc;
+}
+
 function drawCoverageSk(canvas) {
   if (!cov) return;
   // Only rasterize batches that have aged past RENDER_DELAY, so coverage lands on the same
@@ -4873,16 +5231,18 @@ function drawCoverageSk(canvas) {
     // texture COW — cheap). No whole-texture upload, so no regular per-rebuild stutter.
     if (cov.pending.length && cov.pending[0].t <= cutoff) {
       const sk = cov.surface.getCanvas(), paint = cov.covPaint, H = cov.height;
-      let lastRgb = -1, drained = 0;
+      let lastRgb = -1, drained = 0, budget = COV_DRAIN_BUDGET;
       for (const batch of cov.pending) {
         if (batch.t > cutoff) break;
         const c = batch.cells;
-        for (let i = 0; i + 2 < c.length; i += 3) {
-          const x = c[i], y = c[i + 1], rgb = c[i + 2] >>> 0 & 0xFFFFFF;
-          if (rgb !== lastRgb) { paint.setColor(CK.Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, 1)); lastRgb = rgb; }
+        let i = batch.off || 0; // resume a batch we ran out of budget on last frame
+        for (; i + 2 < c.length && budget > 0; i += 3) {
+          const x = c[i], y = c[i + 1], v = c[i + 2] >>> 0; // (a<<24)|(r<<16)|(g<<8)|b
+          if (v !== lastRgb) { paint.setColor(CK.Color((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF, ((v >>> 24) & 0xFF) / 255)); lastRgb = v; covEdgeRgb = v & 0xFFFFFF; }
           sk.drawRect(CK.XYWHRect(x, H - 1 - y, 1, 1), paint); // flip: high northing at top
-          covCells++;
+          covCells++; budget--;
         }
+        if (i + 2 < c.length) { batch.off = i; break; } // budget hit mid-batch; finish next frame
         drained++;
       }
       cov.pending.splice(0, drained);
@@ -4899,16 +5259,24 @@ function drawCoverageSk(canvas) {
     // 2D fallback: drain aged batches into the offscreen canvas (same RENDER_DELAY gate).
     if (cov.pending.length && cov.pending[0].t <= cutoff) {
       const H = cov.height, cctx = cov.cctx;
-      let lastRgb = -1, drained = 0;
+      let lastRgb = -1, drained = 0, budget = COV_DRAIN_BUDGET;
       for (const batch of cov.pending) {
         if (batch.t > cutoff) break;
         const c = batch.cells;
-        for (let i = 0; i + 2 < c.length; i += 3) {
-          const x = c[i], y = c[i + 1], rgb = c[i + 2];
-          if (rgb !== lastRgb) { cctx.fillStyle = '#' + (rgb >>> 0 & 0xFFFFFF).toString(16).padStart(6, '0'); lastRgb = rgb; }
+        let i = batch.off || 0; // resume a batch we ran out of budget on last frame
+        for (; i + 2 < c.length && budget > 0; i += 3) {
+          const x = c[i], y = c[i + 1], v = c[i + 2] >>> 0; // (a<<24)|(r<<16)|(g<<8)|b
+          if (v !== lastRgb) {
+            cctx.fillStyle = 'rgba(' + ((v >> 16) & 0xFF) + ',' + ((v >> 8) & 0xFF) + ',' + (v & 0xFF) + ',' + (((v >>> 24) & 0xFF) / 255) + ')';
+            lastRgb = v;
+          }
+          // clear+fill = replace (the 2D analogue of BlendMode.Src) so re-emitted edge
+          // cells set their exact alpha instead of blending toward opaque.
+          cctx.clearRect(x, H - 1 - y, 1, 1);
           cctx.fillRect(x, H - 1 - y, 1, 1); // flip: high northing at offscreen top
-          covCells++;
+          covCells++; budget--;
         }
+        if (i + 2 < c.length) { batch.off = i; break; } // budget hit mid-batch; finish next frame
         drained++;
       }
       cov.pending.splice(0, drained);
@@ -4925,7 +5293,44 @@ function drawCoverageSk(canvas) {
   const cs = cov.cellSize;
   const minE = cov.originE, minN = cov.originN;
   const maxE = cov.originE + cov.width * cs, maxN = cov.originN + cov.height * cs;
-  drawImageWorldSk(canvas, cov.skImg, minE, minN, maxE, maxN, CK.FilterMode.Nearest);
+  // Bilinear (Linear), mip-free: smooths the cell-grid stair-step at the worked-area edge
+  // without the per-update mip-regen cost. The surface is cleared to premultiplied
+  // TRANSPARENT, so the boundary fades cleanly to transparent (no dark fringe).
+  drawImageWorldSk(canvas, cov.skImg, minE, minN, maxE, maxN, CK.FilterMode.Linear, CK.MipmapMode.None);
+}
+// Crisp worked-area edge — the server-fed vector perimeter (only segments that don't adjoin
+// another pass), stroked in the coverage colour over the raster so the soft alpha-AA feather
+// is replaced by a sharp boundary. Bounded by perimeter length, so cost is ~flat regardless
+// of field size. Stroke width ≈ 0.6 m (covers the feather). Polylines are broken at the near
+// plane per vertex (see below). Reloaded fields have no perimeter (graceful fall back to feather).
+function drawCoverageEdgeSk(canvas) {
+  if (EDGE_OFF || !coverageEdges || !coverageEdges.length) return;
+  const p = SKP.covEdge || (SKP.covEdge = (() => {
+    const q = new CK.Paint(); q.setStyle(CK.PaintStyle.Stroke); q.setAntiAlias(true);
+    q.setStrokeCap(CK.StrokeCap.Round); q.setStrokeJoin(CK.StrokeJoin.Round); return q;
+  })());
+  const c = covEdgeRgb;
+  p.setColor(CK.Color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, 1));
+  p.setStrokeWidth(Math.max(1, 0.6 * pxPerM));
+  // Per-vertex near-plane gate: a vertex at/behind the near plane (homogeneous w ≤ NEAR)
+  // projects through w2s to a huge/flipped coord, so a polyline crossing behind the camera
+  // would shoot a stroke to infinity (seen on zoom/tilt). Break the polyline at those
+  // vertices and draw each in-front run separately — no clipping math, no infinity lines.
+  const NEAR = 0.02;
+  const flush = (cmds) => {
+    if (cmds && cmds.length >= 6) { const path = CK.Path.MakeFromCmds(cmds); if (path) { canvas.drawPath(path, p); path.delete(); } }
+  };
+  for (const pl of coverageEdges) {
+    if (pl.length < 2) continue;
+    let cmds = null;
+    for (let i = 0; i < pl.length; i++) {
+      if (pw(pl[i].e, pl[i].n) < NEAR) { flush(cmds); cmds = null; continue; } // behind near plane → break
+      const xy = w2s(pl[i].e, pl[i].n);
+      if (!cmds) cmds = [CK.MOVE_VERB, xy[0], xy[1]];
+      else cmds.push(CK.LINE_VERB, xy[0], xy[1]);
+    }
+    flush(cmds);
+  }
 }
 // Tool/section footprint — section bars perpendicular to the (dead-reckoned) tool
 // heading, coloured by ColorCode. Same geometry as the 2D toolFootprint().
@@ -5030,6 +5435,7 @@ function renderSkia(canvas, rp) {
   drawRoutePlanSk(canvas); // route planner: generated coverage-route preview
   drawMissedSk(canvas); // missed-spots tint: red under coverage, so unworked ground shows
   drawCoverageSk(canvas);
+  drawCoverageEdgeSk(canvas); // crisp vector perimeter over the raster (server-fed)
   drawGridSk(canvas);
   if (scene) {
     for (let bi = 0; bi < scene.boundaries.length; bi++)
@@ -5042,18 +5448,23 @@ function renderSkia(canvas, rp) {
     drawExtraGuidelinesSk(canvas); // faint adjacent passes (under the bold lines)
     if (scene.nextTrack) strokePtsSk(canvas, scene.nextTrack, false, SKP.next);
     if (scene.uTurnPath) strokePtsSk(canvas, scene.uTurnPath, false, SKP.uturn);
-    if (scene.guidanceLine) strokePtsSk(canvas, scene.guidanceLine, false, SKP.guidance);
-    // Reference AB (the selected track, fixed at where it was drawn) — purple dashed,
-    // drawn AFTER the magenta DisplayLine so the dashes show on top. scene.tracks is
-    // active-only, so this is just the active reference; the offset magenta sits a pass
-    // away from it once the tractor moves over.
-    for (const tr of scene.tracks)
-      strokePtsSk(canvas, tr.points, false, SKP.reference);
+    // Purple reference (extended across the field) — drawn ONLY when the tractor is offset from
+    // it (pass ≠ 0). On the reference pass it coincides with the magenta guidance, so we show
+    // just the one line. Matches the host's baseTrack = nearestPass!=0?track:null intent.
+    const _onRef = !tick || !tick.op || (tick.op.passNumber | 0) === 0;
+    if (!_onRef) for (const tr of scene.tracks)
+      strokePtsSk(canvas, extendAbLine(tr.points), false, SKP.reference);
+    // Magenta current pass, extended across the field. The host's DisplayLine is only ~track
+    // length (a 2-point offset AB); extendAbLine spans it full-field, so an offset pass isn't a
+    // short stub. Curves are >2 points and already host-extended, so they pass through unchanged.
+    if (scene.guidanceLine) strokePtsSk(canvas, extendAbLine(scene.guidanceLine), false, SKP.guidance);
     drawFlagsSk(canvas, scene.flags);
   }
   drawRecordingMarkersSk(canvas); // live recorded-path dots (independent of the Scene)
   drawBoundaryRecordingSk(canvas); // live drive-around boundary line + dots
   drawSatBoundarySk(canvas); // live boundary-on-satellite polygon being drawn
+  drawAbDrawPreviewSk(canvas); // #40 — A/B (orange/blue) dots for the AB/curve being drawn
+  drawCurveMarksSk(canvas); // record-curve path dots (Set Point A → B)
   drawDrawingSk(canvas); // live draw-on-map AB/curve preview (Phase MT)
   drawHeadlandDrawSk(canvas); // live headland draw preview (Field Builder stage 2)
   drawHeadlandSegEditLinesSk(canvas); // headland-editor offset lines (yellow/red) while editing
@@ -5074,6 +5485,8 @@ function skFrame() {
   if (_fpsT0 === 0) _fpsT0 = _now;
   else { _fpsFrames++; const dt = _now - _fpsT0; if (dt >= 500) { fps = _fpsFrames * 1000 / dt; _fpsFrames = 0; _fpsT0 = _now; } }
   const rp = updateCamera(); // follow mode + rotation + perspM, once per frame
+  maybeSaveView();           // persist tilt/zoom changes (debounced) — issue #35
+  sampleCurveMark();         // drop record-curve path dots as the vehicle drives
   if (skSurface) {
     try { renderSkia(skSurface.getCanvas(), rp); skSurface.flush(); }
     catch (e) { ckStatus = 'render err: ' + (e && e.message || e); }
@@ -5088,6 +5501,7 @@ function skFrame() {
   renderSettings();
   renderRightNav();
   renderUTurnIndicator();
+  renderAbDotLabels(); // #40 — letters beside the dropped AB/curve points
   renderRoll();
   renderCampad();
   renderCharts();
