@@ -222,6 +222,28 @@ public partial class MainViewModel
     /// else the main-paddock fill (passes/turns/loops). Each is a separate SavedTrack, so one
     /// can be part-driven, the other started, and switched back to — coverage tracks progress.
     /// </summary>
+    /// <summary>
+    /// True if a segment's points reverse direction mid-path (a Reeds-Shepp 3-point
+    /// shunt: consecutive travel directions flip ~180°). The sim/steer followers are
+    /// forward-only — feeding them a reversing leg makes the lookahead land behind the
+    /// vehicle and commands hard-lock steering (spin-outs) — so those legs are spliced
+    /// out of follower paths and replaced by a straight join. The rendered plan keeps
+    /// them: on a real machine the operator (or a future reverse-capable follower)
+    /// performs the shunt.
+    /// </summary>
+    private static bool ContainsReversal(IReadOnlyList<Vec3> pts)
+    {
+        for (int i = 2; i < pts.Count; i++)
+        {
+            double d1e = pts[i - 1].Easting - pts[i - 2].Easting, d1n = pts[i - 1].Northing - pts[i - 2].Northing;
+            double d2e = pts[i].Easting - pts[i - 1].Easting, d2n = pts[i].Northing - pts[i - 1].Northing;
+            double l1 = Math.Sqrt(d1e * d1e + d1n * d1n), l2 = Math.Sqrt(d2e * d2e + d2n * d2n);
+            if (l1 < 1e-6 || l2 < 1e-6) continue;
+            if ((d1e * d2e + d1n * d2n) / (l1 * l2) < -0.5) return true;
+        }
+        return false;
+    }
+
     public void ActivateRouteSteerPath(bool headland)
     {
         var plan = _currentRoutePlan;
@@ -236,19 +258,27 @@ public partial class MainViewModel
 
         var pts = new List<Vec3>();
         string name;
+        void AddSeg(RouteSegment seg)
+        {
+            if (seg.Points.Count >= 2 && ContainsReversal(seg.Points))
+            {   // forward-only follower: replace the shunt with a straight join
+                pts.Add(seg.Points[0]);
+                pts.Add(seg.Points[^1]);
+                return;
+            }
+            foreach (var p in seg.Points) pts.Add(p);
+        }
         if (headland)
         {
             if (!hasHeadland) { StatusMessage = "This plan has no headland laps"; return; }
             int end = firstSwath < 0 ? plan.Segments.Count : firstSwath;
-            for (int i = 0; i < end; i++)
-                foreach (var p in plan.Segments[i].Points) pts.Add(p);
+            for (int i = 0; i < end; i++) AddSeg(plan.Segments[i]);
             name = "Route Headland";
         }
         else
         {
             int start = firstSwath < 0 ? 0 : firstSwath;
-            for (int i = start; i < plan.Segments.Count; i++)
-                foreach (var p in plan.Segments[i].Points) pts.Add(p);
+            for (int i = start; i < plan.Segments.Count; i++) AddSeg(plan.Segments[i]);
             name = "Route Main";
         }
         if (pts.Count < 2) { StatusMessage = "Route path too short to steer"; return; }
@@ -284,6 +314,12 @@ public partial class MainViewModel
         foreach (var seg in plan.Segments)
         {
             bool working = seg.Type == RouteSegmentType.Swath || seg.Type == RouteSegmentType.Headland;
+            if (seg.Points.Count >= 2 && ContainsReversal(seg.Points))
+            {   // forward-only follower: straight join instead of the reverse shunt
+                raw.Add((seg.Points[0].Easting, seg.Points[0].Northing, working));
+                raw.Add((seg.Points[^1].Easting, seg.Points[^1].Northing, working));
+                continue;
+            }
             foreach (var p in seg.Points) raw.Add((p.Easting, p.Northing, working));
         }
         if (raw.Count < 2) { StatusMessage = "Route too short to drive"; return; }
