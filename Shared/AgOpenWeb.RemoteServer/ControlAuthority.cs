@@ -58,6 +58,29 @@ public sealed class ControlAuthority
         return true;
     }
 
+    /// <summary>
+    /// Deliberate operator takeover: reassign the seat to <paramref name="conn"/> even if
+    /// another connection holds it. Unlike <see cref="Acquire"/> (first-come, used for the
+    /// implicit connect-time claim), this backs the explicit tap-the-role-badge action —
+    /// without it a second browser (tablet in the cab vs the launcher's own WebView, which
+    /// always connects first and wins the implicit claim) is stuck as Observer forever and
+    /// every Tier-2 command it sends is silently dropped. The seat never goes empty during
+    /// the handover, so no failsafe fires; the old holder's client sees the control-state
+    /// frame and drops to Observer.
+    /// </summary>
+    public void Takeover(Guid conn, string name)
+    {
+        ControlStateDto snap;
+        lock (_lock)
+        {
+            _holder = conn;
+            _holderName = string.IsNullOrWhiteSpace(name) ? "Remote" : name.Trim();
+            _lastPresenceTicks = Environment.TickCount64;
+            snap = new ControlStateDto(true, _holder.ToString()!, _holderName);
+        }
+        Changed?.Invoke(snap);
+    }
+
     /// <summary>Heartbeat — keeps a hold alive (deadman reset). No-op for non-holders.</summary>
     public void Refresh(Guid conn)
     {

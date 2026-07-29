@@ -1925,8 +1925,7 @@ document.getElementById('fb-trk-edit').addEventListener('pointerdown', e => { e.
 document.getElementById('fb-trk-delete').addEventListener('pointerdown', e => {
   e.stopPropagation();
   const tl = scene && scene.trackList; if (fbSel < 0 || !tl || !tl[fbSel] || !iHoldControl) return;
-  transport.send('track.select|' + tl[fbSel].index);
-  transport.send('track.delete'); fbSel = -1;
+  transport.send('track.deleteAt|' + tl[fbSel].index); fbSel = -1;
 });
 document.getElementById('fb-trk-deleteall').addEventListener('pointerdown', e => {
   e.stopPropagation();
@@ -3394,6 +3393,20 @@ function renderRole() {
   else if (lastControl.held)     { label = 'Observer';     color = '#ff7a3d'; }
   else                           { label = 'No operator';  color = '#9fb3cc'; }
   t.textContent = label; t.style.color = color; d.style.background = color;
+  // Observer = another client (usually the launcher's own WebView) holds the seat.
+  // The badge doubles as the takeover affordance.
+  const canTake = connState === 'connected' && !iHoldControl;
+  t.style.cursor = canTake ? 'pointer' : 'default';
+  t.title = canTake ? 'Tap to take operator control' : '';
+}
+for (const id of ['sb-roletext', 'sb-roledot']) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    if (connState !== 'connected' || iHoldControl) return;
+    showConfirm('Take control', 'Take operator control on this device? The current operator drops to Observer.',
+      () => transport.send('control.takeover|Browser'));
+  });
 }
 function updateControlUi() {
   iHoldControl = lastControl.held && lastControl.holderId === myClientId;

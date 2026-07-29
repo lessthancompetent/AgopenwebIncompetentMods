@@ -229,6 +229,9 @@ public partial class MainViewModel
             State.UI.CloseDialog();
         });
 
+        // See DeleteTrackAt below — the Field Builder deletes by INDEX because the
+        // select-then-delete pair is unreliable: track.select TOGGLES, so selecting an
+        // already-active track deselects it and the delete then no-ops.
         DeleteContourTrackCommand = new RelayCommand(() =>
         {
             if (SelectedTrack == null)
@@ -477,4 +480,24 @@ private List<TrackModel> TransformImportedTracks(IReadOnlyList<TrackModel> sourc
 }
 
     #endregion
+    /// <summary>
+    /// Delete a track by its index in <see cref="SavedTracks"/> — the Field Builder's
+    /// delete path. Independent of the current selection (unlike
+    /// DeleteContourTrackCommand), because track.select toggles and can deselect the
+    /// row that was just tapped, making select-then-delete silently no-op.
+    /// </summary>
+    public void DeleteTrackAt(int index)
+    {
+        if (index < 0 || index >= SavedTracks.Count) { StatusMessage = "Track not found"; return; }
+        var trackToRemove = SavedTracks[index];
+        var trackName = trackToRemove.Name;
+        bool wasRecPath = trackToRemove.Type == TrackType.RecordedPath;
+        if (SelectedTrack == trackToRemove) SelectedTrack = null;
+        SavedTracks.Remove(trackToRemove);
+        RebuildRecordedPathsAndContours();
+        SaveTracksToFile();
+        if (wasRecPath && _fieldService.ActiveField is { } f)
+            RecPathFileService.DeleteRecFile(f.DirectoryPath, "RecPath.txt");
+        StatusMessage = $"Deleted track '{trackName}'";
+    }
 }

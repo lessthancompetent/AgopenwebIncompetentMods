@@ -220,6 +220,11 @@ public static partial class RemoteServerWiring
                                         vm.RenameTrackAt(rti, arg[(ri + 1)..]);
                                     return;
                                 }
+                                case "track.deleteAt": // Field Builder — delete row by index.
+                                {
+                                    if (int.TryParse(arg, out var tDelIdx)) vm.DeleteTrackAt(tDelIdx);
+                                    return;
+                                }
                                 case "track.select": // Tracks manager — tap a row. arg = index.
                                 {                    // Mirrors native: tapping the active track
                                     if (int.TryParse(arg, out var tsi) // deactivates; else activates.

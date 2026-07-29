@@ -187,7 +187,16 @@ public partial class MainViewModel
 
         // Auto-headland: demarcate the planned headland band as the native headland
         // line so the native headland toggle / section-in-headland control just works.
-        try { RemoteCreateHeadlandWholeBoundary(edgeOff + headlandMargin); }
+        // Replace, don't stack: drop prior whole-boundary segments first (each replan
+        // would otherwise add another "Boundary N" row to the Field Builder list).
+        // Hand-built Line/Curve segments are left alone.
+        try
+        {
+            for (int i = HeadlandSegments.Count - 1; i >= 0; i--)
+                if (HeadlandSegments[i].Type == Models.Headland.HeadlandSegmentType.Boundary)
+                    RemoteDeleteHeadlandAt(i);
+            RemoteCreateHeadlandWholeBoundary(edgeOff + headlandMargin);
+        }
         catch { /* headland is a convenience here — never fail the plan on it */ }
 
         var m = plan.Metadata;

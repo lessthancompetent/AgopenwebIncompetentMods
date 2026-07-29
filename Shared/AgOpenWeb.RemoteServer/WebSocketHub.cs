@@ -105,6 +105,7 @@ public sealed class WebSocketHub
         {
             case "control.acquire": _authority.Acquire(conn, arg); return;
             case "control.release": _authority.Release(conn); return;
+            case "control.takeover": _authority.Takeover(conn, arg); return;
             case "control.presence": _authority.Refresh(conn); return;
             // Link-latency probe: reply immediately on this connection (here, on the
             // receive-loop thread — no UI-thread hop) so the client's RTT measures the
