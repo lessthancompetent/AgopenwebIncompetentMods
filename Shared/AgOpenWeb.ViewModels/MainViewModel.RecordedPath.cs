@@ -471,8 +471,13 @@ public partial class MainViewModel
         // spatially nearest — which, on a coverage route with parallel passes only one
         // swath apart, can be a different (sequentially-distant) pass, sending the
         // vehicle cutting across the field. A local window keeps tracking sequential.
+        // Forward window must be SMALLER than the arc length of the tightest planned
+        // loop turn (~2*pi*R = 25 m at R=4, ~1 m point spacing): at +30 the window spans
+        // a whole loop, "nearest" jumps to the loop's far side, the loop is skipped and
+        // the lookahead lands behind the vehicle — it then improvises its own circle to
+        // reacquire (jerky "stuck doing loops" at corners where loop turns cluster).
         int searchStart = Math.Max(0, recState.CurrentPositionIndex - 5);
-        int searchEnd = Math.Min(points.Count, recState.CurrentPositionIndex + 30);
+        int searchEnd = Math.Min(points.Count, recState.CurrentPositionIndex + 10);
         int closestIdx = searchStart;
         double closestDist = double.MaxValue;
 
