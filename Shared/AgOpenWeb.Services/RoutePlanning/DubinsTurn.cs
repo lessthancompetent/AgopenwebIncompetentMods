@@ -50,9 +50,14 @@ internal static class DubinsTurn
 
         var paths = new List<PathData>();
 
-        if (startRight.Easting != goalRight.Easting && startRight.Northing != goalRight.Northing)
+        // Skip RSR/LSL only when the two circles are IDENTICAL (degenerate tangent).
+        // The upstream port required easting AND northing to differ, which silently
+        // dropped RSR/LSL for the canonical aligned U-turn (both pass ends at the same
+        // northing) — the sort then picked a 440-degree loop candidate instead of the
+        // plain 180-degree turn.
+        if ((startRight - goalRight).GetLengthSquared() > 1e-12)
             AddCSC(paths, startPos, goalPos, startRight, goalRight, false, false, r, DubinsPathType.RSR);
-        if (startLeft.Easting != goalLeft.Easting && startLeft.Northing != goalLeft.Northing)
+        if ((startLeft - goalLeft).GetLengthSquared() > 1e-12)
             AddCSC(paths, startPos, goalPos, startLeft, goalLeft, true, true, r, DubinsPathType.LSL);
 
         double twoRSq = (2.0 * r) * (2.0 * r);

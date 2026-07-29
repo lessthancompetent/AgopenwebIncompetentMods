@@ -120,16 +120,22 @@ public partial class MainViewModel
         // keyed off the explicit args rather than DisplayConfig.
         bool spiral = pattern == 3;
         bool cross = pattern == 2;
+        // Auto + narrow tool (2R > W): use the BLOCK plotter, not the lane/skip comb.
+        // The comb's serpentine lane transitions land on an ADJACENT pass (a 1-width
+        // side-step) — exactly the loop-turn case skipping exists to avoid; the block
+        // sequence keeps EVERY consecutive pair >= skip rows apart, so with
+        // skip = ceil(2R/W) every turn is a plain wide U-turn (no loops/shunts).
+        bool narrowAuto = pattern == 0 && 2.0 * turnRadius > width;
         int skipPasses = pattern switch
         {
             1 => Math.Max(0, skipCount),
-            // Auto: skip the minimum so a normal U-turn fits the gap ((skip+1)·W ≥ 2R).
-            0 => Math.Max(0, (int)Math.Ceiling(2.0 * turnRadius / Math.Max(width, 0.1)) - 1),
+            0 => 0,   // narrowAuto routes through blkSkip below; wide tools serpentine plainly
             2 => Math.Max(0, skipCount),
             _ => 0,
         };
         int blkSkip =
-            pattern == 4 ? Math.Max(1, blockSkip)
+            narrowAuto ? (int)Math.Ceiling(2.0 * turnRadius / Math.Max(width, 0.1))
+            : pattern == 4 ? Math.Max(1, blockSkip)
             : (pattern == 2 && skipPasses == 0) ? Math.Max(1, blockSkip)
             : 0;
         double crossAngleRad = 90.0 * Math.PI / 180.0;
