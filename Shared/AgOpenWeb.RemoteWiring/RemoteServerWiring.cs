@@ -204,6 +204,18 @@ public static partial class RemoteServerWiring
                                 case "boundary.refresh": // rebuild the menu list from the field (Tier-1)
                                     vm.RefreshBoundaryList();
                                     return;
+                                case "job.exportCoverage": // Tier-1: writes the application record
+                                    vm.ExportCoverageForActiveJob();
+                                    return;
+                                case "job.setProduct": // arg = "name,rate,unit" (Tier-1 metadata)
+                                {
+                                    var pp = arg.Split(',', 3);
+                                    double prRate = 0;
+                                    if (pp.Length > 1) double.TryParse(pp[1], num, inv, out prRate);
+                                    vm.SetActiveJobProduct(pp.Length > 0 ? pp[0] : "", prRate,
+                                        pp.Length > 2 ? pp[2] : "");
+                                    return;
+                                }
                                 case "boundary.select": // arg = boundary list index (Tier-1)
                                     if (int.TryParse(arg, out var bsi)) vm.SelectedBoundaryIndex = bsi;
                                     return;

@@ -147,6 +147,9 @@ public static class JobJsonService
         public string? FieldName { get; set; }
         public string? TaskName { get; set; }
         public string? WorkType { get; set; }
+        public string? Product { get; set; }
+        public double? Rate { get; set; }
+        public string? RateUnit { get; set; }
         public string? Notes { get; set; }
         public DateTime? StartedAt { get; set; }
         public DateTime? EndedAt { get; set; }
@@ -163,6 +166,9 @@ public static class JobJsonService
             FieldName = j.FieldName,
             TaskName = j.TaskName,
             WorkType = j.WorkType,
+            Product = j.Product,
+            Rate = j.Rate,
+            RateUnit = j.RateUnit,
             Notes = j.Notes,
             StartedAt = j.StartedAt,
             EndedAt = j.EndedAt,
@@ -179,6 +185,9 @@ public static class JobJsonService
             FieldName = !string.IsNullOrEmpty(FieldName) ? FieldName : fieldName,
             TaskName = !string.IsNullOrEmpty(TaskName) ? TaskName : taskName,
             WorkType = WorkType ?? string.Empty,
+            Product = Product ?? string.Empty,
+            Rate = Rate ?? 0,
+            RateUnit = RateUnit ?? string.Empty,
             Notes = Notes ?? string.Empty,
             StartedAt = StartedAt ?? DateTime.Now,
             EndedAt = EndedAt,

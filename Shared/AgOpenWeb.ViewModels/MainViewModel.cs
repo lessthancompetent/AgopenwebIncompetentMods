@@ -1754,6 +1754,7 @@ public partial class MainViewModel : ObservableObject
             if (activeJob != null)
             {
                 _coverageMapService.LoadFromFile(fieldPath, activeJob.TaskName);
+                TryRetroExportCoverage();
                 _logger.LogDebug($"[Coverage] Loaded coverage from {fieldPath} job={activeJob.TaskName}");
             }
             else
@@ -1883,6 +1884,9 @@ public partial class MainViewModel : ObservableObject
             var activeJob = _jobService.ActiveJob;
             if (activeJob != null)
             {
+                // Application record: write the job's coverage.geojson while the
+                // painted cells are still in memory (see MainViewModel.CoverageExport).
+                ExportCoverageForActiveJob(quiet: true);
                 var taskName = activeJob.TaskName;
                 await Task.Run(() => _coverageMapService.SaveToFile(savePath, taskName));
                 _logger.LogDebug($"[Coverage] Saved coverage to {savePath} job={taskName}");

@@ -82,6 +82,9 @@ public interface IJobService
     /// </summary>
     void ResumeJob(string fieldName, string taskName);
 
+    /// <summary>Persist the active job's metadata (e.g. product/rate edits) to job.json.</summary>
+    void SaveActiveJob();
+
     /// <summary>
     /// Close the active job: stamp <see cref="Job.EndedAt"/>, set status,
     /// persist, clear <see cref="ActiveJob"/>. No-op if no active job.

@@ -812,6 +812,17 @@ function rpFillSpeeds() {
     if (typeof v === 'number') el.value = Math.round(v * 10) / 10;
   }
 }
+// Application records: set the active job's product/rate; export coverage.geojson.
+document.getElementById('ft-setproduct').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const p = prompt('Product name (e.g. Urea 46)?'); if (p == null) return;
+  const r = parseFloat(prompt('Rate per ha (number, 0 if n/a)?') || '0') || 0;
+  const u = r > 0 ? (prompt('Rate unit (kg/ha, L/ha, seeds/ha...)?') || '') : '';
+  transport.send('job.setProduct|' + p.replace(/[|,]/g, ' ').trim() + ',' + r + ',' + u.replace(/[|,]/g, ' ').trim());
+});
+document.getElementById('ft-exportcov').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('job.exportCoverage');
+});
 function planRoute() {
   transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0].join(','));
   document.getElementById('rp-stats').textContent = 'Planning…';

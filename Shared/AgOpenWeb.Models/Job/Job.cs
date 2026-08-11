@@ -58,6 +58,16 @@ public class Job
     /// </summary>
     public string Notes { get; set; } = string.Empty;
 
+    /// <summary>Product applied in this job (e.g. "Urea 46"). Drives the per-product
+    /// coverage record exported as coverage.geojson.</summary>
+    public string Product { get; set; } = string.Empty;
+
+    /// <summary>Application rate (in <see cref="RateUnit"/> per hectare terms).</summary>
+    public double Rate { get; set; }
+
+    /// <summary>Rate unit label, e.g. "kg/ha" or "L/ha".</summary>
+    public string RateUnit { get; set; } = string.Empty;
+
     public DateTime StartedAt { get; set; } = DateTime.Now;
 
     /// <summary>

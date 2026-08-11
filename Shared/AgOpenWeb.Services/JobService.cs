@@ -163,6 +163,13 @@ public class JobService : IJobService
         SetActiveJob(job);
     }
 
+    public void SaveActiveJob()
+    {
+        if (ActiveJob == null) return;
+        var fieldDir = ResolveFieldDir(ActiveJob.FieldName);
+        if (fieldDir != null) JobJsonService.Save(ActiveJob, fieldDir);
+    }
+
     public void CloseCurrentJob(JobStatus closingStatus = JobStatus.Done)
     {
         if (ActiveJob == null) return;
