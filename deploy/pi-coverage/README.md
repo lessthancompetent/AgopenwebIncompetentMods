@@ -21,7 +21,17 @@ rebuilt at any time.**
    journalctl -u agdata-ingest -f     # watch it pick files up
    ```
    Stdlib-only Python 3 — nothing to pip-install.
-3. **Backup**: nightly restic/rclone of `/srv/agdata/fields` to another
+3. **Viewer** (map UI over the tailnet):
+   ```bash
+   sudo cp viewer.py /srv/agdata/
+   sudo cp -r static /srv/agdata/
+   sudo cp agdata-viewer.service /etc/systemd/system/
+   sudo systemctl enable --now agdata-viewer
+   ```
+   Then browse to `http://<pi-tailscale-name>:8080` from any tailnet device.
+   Stdlib-only again — Leaflet is vendored in `static/`, only the OSM map
+   tiles come from the internet (the browser fetches those, not the Pi).
+4. **Backup**: nightly restic/rclone of `/srv/agdata/fields` to another
    machine or bucket. (The `.db` need not be backed up — rebuildable.)
 
 ## Poking at the data

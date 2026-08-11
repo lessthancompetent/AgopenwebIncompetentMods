@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farm Coverage Records</title>
+<link rel="stylesheet" href="/static/leaflet.css">
+<style>
+  html, body { margin: 0; height: 100%; font: 14px system-ui, sans-serif; }
+  #map { position: absolute; inset: 0; }
+  #panel {
+    position: absolute; top: 10px; right: 10px; z-index: 1000; width: 280px;
+    background: rgba(20, 24, 30, .92); color: #dfe7f0; border-radius: 10px;
+    padding: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.4);
+  }
+  #panel h1 { font-size: 15px; margin: 0 0 8px; }
+  #panel label { display: block; margin: 8px 0 2px; font-size: 12px; color: #9fb3cc; }
+  #panel select, #panel input {
+    width: 100%; box-sizing: border-box; background: #10141a; color: #dfe7f0;
+    border: 1px solid #33404f; border-radius: 6px; padding: 5px 7px; font-size: 13px;
+  }
+  #summary { margin-top: 10px; font-size: 12px; border-top: 1px solid #33404f; padding-top: 8px; }
+  #summary .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  #summary .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+  .leaflet-popup-content { font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <h1>Coverage records</h1>
+  <label>Product</label>
+  <select id="f-product"><option value="">All products</option></select>
+  <label>From</label><input id="f-from" type="date">
+  <label>To</label><input id="f-to" type="date">
+  <div id="summary"></div>
+</div>
+<script src="/static/leaflet.js"></script>
+<script>
+const map = L.map('map');
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+
+// Stable colour per product name.
+function colorOf(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360} 70% 55%)`;
+}
+
+let fieldsLayer = null, appsLayer = null, fitted = false, homeBounds = null;
+
+async function loadFields() {
+  const fc = await (await fetch('/api/fields')).json();
+  fieldsLayer = L.geoJSON(fc, {
+    style: { color: '#e0704f', weight: 1.5, fill: false, dashArray: '4 3' },
+    onEachFeature: (f, l) => l.bindTooltip(f.properties && f.properties.name || '', { sticky: true }),
+  }).addTo(map);
+  // Fit to the MEDIAN cluster of fields: one boundary with a garbage origin would
+  // otherwise drag fitBounds out to the whole world.
+  if (fc.features.length && !fitted) {
+    const centers = fc.features.map(f => { try { return L.geoJSON(f).getBounds().getCenter(); } catch { return null; } })
+      .filter(c => c && (Math.abs(c.lat) > 0.5 || Math.abs(c.lng) > 0.5));
+    if (centers.length) {
+      const med = a => a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)];
+      const mLat = med(centers.map(c => c.lat)), mLng = med(centers.map(c => c.lng));
+      const near = centers.filter(c => Math.abs(c.lat - mLat) < 1 && Math.abs(c.lng - mLng) < 1);
+      homeBounds = L.latLngBounds(near.length ? near : centers).pad(0.15);
+      map.fitBounds(homeBounds);
+      fitted = true;
+    }
+  }
+}
+
+// If the page loaded in a hidden/zero-size container, fitBounds computed zoom 0;
+// redo it once the map actually gets pixels.
+map.on('resize', () => { if (homeBounds && map.getZoom() < 8) map.fitBounds(homeBounds); });
+
+function filterQs() {
+  const p = document.getElementById('f-product').value;
+  const a = document.getElementById('f-from').value;
+  const b = document.getElementById('f-to').value;
+  const qs = new URLSearchParams();
+  if (p) qs.set('product', p);
+  if (a) qs.set('from', a);
+  if (b) qs.set('to', b);
+  return qs.toString() ? '?' + qs.toString() : '';
+}
+
+async function loadApps() {
+  const fc = await (await fetch('/api/applications' + filterQs())).json();
+  if (appsLayer) appsLayer.remove();
+  appsLayer = L.geoJSON(fc, {
+    style: f => ({ color: colorOf(f.properties.product || '?'), weight: 1,
+                   fillColor: colorOf(f.properties.product || '?'), fillOpacity: 0.45 }),
+    onEachFeature: (f, l) => {
+      const p = f.properties;
+      l.bindPopup(`<b>${p.product || '(no product)'}</b><br>` +
+        `${p.field}<br>Job ${p.job}<br>` +
+        (p.rate ? `${p.rate} ${p.rateUnit}<br>` : '') +
+        `${(+p.workedHa).toFixed(2)} ha` +
+        (p.startedAt ? `<br>${p.startedAt.slice(0, 10)}` : ''));
+    },
+  }).addTo(map);
+  const sm = await (await fetch('/api/summary' + filterQs())).json();
+  document.getElementById('summary').innerHTML = sm.length
+    ? sm.map(r => `<div class="row"><span><span class="sw" style="background:${colorOf(r.product || '?')}"></span>` +
+        `${r.product || '(no product)'}</span><span>${r.ha ?? 0} ha · ${r.jobs}</span></div>`).join('')
+    : '<i>No applications match</i>';
+}
+
+async function loadProducts() {
+  const ps = await (await fetch('/api/products')).json();
+  const sel = document.getElementById('f-product');
+  for (const p of ps) {
+    const o = document.createElement('option');
+    o.value = o.textContent = p;
+    sel.appendChild(o);
+  }
+}
+
+for (const id of ['f-product', 'f-from', 'f-to'])
+  document.getElementById(id).addEventListener('change', loadApps);
+
+map.setView([0, 0], 13);   // sensible start until fields load
+loadFields().then(loadApps);
+loadProducts();
+</script>
+</body>
+</html>
