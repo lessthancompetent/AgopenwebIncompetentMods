@@ -1,0 +1,15 @@
+[Unit]
+Description=AgOpenWeb coverage-record ingest (files -> SQLite index)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /srv/agdata/ingest.py --data /srv/agdata/fields --db /srv/agdata/coverage.db
+Restart=always
+RestartSec=10
+User=pi
+# The DB is a rebuildable index over the synced files; nothing here is precious.
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
