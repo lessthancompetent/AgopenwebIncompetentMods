@@ -205,6 +205,9 @@ public partial class MainViewModel
         }
         catch { /* headland is a convenience here — never fail the plan on it */ }
 
+        // Make the plan's paths available as native guidance lines immediately.
+        RegisterRouteSteerTracks();
+
         var m = plan.Metadata;
         double areaHa = m.WorkDistanceMeters * m.ToolWidthMeters / 10000.0;
         double estMin = RoutePlanningService.EstimateWorkSeconds(
@@ -259,10 +262,15 @@ public partial class MainViewModel
         return false;
     }
 
-    public void ActivateRouteSteerPath(bool headland)
+    /// <summary>
+    /// Build one of the route's two steer paths ("Route Headland" / "Route Main") as a
+    /// curve Track, or null when the plan lacks it. Reverse shunts are spliced to a
+    /// straight join (forward-only followers).
+    /// </summary>
+    private Models.Track.Track? BuildRouteTrack(bool headland)
     {
         var plan = _currentRoutePlan;
-        if (plan == null) { StatusMessage = "Plan a route first"; return; }
+        if (plan == null) return null;
 
         int firstSwath = -1; bool hasHeadland = false;
         for (int i = 0; i < plan.Segments.Count; i++)
@@ -285,7 +293,7 @@ public partial class MainViewModel
         }
         if (headland)
         {
-            if (!hasHeadland) { StatusMessage = "This plan has no headland laps"; return; }
+            if (!hasHeadland) return null;
             int end = firstSwath < 0 ? plan.Segments.Count : firstSwath;
             for (int i = 0; i < end; i++) AddSeg(plan.Segments[i]);
             name = "Route Headland";
@@ -296,25 +304,55 @@ public partial class MainViewModel
             for (int i = start; i < plan.Segments.Count; i++) AddSeg(plan.Segments[i]);
             name = "Route Main";
         }
-        if (pts.Count < 2) { StatusMessage = "Route path too short to steer"; return; }
+        if (pts.Count < 2) return null;
 
-        var curve = Models.Guidance.CurveProcessing.CalculateHeadings(pts);
-
-        // Replace any prior copy so re-planning refreshes it; keep the other route path.
-        for (int i = SavedTracks.Count - 1; i >= 0; i--)
-            if (SavedTracks[i].Name == name) SavedTracks.RemoveAt(i);
-
-        var track = new Models.Track.Track
+        return new Models.Track.Track
         {
             Name = name,
-            Points = curve,
+            Points = Models.Guidance.CurveProcessing.CalculateHeadings(pts),
             Type = Models.Track.TrackType.Curve,
             IsVisible = true,
             IsClosed = false,
         };
+    }
+
+    /// <summary>Install a route track into SavedTracks, replacing any prior copy;
+    /// keeps the selection pointing at the fresh instance when it was selected.</summary>
+    private Models.Track.Track InstallRouteTrack(Models.Track.Track track)
+    {
+        bool wasSelected = SelectedTrack != null && SelectedTrack.Name == track.Name;
+        for (int i = SavedTracks.Count - 1; i >= 0; i--)
+            if (SavedTracks[i].Name == track.Name) SavedTracks.RemoveAt(i);
         SavedTracks.Add(track);
-        SelectedTrack = track;
-        StatusMessage = $"{name} active — engage autosteer to follow it (switch anytime)";
+        if (wasSelected) SelectedTrack = track;
+        return track;
+    }
+
+    /// <summary>
+    /// Register BOTH route paths as ordinary saved tracks (visible, not auto-selected)
+    /// right after planning, so they appear in the native Tracks manager alongside AB
+    /// lines — separately selectable there and engageable with the normal autosteer
+    /// button or an external engage switch. Runs on every successful plan.
+    /// </summary>
+    private void RegisterRouteSteerTracks()
+    {
+        var hl = BuildRouteTrack(headland: true);
+        if (hl != null) InstallRouteTrack(hl);
+        var main = BuildRouteTrack(headland: false);
+        if (main != null) InstallRouteTrack(main);
+    }
+
+    public void ActivateRouteSteerPath(bool headland)
+    {
+        if (_currentRoutePlan == null) { StatusMessage = "Plan a route first"; return; }
+        var track = BuildRouteTrack(headland);
+        if (track == null)
+        {
+            StatusMessage = headland ? "This plan has no headland laps" : "Route path too short to steer";
+            return;
+        }
+        SelectedTrack = InstallRouteTrack(track);
+        StatusMessage = $"{track.Name} active — engage autosteer to follow it (switch anytime)";
     }
 
     public void DriveRoute()
