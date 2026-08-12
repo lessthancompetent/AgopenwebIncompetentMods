@@ -454,25 +454,16 @@ public class SectionControlService : ISectionControlService
             return;
         }
 
-        // ADDITIONAL CHECK: Verify both expanded edge points are inside boundary.
-        // The segment-based check can sometimes pass when edges are outside,
-        // especially when tool heading is perpendicular to boundary.
-        if (coverageMargin > 0)
-        {
-            double perpHeading = toolHeading + Math.PI / 2.0;
-            var expandedLeftEdge = new Vec2(
-                sectionCenter.Easting + Math.Sin(perpHeading) * (-halfWidthWithMargin),
-                sectionCenter.Northing + Math.Cos(perpHeading) * (-halfWidthWithMargin));
-            var expandedRightEdge = new Vec2(
-                sectionCenter.Easting + Math.Sin(perpHeading) * halfWidthWithMargin,
-                sectionCenter.Northing + Math.Cos(perpHeading) * halfWidthWithMargin);
-
-            if (!IsPointInBoundary(expandedLeftEdge) || !IsPointInBoundary(expandedRightEdge))
-            {
-                UpdateSectionOff(index);
-                return;
-            }
-        }
+        // NOTE: there was a second, BINARY check here — "both expanded edge points
+        // must be inside the boundary" — that killed every fence-adjacent pass:
+        // a correct headland lap runs its swath edge exactly ON the fence, so the
+        // margin-expanded edge point sits a few cm outside and the section was
+        // forced instantly off EVERY tick of the whole lap. The headland lap
+        // could never paint in auto, and delay/look-ahead settings appeared dead
+        // along the fence (this path bypasses the state machine entirely). The
+        // strict segment check above already evaluates the margin-expanded swath
+        // proportionally (95% inside required) — a genuinely overhanging swath
+        // still cuts off; a centimetre sliver no longer blanks the lap.
 
         // Determine if section should be on.
         // The actuator-delay compensation built into lookOnDist means the valve receives
