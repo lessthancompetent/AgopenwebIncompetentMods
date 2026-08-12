@@ -133,6 +133,7 @@ public static partial class RemoteServerWiring
             case "tool.offset": if (D(out var t8)) tool.Offset = t8; return;
             case "tool.overlap": if (D(out var t9)) tool.Overlap = t9; return;
             case "tool.physicalWidth": if (D(out var tpw)) tool.PhysicalWidth = tpw; return;
+            case "tool.width": if (D(out var twd)) tool.Width = twd; return; // stored working width (m); sections are the live source
             case "tool.trailingToolToPivotLength": if (D(out var t10)) tool.TrailingToolToPivotLength = t10; return;
             case "tool.slowSpeedCutoff": if (D(out var t11)) tool.SlowSpeedCutoff = t11; return;
             case "tool.coverageMargin": if (D(out var t12)) tool.CoverageMargin = t12; return;

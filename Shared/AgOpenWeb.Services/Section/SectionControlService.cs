@@ -884,6 +884,12 @@ public class SectionControlService : ISectionControlService
     /// </summary>
     private bool IsPointInBoundary(Vec2 point)
     {
+        // Tool config "Off outside boundary" toggle: with it OFF the boundary
+        // never gates sections (coverage/headland remain the only authorities).
+        // This flag was stored but unread — the config button did nothing.
+        if (!_configStore.Tool.IsSectionOffWhenOut)
+            return true;
+
         var boundary = _state.Field.CurrentBoundary;
         if (boundary == null || !boundary.IsValid)
             return true; // No boundary = always in
@@ -896,6 +902,13 @@ public class SectionControlService : ISectionControlService
     /// </summary>
     private BoundaryResult GetSegmentBoundaryStatus(Vec2 sectionCenter, double heading, double halfWidth)
     {
+        // "Off outside boundary" disabled → boundary never gates sections. The
+        // no-field guard stays: spraying with no field open is never intended.
+        if (!_configStore.Tool.IsSectionOffWhenOut)
+            return _state.Field.HasActiveField
+                ? BoundaryResult.FullyInside
+                : BoundaryResult.FullyOutside;
+
         var boundary = _state.Field.CurrentBoundary;
         if (boundary == null || !boundary.IsValid)
         {
