@@ -6,7 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=pi
-ExecStart=/usr/bin/python3 /srv/agdata/viewer.py --db /srv/agdata/coverage.db --port 8080
+# 8080 is ChirpStack's web UI on this Pi — viewer lives on 8082.
+ExecStart=/usr/bin/python3 /srv/agdata/viewer.py --db /srv/agdata/coverage.db --port 8082
 Restart=on-failure
 RestartSec=5
 

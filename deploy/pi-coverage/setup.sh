@@ -31,5 +31,5 @@ systemctl restart agdata-ingest agdata-viewer
 sleep 1
 systemctl --no-pager --lines=3 status agdata-ingest agdata-viewer || true
 echo
-echo "Done. Map viewer: http://$(tailscale ip -4 2>/dev/null || hostname -I | awk '{print $1}'):8080"
+echo "Done. Map viewer: http://$(tailscale ip -4 2>/dev/null || hostname -I | awk '{print $1}'):8082"
 echo "Point Syncthing (or a manual copy) of the Fields tree at /srv/agdata/fields"
