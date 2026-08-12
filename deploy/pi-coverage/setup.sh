@@ -5,6 +5,10 @@ set -euo pipefail
 
 RAW="https://raw.githubusercontent.com/lessthancompetent/Agopenwebpick-from-map/feature/route-planning/deploy/pi-coverage"
 
+# Newer Raspberry Pi OS has no 'pi' user — run services as whoever invoked sudo.
+AGUSER="${SUDO_USER:-$(id -un)}"
+id "$AGUSER" >/dev/null
+
 mkdir -p /srv/agdata/fields /srv/agdata/static
 
 echo "Fetching files..."
@@ -16,7 +20,9 @@ curl -fsSL "$RAW/static/leaflet.css" -o /srv/agdata/static/leaflet.css
 curl -fsSL "$RAW/agdata-ingest.service" -o /etc/systemd/system/agdata-ingest.service
 curl -fsSL "$RAW/agdata-viewer.service" -o /etc/systemd/system/agdata-viewer.service
 
-chown -R pi:pi /srv/agdata
+sed -i "s/^User=.*/User=$AGUSER/" /etc/systemd/system/agdata-ingest.service \
+                                  /etc/systemd/system/agdata-viewer.service
+chown -R "$AGUSER:$AGUSER" /srv/agdata
 
 systemctl daemon-reload
 systemctl enable --now agdata-ingest agdata-viewer
