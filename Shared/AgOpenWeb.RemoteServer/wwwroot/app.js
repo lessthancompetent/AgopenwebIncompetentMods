@@ -5350,7 +5350,12 @@ function drawCoverageEdgeSk(canvas) {
   })());
   const c = covEdgeRgb;
   p.setColor(CK.Color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, 1));
-  p.setStrokeWidth(Math.max(1, 0.6 * pxPerM));
+  // Thin outline: the stroke is CENTRED on the paint's true perimeter, so half of
+  // it lands OUTSIDE the painted area. The old 0.6 m width bled 0.3 m of colour
+  // past the real coverage on every side — a 2.9 m pass read as ~3.5 m ("paint
+  // spills out wider than the tool"). The painted data itself is exact; keep the
+  // outline near-hairline so what you see is what was covered.
+  p.setStrokeWidth(Math.max(1.25, 0.12 * pxPerM));
   // Per-vertex near-plane gate: a vertex at/behind the near plane (homogeneous w ≤ NEAR)
   // projects through w2s to a huge/flipped coord, so a polyline crossing behind the camera
   // would shoot a stroke to infinity (seen on zoom/tilt). Break the polyline at those
