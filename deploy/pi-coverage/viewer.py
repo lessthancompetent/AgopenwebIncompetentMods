@@ -105,6 +105,10 @@ class Handler(BaseHTTPRequestHandler):
                 where, args = app_filters(q)
                 rows = db().execute(
                     "SELECT product, count(*) AS jobs, round(sum(worked_ha), 2) AS ha,"
+                    " round(sum(applied_amount), 1) AS applied,"
+                    " max(applied_unit) AS appliedUnit,"
+                    " min(applied_measured) AS allMeasured,"
+                    " round(sum(applied_amount) / nullif(sum(worked_ha), 0), 1) AS avgRate,"
                     " min(started_at) AS first, max(started_at) AS last"
                     " FROM applications" + where + " GROUP BY product ORDER BY ha DESC", args)
                 self._send(json.dumps([dict(r) for r in rows]))

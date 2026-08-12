@@ -39,7 +39,8 @@ public static class CoverageExportService
         double cellSize, double minE, double minN,
         double originLat, double originLon,
         string fieldName, string taskName, string product, double rate, string rateUnit,
-        string workType, DateTime startedAt, DateTime? endedAt, double toolWidthM)
+        string workType, DateTime startedAt, DateTime? endedAt, double toolWidthM,
+        double appliedAmount = 0, string appliedUnit = "")
     {
         if (cells == null || cells.Count == 0 || cellSize <= 0.001) return null;
 
@@ -144,7 +145,24 @@ public static class CoverageExportService
           .Append(",\"rateUnit\":\"").Append(J(rateUnit)).Append('"')
           .Append(",\"workType\":\"").Append(J(workType)).Append('"')
           .Append(",\"workedHa\":").Append(workedHa.ToString("0.####", inv))
-          .Append(",\"toolWidthM\":").Append(toolWidthM.ToString("0.##", inv))
+          .Append(",\"toolWidthM\":").Append(toolWidthM.ToString("0.##", inv));
+        // Applied stats: measured total (loader scale / tank total / drill counter)
+        // beats an estimate; otherwise target rate × area when a rate is known.
+        // actualRate is per-ha over the actually-painted area either way.
+        double applied = appliedAmount > 0 ? appliedAmount
+                       : (rate > 0 && workedHa > 0 ? rate * workedHa : 0);
+        if (applied > 0)
+        {
+            string unit = appliedAmount > 0 && !string.IsNullOrWhiteSpace(appliedUnit)
+                ? appliedUnit
+                : rateUnit.Split('/')[0];  // "kg/ha" → "kg"
+            sb.Append(",\"appliedAmount\":").Append(applied.ToString("0.###", inv))
+              .Append(",\"appliedUnit\":\"").Append(J(unit)).Append('"')
+              .Append(",\"appliedMeasured\":").Append(appliedAmount > 0 ? "true" : "false");
+            if (workedHa > 0)
+                sb.Append(",\"actualRate\":").Append((applied / workedHa).ToString("0.###", inv));
+        }
+        sb
           .Append(",\"startedAt\":\"").Append(startedAt.ToString("o", inv)).Append('"');
         if (endedAt.HasValue)
             sb.Append(",\"endedAt\":\"").Append(endedAt.Value.ToString("o", inv)).Append('"');

@@ -68,6 +68,14 @@ public class Job
     /// <summary>Rate unit label, e.g. "kg/ha" or "L/ha".</summary>
     public string RateUnit { get; set; } = string.Empty;
 
+    /// <summary>Measured total product applied in this job (loader-scale weight
+    /// into the spreader, sprayer tank totals, …). 0 = not measured; consumers
+    /// fall back to <see cref="Rate"/> × worked area as an estimate.</summary>
+    public double AppliedAmount { get; set; }
+
+    /// <summary>Unit of <see cref="AppliedAmount"/>, e.g. "kg" or "L".</summary>
+    public string AppliedUnit { get; set; } = string.Empty;
+
     public DateTime StartedAt { get; set; } = DateTime.Now;
 
     /// <summary>

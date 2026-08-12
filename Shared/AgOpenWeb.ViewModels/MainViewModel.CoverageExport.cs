@@ -32,6 +32,23 @@ public partial class MainViewModel
             (job.Rate > 0 ? $" @ {job.Rate:0.###} {job.RateUnit}" : "");
     }
 
+    /// <summary>Record the measured total product applied this job (e.g. loader-scale
+    /// weight loaded into the spreader) and persist to job.json. Re-exports the
+    /// coverage record so the stats land in the remote history immediately.</summary>
+    public void SetActiveJobApplied(double amount, string unit)
+    {
+        var job = _jobService.ActiveJob;
+        if (job == null) { StatusMessage = "Open a job first"; return; }
+        job.AppliedAmount = Math.Max(0, amount);
+        job.AppliedUnit = (unit ?? "").Trim();
+        _jobService.SaveActiveJob();
+        ExportCoverageForActiveJob(quiet: true);
+        StatusMessage = job.AppliedAmount > 0
+            ? $"Applied: {job.AppliedAmount:0.###} {job.AppliedUnit}" +
+              (job.AreaWorkedHectares > 0.001 || _coverageMapService.PatchCount > 0 ? "" : " (no coverage yet)")
+            : "Applied amount cleared";
+    }
+
     /// <summary>
     /// Export the active job's coverage as coverage.geojson in the job folder.
     /// Quiet mode (auto hooks) never surfaces errors as status noise.
@@ -59,7 +76,8 @@ public partial class MainViewModel
                 field.Origin.Latitude, field.Origin.Longitude,
                 field.Name ?? job.FieldName, job.TaskName,
                 job.Product, job.Rate, job.RateUnit, job.WorkType,
-                job.StartedAt, job.EndedAt, _configStore.ActualToolWidth);
+                job.StartedAt, job.EndedAt, _configStore.ActualToolWidth,
+                job.AppliedAmount, job.AppliedUnit);
             if (json == null)
             { if (!quiet) StatusMessage = "No coverage to export yet"; return; }
 

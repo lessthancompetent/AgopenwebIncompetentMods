@@ -150,6 +150,8 @@ public static class JobJsonService
         public string? Product { get; set; }
         public double? Rate { get; set; }
         public string? RateUnit { get; set; }
+        public double? AppliedAmount { get; set; }
+        public string? AppliedUnit { get; set; }
         public string? Notes { get; set; }
         public DateTime? StartedAt { get; set; }
         public DateTime? EndedAt { get; set; }
@@ -169,6 +171,8 @@ public static class JobJsonService
             Product = j.Product,
             Rate = j.Rate,
             RateUnit = j.RateUnit,
+            AppliedAmount = j.AppliedAmount,
+            AppliedUnit = j.AppliedUnit,
             Notes = j.Notes,
             StartedAt = j.StartedAt,
             EndedAt = j.EndedAt,
@@ -188,6 +192,8 @@ public static class JobJsonService
             Product = Product ?? string.Empty,
             Rate = Rate ?? 0,
             RateUnit = RateUnit ?? string.Empty,
+            AppliedAmount = AppliedAmount ?? 0,
+            AppliedUnit = AppliedUnit ?? string.Empty,
             Notes = Notes ?? string.Empty,
             StartedAt = StartedAt ?? DateTime.Now,
             EndedAt = EndedAt,

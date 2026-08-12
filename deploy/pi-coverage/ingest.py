@@ -43,6 +43,10 @@ CREATE TABLE IF NOT EXISTS applications (
     work_type TEXT NOT NULL DEFAULT '',
     worked_ha REAL NOT NULL DEFAULT 0,
     tool_width_m REAL NOT NULL DEFAULT 0,
+    applied_amount REAL NOT NULL DEFAULT 0,
+    applied_unit TEXT NOT NULL DEFAULT '',
+    applied_measured INTEGER NOT NULL DEFAULT 0,
+    actual_rate REAL NOT NULL DEFAULT 0,
     started_at TEXT,
     ended_at TEXT,
     exported_at TEXT,
@@ -62,6 +66,21 @@ CREATE TABLE IF NOT EXISTS fields (
 CREATE INDEX IF NOT EXISTS idx_app_product ON applications(product);
 CREATE INDEX IF NOT EXISTS idx_app_started ON applications(started_at);
 """
+
+
+def migrate(con):
+    """Add columns introduced after a DB was first created (CREATE TABLE IF NOT
+    EXISTS won't). Re-scan of the source files then backfills the values."""
+    have = {r[1] for r in con.execute("PRAGMA table_info(applications)")}
+    for col, decl in (("applied_amount", "REAL NOT NULL DEFAULT 0"),
+                      ("applied_unit", "TEXT NOT NULL DEFAULT ''"),
+                      ("applied_measured", "INTEGER NOT NULL DEFAULT 0"),
+                      ("actual_rate", "REAL NOT NULL DEFAULT 0")):
+        if col not in have:
+            con.execute(f"ALTER TABLE applications ADD COLUMN {col} {decl}")
+            # force re-ingest so existing rows pick the new fields up
+            con.execute("DELETE FROM files WHERE path LIKE '%coverage.geojson'")
+    con.commit()
 
 
 def bbox_of(coords):
@@ -103,13 +122,18 @@ def ingest_coverage(con, path):
     con.execute(
         """INSERT INTO applications
            (field, job, product, rate, rate_unit, work_type, worked_ha, tool_width_m,
+            applied_amount, applied_unit, applied_measured, actual_rate,
             started_at, ended_at, exported_at, geojson,
             min_lon, min_lat, max_lon, max_lat, src_path, ingested_at)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
            ON CONFLICT(field, job, product) DO UPDATE SET
              rate=excluded.rate, rate_unit=excluded.rate_unit,
              work_type=excluded.work_type, worked_ha=excluded.worked_ha,
-             tool_width_m=excluded.tool_width_m, started_at=excluded.started_at,
+             tool_width_m=excluded.tool_width_m,
+             applied_amount=excluded.applied_amount,
+             applied_unit=excluded.applied_unit,
+             applied_measured=excluded.applied_measured,
+             actual_rate=excluded.actual_rate, started_at=excluded.started_at,
              ended_at=excluded.ended_at, exported_at=excluded.exported_at,
              geojson=excluded.geojson, min_lon=excluded.min_lon,
              min_lat=excluded.min_lat, max_lon=excluded.max_lon,
@@ -119,6 +143,8 @@ def ingest_coverage(con, path):
             props.get("field", ""), props.get("job", ""), props.get("product", ""),
             props.get("rate", 0), props.get("rateUnit", ""), props.get("workType", ""),
             props.get("workedHa", 0), props.get("toolWidthM", 0),
+            props.get("appliedAmount", 0), props.get("appliedUnit", ""),
+            1 if props.get("appliedMeasured") else 0, props.get("actualRate", 0),
             props.get("startedAt"), props.get("endedAt"), props.get("exportedAt"),
             json.dumps(doc, separators=(",", ":")),
             lo_lon, lo_lat, hi_lon, hi_lat, str(path),
@@ -190,6 +216,7 @@ def main():
     os.makedirs(Path(args.db).parent, exist_ok=True)
     con = sqlite3.connect(args.db)
     con.executescript(SCHEMA)
+    migrate(con)
     con.execute("PRAGMA journal_mode=WAL")  # survives power cuts far better
 
     while True:

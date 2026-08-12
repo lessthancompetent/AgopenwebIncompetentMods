@@ -820,6 +820,14 @@ document.getElementById('ft-setproduct').addEventListener('pointerdown', e => {
   const u = r > 0 ? (prompt('Rate unit (kg/ha, L/ha, seeds/ha...)?') || '') : '';
   transport.send('job.setProduct|' + p.replace(/[|,]/g, ' ').trim() + ',' + r + ',' + u.replace(/[|,]/g, ' ').trim());
 });
+document.getElementById('ft-setapplied').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const a = prompt('Total product applied this job (number, from loader scale / tank / drill counter; 0 to clear)?');
+  if (a == null) return;
+  const amt = parseFloat(a) || 0;
+  const u = amt > 0 ? (prompt('Unit (kg, L, t...)?') || 'kg') : '';
+  transport.send('job.setApplied|' + amt + ',' + u.replace(/[|,]/g, ' ').trim());
+});
 document.getElementById('ft-exportcov').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('job.exportCoverage');
 });

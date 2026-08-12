@@ -216,6 +216,14 @@ public static partial class RemoteServerWiring
                                         pp.Length > 2 ? pp[2] : "");
                                     return;
                                 }
+                                case "job.setApplied": // arg = "amount,unit" — measured total product used (Tier-1)
+                                {
+                                    var ap = arg.Split(',', 2);
+                                    double apAmt = 0;
+                                    if (ap.Length > 0) double.TryParse(ap[0], num, inv, out apAmt);
+                                    vm.SetActiveJobApplied(apAmt, ap.Length > 1 ? ap[1] : "");
+                                    return;
+                                }
                                 case "boundary.select": // arg = boundary list index (Tier-1)
                                     if (int.TryParse(arg, out var bsi)) vm.SelectedBoundaryIndex = bsi;
                                     return;

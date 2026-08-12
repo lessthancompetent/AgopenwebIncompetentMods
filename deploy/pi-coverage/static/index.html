@@ -22,6 +22,7 @@
   #summary { margin-top: 10px; font-size: 12px; border-top: 1px solid #33404f; padding-top: 8px; }
   #summary .row { display: flex; justify-content: space-between; padding: 2px 0; }
   #summary .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+  #summary .sub { color: #9fb3cc; font-size: 11px; padding-left: 16px; }
   .leaflet-popup-content { font-size: 13px; }
 </style>
 </head>
@@ -95,17 +96,37 @@ async function loadApps() {
                    fillColor: colorOf(f.properties.product || '?'), fillOpacity: 0.45 }),
     onEachFeature: (f, l) => {
       const p = f.properties;
+      let stats = '';
+      if (p.appliedAmount) {
+        const tag = p.appliedMeasured ? 'measured' : 'est. from rate';
+        stats = `<br>Applied: <b>${(+p.appliedAmount).toFixed(1)} ${p.appliedUnit || ''}</b> (${tag})`;
+        if (p.actualRate) {
+          stats += `<br>Actual rate: ${(+p.actualRate).toFixed(1)} ${p.appliedUnit || ''}/ha`;
+          if (p.appliedMeasured && p.rate > 0) {
+            const dev = 100 * (p.actualRate - p.rate) / p.rate;
+            stats += ` <span style="color:${Math.abs(dev) > 10 ? '#e0704f' : '#7fc97f'}">(${dev >= 0 ? '+' : ''}${dev.toFixed(0)}% vs target)</span>`;
+          }
+        }
+      }
       l.bindPopup(`<b>${p.product || '(no product)'}</b><br>` +
         `${p.field}<br>Job ${p.job}<br>` +
-        (p.rate ? `${p.rate} ${p.rateUnit}<br>` : '') +
-        `${(+p.workedHa).toFixed(2)} ha` +
+        (p.rate ? `Target: ${p.rate} ${p.rateUnit}<br>` : '') +
+        `${(+p.workedHa).toFixed(2)} ha` + stats +
         (p.startedAt ? `<br>${p.startedAt.slice(0, 10)}` : ''));
     },
   }).addTo(map);
   const sm = await (await fetch('/api/summary' + filterQs())).json();
   document.getElementById('summary').innerHTML = sm.length
-    ? sm.map(r => `<div class="row"><span><span class="sw" style="background:${colorOf(r.product || '?')}"></span>` +
-        `${r.product || '(no product)'}</span><span>${r.ha ?? 0} ha · ${r.jobs}</span></div>`).join('')
+    ? sm.map(r => {
+        let extra = '';
+        if (r.applied) {
+          extra = `<div class="row sub"><span>↳ ${r.applied} ${r.appliedUnit || ''}` +
+            (r.avgRate ? ` · ${r.avgRate} ${r.appliedUnit || ''}/ha` : '') +
+            (r.allMeasured ? '' : ' <i>(incl. estimates)</i>') + `</span></div>`;
+        }
+        return `<div class="row"><span><span class="sw" style="background:${colorOf(r.product || '?')}"></span>` +
+          `${r.product || '(no product)'}</span><span>${r.ha ?? 0} ha · ${r.jobs}</span></div>` + extra;
+      }).join('')
     : '<i>No applications match</i>';
 }
 
