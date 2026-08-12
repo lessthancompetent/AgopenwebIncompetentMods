@@ -158,6 +158,12 @@ public partial class MainViewModel
         // efficiency lever — the wrong one can nearly double the turn count. The trial
         // plans skip obstacle handling for speed (it barely changes the ranking); the
         // winning heading is then planned in full below.
+        // The tool trails behind the tractor (hitch + trailing drawbar); pass ends
+        // are extended by this so the TOOL reaches the headland line before the
+        // turn — otherwise every pass's coverage stops short of the headland.
+        double trailExt = Math.Abs(ConfigStore.Tool.HitchLength)
+            + (ConfigStore.Tool.IsToolTrailing ? Math.Abs(ConfigStore.Tool.TrailingHitchLength) : 0);
+
         if (!spiral && !cross && Math.Abs(angleDeg) < 0.01)
         {
             double bestSecs = double.MaxValue;
@@ -167,7 +173,7 @@ public partial class MainViewModel
                 // turn count is honest) while the pretty reroute/smoothing is skipped.
                 var trial = RoutePlanner.GenerateBoustrophedon(pts, width, turnRadius, headlandMargin, h,
                     SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance,
-                    skipPasses, blkSkip, cornerRadius, inners, false, true, physWidth);
+                    skipPasses, blkSkip, cornerRadius, inners, false, true, physWidth, trailExt);
                 if (trial == null) continue;
                 double secs = RoutePlanningService.EstimateWorkSeconds(
                     trial.Metadata, RouteWorkSpeedMps, RouteTurnSpeedMps, RouteTurnOverheadSec);
@@ -182,7 +188,7 @@ public partial class MainViewModel
                     SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners)
                 : RoutePlanner.GenerateBoustrophedon(pts, width, turnRadius, headlandMargin, heading,
                     SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners,
-                    physicalToolWidth: physWidth);
+                    physicalToolWidth: physWidth, passEndExtension: trailExt);
 
         _currentRoutePlan = plan;
         if (plan == null)

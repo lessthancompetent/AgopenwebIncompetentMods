@@ -81,7 +81,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
         IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
         bool addPondLoops = true,
         bool fastScore = false,
-        double physicalToolWidth = 0)
+        double physicalToolWidth = 0,
+        double passEndExtension = 0)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0)
             return null;
@@ -169,14 +170,22 @@ public sealed class RoutePlanningService : IRoutePlanningService
             var segs = ClipSegments(lp, dE, dN, cultivated, clipHoles);
             if (segs.Count == 0) continue;
             var passes = new List<List<Vec3>>(segs.Count);
+            // Trailing-tool overshoot: passes are TRACTOR paths, but coverage comes
+            // from the tool trailing behind. Without extending the working ends, the
+            // tractor turns away at the headland line and the tool (metres behind)
+            // never reaches it — every pass's paint stops short of the headland by
+            // the trailing offset. Extend both ends into the band so the TOOL
+            // reaches the line before the turn starts; clamped to the band depth.
+            double ext = Math.Max(0, passEndExtension);
+            if (headlandMargin > 0) ext = Math.Min(ext, headlandMargin);
             foreach (var seg in segs)
             {
                 double h = Math.Atan2(seg.Exit.Easting - seg.Entry.Easting,
                                        seg.Exit.Northing - seg.Entry.Northing);
                 passes.Add(new List<Vec3>
                 {
-                    new Vec3(seg.Entry.Easting, seg.Entry.Northing, h),
-                    new Vec3(seg.Exit.Easting, seg.Exit.Northing, h),
+                    new Vec3(seg.Entry.Easting - dE * ext, seg.Entry.Northing - dN * ext, h),
+                    new Vec3(seg.Exit.Easting + dE * ext, seg.Exit.Northing + dN * ext, h),
                 });
             }
             lines.Add(passes);

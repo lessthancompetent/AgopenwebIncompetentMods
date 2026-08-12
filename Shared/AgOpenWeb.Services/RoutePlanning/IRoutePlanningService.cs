@@ -44,7 +44,8 @@ public interface IRoutePlanningService
         IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
         bool addPondLoops = true,
         bool fastScore = false,
-        double physicalToolWidth = 0);
+        double physicalToolWidth = 0,
+        double passEndExtension = 0);
 
     /// <summary>
     /// Cross-drill: two complete coverages, the second rotated by
