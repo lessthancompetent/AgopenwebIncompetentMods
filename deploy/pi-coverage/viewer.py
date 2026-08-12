@@ -20,13 +20,17 @@ import argparse
 import json
 import sqlite3
 import threading
+import time
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 STATIC = Path(__file__).parent / "static"
 DB_PATH = "/srv/agdata/coverage.db"
+LOADS_DIR = "/srv/agdata/loads"
 _local = threading.local()
+_loads_lock = threading.Lock()
 
 
 def db():
@@ -53,6 +57,52 @@ def app_filters(q):
         where.append("started_at <= ?")
         args.append(q["to"][0] + "T23:59:59")
     return (" WHERE " + " AND ".join(where)) if where else "", args
+
+
+def _parse_iso(s):
+    try:
+        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if d.tzinfo is None:  # naive timestamps are in the server's local zone
+            d = d.replace(tzinfo=datetime.now().astimezone().tzinfo)
+        return d
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def attribute_loads(apps):
+    """Assign loader-scale records to applications by time window.
+
+    Each load goes to at most ONE application: among windows
+    [started_at - 90 min, ended_at (or start + 12 h)] containing it, the one
+    with the latest start (the load was most plausibly for the job that began
+    right after it). apps is a list of dicts with started_at/ended_at; gains
+    loads_kg / loads_n. Returns total kg attributed.
+    """
+    try:
+        rows = db().execute("SELECT ts_epoch, kg FROM loads ORDER BY ts_epoch").fetchall()
+    except sqlite3.OperationalError:   # ingest hasn't created the table yet
+        rows = []
+    windows = []
+    for a in apps:
+        a["loads_kg"] = 0.0
+        a["loads_n"] = 0
+        st = _parse_iso(a.get("started_at") or "")
+        if st is None:
+            continue
+        en = _parse_iso(a.get("ended_at") or "") or (st + timedelta(hours=12))
+        windows.append((st - timedelta(minutes=90), en, st, a))
+    total = 0.0
+    for r in rows:
+        t = datetime.fromtimestamp(r["ts_epoch"], tz=timezone.utc)
+        best = None
+        for lo, hi, st, a in windows:
+            if lo <= t <= hi and (best is None or st > best[0]):
+                best = (st, a)
+        if best:
+            best[1]["loads_kg"] += r["kg"]
+            best[1]["loads_n"] += 1
+            total += r["kg"]
+    return total
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -96,36 +146,126 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(json.dumps([r["product"] for r in rows]))
             elif u.path == "/api/applications":
                 where, args = app_filters(q)
+                apps = [dict(r) for r in db().execute(
+                    "SELECT started_at, ended_at, worked_ha, geojson FROM applications"
+                    + where + " ORDER BY started_at", args)]
+                attribute_loads(apps)
                 feats = []
-                for r in db().execute(
-                        "SELECT geojson FROM applications" + where + " ORDER BY started_at", args):
-                    feats.append(json.loads(r["geojson"]))
+                for a in apps:
+                    f = json.loads(a["geojson"])
+                    p = f.setdefault("properties", {})
+                    # Loader-scale records beat both the manual entry and the estimate.
+                    if a["loads_kg"] > 0:
+                        p["appliedAmount"] = round(a["loads_kg"], 1)
+                        p["appliedUnit"] = "kg"
+                        p["appliedMeasured"] = True
+                        p["loadsN"] = a["loads_n"]
+                        if a["worked_ha"]:
+                            p["actualRate"] = round(a["loads_kg"] / a["worked_ha"], 1)
+                    feats.append(f)
                 self._send(json.dumps({"type": "FeatureCollection", "features": feats}))
             elif u.path == "/api/summary":
                 where, args = app_filters(q)
+                apps = [dict(r) for r in db().execute(
+                    "SELECT product, started_at, ended_at, worked_ha, applied_amount,"
+                    " applied_unit, applied_measured FROM applications" + where, args)]
+                attribute_loads(apps)
+                agg = {}
+                for a in apps:
+                    s = agg.setdefault(a["product"], {
+                        "product": a["product"], "jobs": 0, "ha": 0.0, "applied": 0.0,
+                        "appliedUnit": "", "allMeasured": 1, "first": None, "last": None})
+                    s["jobs"] += 1
+                    s["ha"] += a["worked_ha"] or 0
+                    if a["loads_kg"] > 0:
+                        s["applied"] += a["loads_kg"]
+                        s["appliedUnit"] = "kg"
+                    else:
+                        s["applied"] += a["applied_amount"] or 0
+                        if a["applied_unit"]:
+                            s["appliedUnit"] = a["applied_unit"]
+                        if not a["applied_measured"]:
+                            s["allMeasured"] = 0
+                    st = a["started_at"] or ""
+                    if st:
+                        s["first"] = min(s["first"], st) if s["first"] else st
+                        s["last"] = max(s["last"], st) if s["last"] else st
+                out = []
+                for s in sorted(agg.values(), key=lambda x: -x["ha"]):
+                    s["ha"] = round(s["ha"], 2)
+                    s["applied"] = round(s["applied"], 1)
+                    s["avgRate"] = round(s["applied"] / s["ha"], 1) if s["ha"] and s["applied"] else None
+                    out.append(s)
+                self._send(json.dumps(out))
+            elif u.path == "/api/loads":
                 rows = db().execute(
-                    "SELECT product, count(*) AS jobs, round(sum(worked_ha), 2) AS ha,"
-                    " round(sum(applied_amount), 1) AS applied,"
-                    " max(applied_unit) AS appliedUnit,"
-                    " min(applied_measured) AS allMeasured,"
-                    " round(sum(applied_amount) / nullif(sum(worked_ha), 0), 1) AS avgRate,"
-                    " min(started_at) AS first, max(started_at) AS last"
-                    " FROM applications" + where + " GROUP BY product ORDER BY ha DESC", args)
+                    "SELECT ts, product, kg, attach, device FROM loads ORDER BY ts_epoch DESC LIMIT 200")
                 self._send(json.dumps([dict(r) for r in rows]))
             else:
                 self._send('"not found"', code=404)
         except Exception as ex:  # noqa: BLE001
             self._send(json.dumps({"error": str(ex)}), code=500)
 
+    def do_POST(self):
+        """POST /api/loads — loader-scale scoop records (store-and-forward).
+
+        Body: {"device": "loader", "events": [{"kg", "product", "attach", "age_s"}]}
+        The loader has no RTC: age_s is seconds-since-scoop at send time (-1 =
+        unknown, e.g. queued across a power cycle → stamped with receive time).
+        Events append to NDJSON files — the FILES are the record, the DB is the
+        rebuildable index (ingest.py picks them up within a minute).
+        """
+        u = urlparse(self.path)
+        try:
+            if u.path != "/api/loads":
+                self._send('"not found"', code=404)
+                return
+            n = int(self.headers.get("Content-Length") or 0)
+            if n <= 0 or n > 1_000_000:
+                self._send('"bad length"', code=400)
+                return
+            doc = json.loads(self.rfile.read(n).decode("utf-8"))
+            device = str(doc.get("device") or "unknown")[:32]
+            now = time.time()
+            lines = []
+            for ev in (doc.get("events") or [])[:500]:
+                kg = float(ev.get("kg") or 0)
+                if kg <= 0:
+                    continue
+                age = ev.get("age_s")
+                approx = not isinstance(age, (int, float)) or age < 0
+                epoch = now if approx else now - float(age)
+                lines.append(json.dumps({
+                    "ts_epoch": round(epoch, 1),
+                    "ts": datetime.fromtimestamp(epoch).astimezone().isoformat(),
+                    "product": str(ev.get("product") or "")[:32],
+                    "kg": round(kg, 1),
+                    "attach": str(ev.get("attach") or "")[:16],
+                    "device": device,
+                    "ts_approx": approx,
+                    "received_at": datetime.now().astimezone().isoformat(),
+                }, separators=(",", ":")))
+            if lines:
+                path = Path(LOADS_DIR) / f"loads-{datetime.now():%Y%m}.ndjson"
+                with _loads_lock:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(path, "a", encoding="utf-8") as f:
+                        f.write("\n".join(lines) + "\n")
+            self._send(json.dumps({"ok": True, "stored": len(lines)}))
+        except Exception as ex:  # noqa: BLE001
+            self._send(json.dumps({"error": str(ex)}), code=500)
+
 
 def main():
-    global DB_PATH
+    global DB_PATH, LOADS_DIR
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=DB_PATH)
+    ap.add_argument("--loads", default=LOADS_DIR)
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--bind", default="0.0.0.0")
     args = ap.parse_args()
     DB_PATH = args.db
+    LOADS_DIR = args.loads
     srv = ThreadingHTTPServer((args.bind, args.port), Handler)
     print(f"[viewer] serving on http://{args.bind}:{args.port} db={DB_PATH}", flush=True)
     srv.serve_forever()

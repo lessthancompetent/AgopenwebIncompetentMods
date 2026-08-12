@@ -98,7 +98,8 @@ async function loadApps() {
       const p = f.properties;
       let stats = '';
       if (p.appliedAmount) {
-        const tag = p.appliedMeasured ? 'measured' : 'est. from rate';
+        const tag = p.loadsN ? `${p.loadsN} bucket${p.loadsN > 1 ? 's' : ''}, loader scale`
+                  : p.appliedMeasured ? 'measured' : 'est. from rate';
         stats = `<br>Applied: <b>${(+p.appliedAmount).toFixed(1)} ${p.appliedUnit || ''}</b> (${tag})`;
         if (p.actualRate) {
           stats += `<br>Actual rate: ${(+p.actualRate).toFixed(1)} ${p.appliedUnit || ''}/ha`;

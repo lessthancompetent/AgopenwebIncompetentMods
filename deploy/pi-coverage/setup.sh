@@ -12,7 +12,7 @@ RAW="https://raw.githubusercontent.com/lessthancompetent/Agopenwebpick-from-map/
 AGUSER="${SUDO_USER:-$(id -un)}"
 id "$AGUSER" >/dev/null
 
-mkdir -p /srv/agdata/fields /srv/agdata/static
+mkdir -p /srv/agdata/fields /srv/agdata/static /srv/agdata/loads
 
 echo "Fetching files..."
 curl -fsSL "$RAW/ingest.py"          -o /srv/agdata/ingest.py

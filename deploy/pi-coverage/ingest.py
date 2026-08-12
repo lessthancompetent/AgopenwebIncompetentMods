@@ -65,6 +65,19 @@ CREATE TABLE IF NOT EXISTS fields (
 );
 CREATE INDEX IF NOT EXISTS idx_app_product ON applications(product);
 CREATE INDEX IF NOT EXISTS idx_app_started ON applications(started_at);
+CREATE TABLE IF NOT EXISTS loads (
+    src_path TEXT NOT NULL,
+    line_no INTEGER NOT NULL,
+    ts_epoch REAL NOT NULL,
+    ts TEXT NOT NULL,
+    product TEXT NOT NULL DEFAULT '',
+    kg REAL NOT NULL,
+    attach TEXT NOT NULL DEFAULT '',
+    device TEXT NOT NULL DEFAULT '',
+    ts_approx INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (src_path, line_no)
+);
+CREATE INDEX IF NOT EXISTS idx_loads_ts ON loads(ts_epoch);
 """
 
 
@@ -177,8 +190,44 @@ def ingest_field(con, path):
     return True
 
 
-def scan(con, data_dir):
+def ingest_loads(con, path):
+    """Loader-scale scoop records: append-only NDJSON written by viewer.py's
+    POST /api/loads. Re-ingest replaces the file's rows wholesale — idempotent."""
+    con.execute("DELETE FROM loads WHERE src_path=?", (str(path),))
+    n = 0
+    for i, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+            con.execute(
+                "INSERT OR REPLACE INTO loads"
+                "(src_path, line_no, ts_epoch, ts, product, kg, attach, device, ts_approx)"
+                " VALUES(?,?,?,?,?,?,?,?,?)",
+                (str(path), i, d.get("ts_epoch", 0), d.get("ts", ""),
+                 d.get("product", ""), d.get("kg", 0), d.get("attach", ""),
+                 d.get("device", ""), 1 if d.get("ts_approx") else 0))
+            n += 1
+        except Exception as ex:  # noqa: BLE001 — one bad line must not lose the file
+            print(f"[ingest] loads line {i} of {path}: {ex}", flush=True)
+    return n > 0
+
+
+def scan(con, data_dir, loads_dir=None):
     n_cov = n_fld = n_err = 0
+    if loads_dir is None:
+        loads_dir = data_dir.parent / "loads"
+    for path in sorted(loads_dir.glob("*.ndjson")) if loads_dir.is_dir() else []:
+        try:
+            st = path.stat()
+            if changed(con, path, st):
+                ingest_loads(con, path)
+                mark(con, path, st)
+                print(f"[ingest] loads file {path.name} indexed", flush=True)
+        except Exception as ex:  # noqa: BLE001
+            n_err += 1
+            print(f"[ingest] ERROR {path}: {ex}", flush=True)
     for pattern, fn in (("*/jobs/*/coverage.geojson", ingest_coverage),
                         ("*/field.geojson", ingest_field)):
         for path in sorted(data_dir.glob(pattern)):
@@ -205,6 +254,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="/srv/agdata/fields")
     ap.add_argument("--db", default="/srv/agdata/coverage.db")
+    ap.add_argument("--loads", default=None, help="loads NDJSON dir (default: <data>/../loads)")
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
 
@@ -219,8 +269,9 @@ def main():
     migrate(con)
     con.execute("PRAGMA journal_mode=WAL")  # survives power cuts far better
 
+    loads_dir = Path(args.loads) if args.loads else None
     while True:
-        scan(con, data_dir)
+        scan(con, data_dir, loads_dir)
         if args.once:
             break
         time.sleep(SCAN_SECS)
