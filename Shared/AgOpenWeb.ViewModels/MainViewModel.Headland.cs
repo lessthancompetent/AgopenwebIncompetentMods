@@ -304,19 +304,21 @@ public partial class MainViewModel
                 var closedPoly = new List<Vec3>(seg.OffsetPoints);
                 closedPoly.Add(closedPoly[0]); // close the loop
 
-                // Use centroid-based selection (same as closed loop handling)
-                double cx = 0, cy = 0;
-                var bndPts = bnd.Points;
-                foreach (var bp in bndPts) { cx += bp.Easting; cy += bp.Northing; }
-                cx /= bndPts.Count; cy /= bndPts.Count;
-
-                bool containsCentroid = IsPointInPolygon(cx, cy, closedPoly);
-                if (containsCentroid)
+                // A whole-boundary inward offset IS the headland line by construction.
+                // Do NOT gate this on "contains the boundary centroid": a deep concave
+                // notch puts the centroid OUTSIDE the inset ring, the valid ring then
+                // fell through to the open-line cut pipeline (extensions + boundary
+                // cuts meant for drawn lines), and the kept side came out INVERTED —
+                // sections fired only in the headland band, never the main body.
+                // Gate on retained area instead: reject only degenerate slivers.
+                double ringArea = System.Math.Abs(CalculateSignedArea(closedPoly));
+                double bndArea = System.Math.Abs(CalculateSignedArea(headland));
+                if (bndArea > 1.0 && ringArea > 0.02 * bndArea)
                 {
                     headland = closedPoly;
                     seg.IsEffective = true;
                     cutsApplied++;
-                    _logger.LogDebug($"[Headland] Closed boundary offset '{seg.Name}' used as headland ({closedPoly.Count} pts)");
+                    _logger.LogDebug($"[Headland] Closed boundary offset '{seg.Name}' used as headland ({closedPoly.Count} pts, {ringArea / bndArea:P0} of field)");
                     continue;
                 }
             }
