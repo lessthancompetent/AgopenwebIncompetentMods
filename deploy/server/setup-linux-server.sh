@@ -17,6 +17,11 @@ id "$AGUSER" >/dev/null
 echo "== packages =="
 apt-get update -qq
 apt-get install -y -qq curl syncthing restic python3 >/dev/null
+# This box doubles as the cowshed screen: browser for the herd/draft-gate UI
+# and the farm dashboards, LibreOffice for spreadsheets. Install with a
+# desktop selected in the Debian installer; these land on top.
+apt-get install -y -qq libreoffice-calc chromium >/dev/null || \
+  apt-get install -y -qq libreoffice-calc chromium-browser >/dev/null || true
 
 echo "== tailscale =="
 if ! command -v tailscale >/dev/null; then
