@@ -116,6 +116,12 @@ public sealed class WebSocketHub
                 return;
         }
 
+        // Any command from the seat holder proves the client is alive — count it as
+        // presence. Background-tab timer throttling can stretch the 500 ms heartbeat
+        // past the deadman while the operator is actively clicking; without this, a
+        // Tier-2 press from the real operator could be dropped as "stale" mid-click.
+        _authority.RefreshIfHolder(conn);
+
         if (IsRestrictedCommand is { } restricted && restricted(id) && !_authority.HoldsFresh(conn))
             return; // Tier-2 without fresh authority → dropped
 

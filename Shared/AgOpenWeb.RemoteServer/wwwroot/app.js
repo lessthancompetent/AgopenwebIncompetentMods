@@ -1106,7 +1106,9 @@ const sectionBar = document.getElementById('sectionbar');
 sectionBar.addEventListener('pointerdown', e => {
   e.stopPropagation(); // don't pan the map
   const btn = e.target.closest('button[data-idx]');
-  if (btn && iHoldControl) transport.send('section.toggle|' + btn.dataset.idx);
+  if (!btn) return;
+  if (iHoldControl) transport.send('section.toggle|' + btn.dataset.idx);
+  else flashHint('Observer — tap the role badge (top) to take control');
 });
 
 // ---- bottom nav (Phase 8) — field-tools toolbar + Flags/AB-line flyouts ----
@@ -3455,7 +3457,12 @@ updateControlUi();
 // but only while we hold control — the host hub enforces the same gate. No
 // per-action confirm: holding control IS the deliberate gate (matches the native
 // single-tap), and the deadman + failsafe cover a lost controller.
-function rnSend(cmd) { if (iHoldControl) transport.send(cmd); }
+// A silently-dropped press on a live control reads as "the button is broken" —
+// if this client is an Observer, say so instead of doing nothing.
+function rnSend(cmd) {
+  if (iHoldControl) { transport.send(cmd); return; }
+  flashHint('Observer — tap the role badge (top) to take control');
+}
 // NB: use a direct lookup here, not the RN object — RN is a `const` defined later
 // in the render section, so referencing it here would hit the temporal dead zone
 // and throw at load (stuck "connecting…").

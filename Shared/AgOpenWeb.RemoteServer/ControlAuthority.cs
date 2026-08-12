@@ -11,8 +11,13 @@ namespace AgOpenWeb.RemoteServer;
 public sealed class ControlAuthority
 {
     // No presence for this long (ms) while holding → deadman revoke. The client
-    // heartbeats at ~2 Hz, so 1.5 s tolerates a missed beat without nuisance loss.
-    private const long DeadmanMs = 1500;
+    // heartbeats at ~2 Hz foreground, but browsers throttle background-tab timers
+    // to ≥1 Hz (sometimes worse), and a throttled-but-connected operator UI must
+    // not flap the seat — every flap force-disengages autosteer AND the section
+    // auto master (the failsafe), which reads as "auto keeps turning itself off".
+    // 5 s still fails fast on a genuinely dead client (socket drop is instant
+    // anyway — Drop() fires on close; the deadman only covers zombie sockets).
+    private const long DeadmanMs = 5000;
 
     private readonly object _lock = new();
     private Guid? _holder;
@@ -86,6 +91,9 @@ public sealed class ControlAuthority
     {
         lock (_lock) { if (_holder == conn) _lastPresenceTicks = Environment.TickCount64; }
     }
+
+    /// <summary>Implicit presence: any traffic from the holder proves liveness.</summary>
+    public void RefreshIfHolder(Guid conn) => Refresh(conn);
 
     /// <summary>Voluntary release. No failsafe (the holder chose to let go).</summary>
     public void Release(Guid conn)
