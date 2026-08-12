@@ -532,7 +532,13 @@ public class SectionControlService : ISectionControlService
 
             // Same as ON: derive ticks from turnOffPhaseSec and use >= so the
             // OFF flip lands at the intended position instead of one tick past.
-            int turnOffPhaseTicks = Math.Max(1, (int)Math.Round(turnOffPhaseSec * TickHz));
+            // Turn-off DELAY is added on top: the projection only cancels
+            // turnOffPhaseSec, so the extra delay pushes the actual off PAST
+            // the trigger line — the section keeps applying (and painting)
+            // that many seconds longer. Spinner spreaders keep throwing after
+            // the gate closes; this records it. Was stored but never read.
+            double offDelaySec = Math.Max(0, tool.TurnOffDelay);
+            int turnOffPhaseTicks = Math.Max(1, (int)Math.Round((turnOffPhaseSec + offDelaySec) * TickHz));
 
             if (section.SectionOffTimer >= turnOffPhaseTicks)
             {
@@ -561,6 +567,11 @@ public class SectionControlService : ISectionControlService
             // steady-on branch: clear any stale SectionOnRequest from a
             // transient shouldBeOn flicker so the section doesn't render
             // as "Turning ON" (orange, code 4) indefinitely.
+            // (A timer-drain variant that tolerated !shouldBeOn blips was
+            // trialed and reverted: retained charge let a lone spurious
+            // shouldBeOn tick flip the section on inside the headland band,
+            // and the faster-drain compromise still misbehaved. The hard
+            // reset is the verified-safe behavior.)
             section.SectionOnTimer = 0;
             section.SectionOffTimer = 0;
             section.SectionOnRequest = false;
@@ -1107,8 +1118,21 @@ public class SectionControlService : ISectionControlService
     // the implement (drill metering spin-up, boom pressure). Coverage mapping still
     // starts when IsOn flips at the line, so the painted record shows where product
     // actually landed, not when the valve was told to open.
-    private bool SectionOutputOn(int i) =>
-        _sectionStates[i].IsOn || _sectionStates[i].SectionOnRequest;
+    private bool SectionOutputOn(int i)
+    {
+        var s = _sectionStates[i];
+        if (s.SectionOnRequest) return true;
+        if (!s.IsOn) return false;
+        // Look-Ahead-Off drops the WORK SIGNAL early (valve/metering shut-off
+        // travel time) while coverage keeps painting to the line. A Turn-Off
+        // DELAY is the opposite intent (keep applying past the trigger), so
+        // when a delay is set the signal follows IsOn through the whole
+        // extended phase instead.
+        var tool = _configStore.Tool;
+        if (s.SectionOffRequest && tool.TurnOffDelay <= 0 && tool.LookAheadOffSetting > 0)
+            return false;
+        return true;
+    }
 
     public ushort GetSectionBits()
     {
