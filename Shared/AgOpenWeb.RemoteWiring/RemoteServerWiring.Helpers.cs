@@ -35,7 +35,32 @@ public static partial class RemoteServerWiring
     // settings (vehicle dims) take live effect only — the client persists them with a
     // profile.save. Grows as later sub-phases expose more of ConfigurationStore. Runs
     // on the UI thread.
+    // Web config edits used to live only in memory until a CLEAN app exit — an
+    // Android kill / crash / force-stop silently reverted every settings change
+    // made from the web UI (bit us live: a look-ahead fix kept coming back).
+    // Debounced so a settings-panel editing burst writes once, not per keystroke.
+    private static System.Threading.CancellationTokenSource? _cfgSaveCts;
+    private static void ScheduleProfileSave(AgOpenWeb.Models.Configuration.ConfigurationStore store,
+        AgOpenWeb.Services.Interfaces.IConfigurationService cfg)
+    {
+        _cfgSaveCts?.Cancel();
+        var cts = _cfgSaveCts = new System.Threading.CancellationTokenSource();
+        _ = System.Threading.Tasks.Task.Delay(2000, cts.Token).ContinueWith(t =>
+        {
+            if (t.IsCanceled) return;
+            try { cfg.SaveProfiles(store.ActiveVehicleProfileName, store.ActiveToolProfileName); }
+            catch (System.Exception ex) { System.Diagnostics.Debug.WriteLine($"[config] deferred save failed: {ex.Message}"); }
+        }, System.Threading.Tasks.TaskScheduler.Default);
+    }
+
     private static void ApplyConfigSet(AgOpenWeb.Models.Configuration.ConfigurationStore store,
+        AgOpenWeb.Services.Interfaces.IConfigurationService cfg, string key, string val)
+    {
+        ApplyConfigSetCore(store, cfg, key, val);
+        ScheduleProfileSave(store, cfg);
+    }
+
+    private static void ApplyConfigSetCore(AgOpenWeb.Models.Configuration.ConfigurationStore store,
         AgOpenWeb.Services.Interfaces.IConfigurationService cfg, string key, string val)
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;

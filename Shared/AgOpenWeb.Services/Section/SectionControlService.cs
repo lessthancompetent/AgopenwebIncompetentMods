@@ -337,8 +337,14 @@ public class SectionControlService : ISectionControlService
         // projection, so the physical IsOn flip lands on the boundary edge.
         // With both settings at 0, no anticipation and no wait — section
         // flips on the first tick that shouldBe(On|Off) becomes true.
-        double turnOnPhaseSec = tool.LookAheadOnSetting;
-        double turnOffPhaseSec = tool.LookAheadOffSetting;
+        // Clamp: a NEGATIVE look-ahead makes the "ahead" sample point land BEHIND
+        // the section — the behind-point and the here-point then disagree at any
+        // zone edge (headland/boundary/coverage), shouldBeOn and shouldBeOff go
+        // true simultaneously, and with 1-tick debounces the section chatters
+        // on/off every tick (real relay/work-signal chatter, seen live with a
+        // stored -3 s setting). Look-ahead is forward-only by definition.
+        double turnOnPhaseSec = Math.Max(0, tool.LookAheadOnSetting);
+        double turnOffPhaseSec = Math.Max(0, tool.LookAheadOffSetting);
         // Floor the FORWARD distance only (the time-based phase debounce above
         // stays at user config). This keeps the sample point past the section's
         // own swath at slow speed; at normal speeds speed × time exceeds the
@@ -922,6 +928,13 @@ public class SectionControlService : ISectionControlService
         if (!tool.IsHeadlandSectionControl)
             return false; // Headland control disabled
 
+        // The on-screen headland toggle turns the whole headland OFF — with it off,
+        // sections must run right to the boundary and only coverage/boundary stop
+        // them. Without this gate the toggle looked dead: sections kept cutting at
+        // the band no matter what the operator set.
+        if (!_state.FieldTools.IsHeadlandOn)
+            return false;
+
         var headlandLine = _state.Field.HeadlandLine;
         if (headlandLine == null || headlandLine.Count < 3)
             return false; // No headland = never in headland
@@ -1075,12 +1088,21 @@ public class SectionControlService : ISectionControlService
         }
     }
 
+    // The WORK SIGNAL (PGN bits to the drill/sprayer) leads the coverage: a section
+    // in TURNING_ON has already seen clear ground at the look-ahead point, so the
+    // hardware gets its bit NOW — Look-Ahead-On seconds before the line — to prime
+    // the implement (drill metering spin-up, boom pressure). Coverage mapping still
+    // starts when IsOn flips at the line, so the painted record shows where product
+    // actually landed, not when the valve was told to open.
+    private bool SectionOutputOn(int i) =>
+        _sectionStates[i].IsOn || _sectionStates[i].SectionOnRequest;
+
     public ushort GetSectionBits()
     {
         ushort bits = 0;
         for (int i = 0; i < 16; i++)
         {
-            if (_sectionStates[i].IsOn)
+            if (SectionOutputOn(i))
             {
                 bits |= (ushort)(1 << i);
             }
@@ -1099,7 +1121,7 @@ public class SectionControlService : ISectionControlService
         int count = Math.Min(_sectionStates.Length, ToolConfig.MaxSections);
         for (int i = 0; i < count; i++)
         {
-            if (_sectionStates[i].IsOn)
+            if (SectionOutputOn(i))
             {
                 bits |= 1UL << i;
             }
