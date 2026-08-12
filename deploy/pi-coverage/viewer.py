@@ -79,7 +79,11 @@ def attribute_loads(apps):
     loads_kg / loads_n. Returns total kg attributed.
     """
     try:
-        rows = db().execute("SELECT ts_epoch, kg FROM loads ORDER BY ts_epoch").fetchall()
+        # ts_approx records were queued across a loader power cycle: their true time is
+        # unknowable, so they appear in the loads history but are never auto-attributed —
+        # a weeks-old scoop must not land on whatever job is open when it finally syncs.
+        rows = db().execute(
+            "SELECT ts_epoch, kg FROM loads WHERE ts_approx=0 ORDER BY ts_epoch").fetchall()
     except sqlite3.OperationalError:   # ingest hasn't created the table yet
         rows = []
     windows = []
