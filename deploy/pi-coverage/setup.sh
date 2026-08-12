@@ -3,7 +3,10 @@
 # Run on the Pi:  curl -fsSL <raw-url>/setup.sh | sudo bash
 set -euo pipefail
 
-RAW="https://raw.githubusercontent.com/lessthancompetent/Agopenwebpick-from-map/feature/route-planning/deploy/pi-coverage"
+# Optional arg: git ref to install from (commit hash beats the raw CDN's
+# ~5-minute branch cache). Default: branch tip.
+REF="${1:-feature/route-planning}"
+RAW="https://raw.githubusercontent.com/lessthancompetent/Agopenwebpick-from-map/$REF/deploy/pi-coverage"
 
 # Newer Raspberry Pi OS has no 'pi' user — run services as whoever invoked sudo.
 AGUSER="${SUDO_USER:-$(id -un)}"
