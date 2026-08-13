@@ -173,6 +173,31 @@ public class SplitFieldPlanningTests
     }
 
     [Test]
+    public void SplitField_inset_override_confines_passes_to_custom_headland()
+    {
+        var svc = new RoutePlanningService(new PolygonOffsetService());
+        // A hand-built "headland" interior: only the middle band of the bottom arm
+        // (E 120..280, N 20..80). Every pass must stay inside it even though the
+        // uniform margin would allow work elsewhere.
+        var custom = new List<Vec2> { new(120, 20), new(280, 20), new(280, 80), new(120, 80) };
+        var plan = svc.GenerateSplitField(LShape, VerticalSplit,
+            swathWidth: 6, turnRadius: 6, headlandMargin: 12, headlandPasses: 0,
+            insetOverride: custom);
+        Assert.That(plan, Is.Not.Null);
+        foreach (var seg in plan!.Segments)
+        {
+            if (seg.Type != RouteSegmentType.Swath) continue;
+            foreach (var p in seg.Points)
+            {
+                Assert.That(p.Easting, Is.InRange(119, 281),
+                    "passes must stay inside the custom headland interior (E)");
+                Assert.That(p.Northing, Is.InRange(19, 81),
+                    "passes must stay inside the custom headland interior (N)");
+            }
+        }
+    }
+
+    [Test]
     public void SplitField_returns_null_when_line_does_not_divide()
     {
         var svc = new RoutePlanningService(new PolygonOffsetService());

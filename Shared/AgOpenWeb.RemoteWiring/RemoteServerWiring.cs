@@ -144,6 +144,17 @@ public static partial class RemoteServerWiring
                                         vm.PlanRoute(rpat, rhl, rskip, rblk, rang, rp.Length >= 6 && rp[5] == "1");
                                     return;
                                 }
+                                case "route.planTrack": // "headlandPasses,skip,block" — align to the SELECTED track
+                                {
+                                    var pt2 = arg.Split(',');
+                                    var iN2 = System.Globalization.NumberStyles.Integer;
+                                    if (pt2.Length >= 3
+                                        && int.TryParse(pt2[0], iN2, inv, out var thl)
+                                        && int.TryParse(pt2[1], iN2, inv, out var tskip)
+                                        && int.TryParse(pt2[2], iN2, inv, out var tblk))
+                                        vm.PlanRouteAlongSelectedTrack(thl, tskip, tblk);
+                                    return;
+                                }
                                 case "route.planBlock": // "label,headlandPasses,angleDeg" — plan ONE split block
                                 {
                                     var pb = arg.Split(',');

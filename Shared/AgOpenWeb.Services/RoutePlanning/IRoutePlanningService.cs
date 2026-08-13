@@ -75,7 +75,8 @@ public interface IRoutePlanningService
         double passEndExtension = 0,
         double? headingRad = null,
         Vec2? onlyRegionAt = null,
-        int onlyRegionIndex = -1);
+        int onlyRegionIndex = -1,
+        IReadOnlyList<Vec2>? insetOverride = null);
 
     /// <summary>
     /// The split regions in stable "block label" order (north-most centroid

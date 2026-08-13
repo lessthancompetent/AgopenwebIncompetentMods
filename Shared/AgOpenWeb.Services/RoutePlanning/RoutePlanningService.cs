@@ -609,7 +609,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double passEndExtension = 0,
         double? headingRad = null,
         Vec2? onlyRegionAt = null,
-        int onlyRegionIndex = -1)
+        int onlyRegionIndex = -1,
+        IReadOnlyList<Vec2>? insetOverride = null)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0) return null;
         if (splitLines == null || splitLines.Count == 0) return null;
@@ -635,11 +636,17 @@ public sealed class RoutePlanningService : IRoutePlanningService
             regions = new List<List<Vec2>> { sel };
         }
 
-        // The shared working area: the true boundary inset by the headland depth.
-        // Regions are intersected with THIS, never inset themselves — insetting a
-        // region would pull passes back from the split line and leave a gap strip.
+        // The shared working area: the true boundary inset by the headland depth
+        // (or a caller-supplied polygon — e.g. a hand-built Field Builder headland
+        // whose width varies by side). Regions are intersected with THIS, never
+        // inset themselves — insetting a region would pull passes back from the
+        // split line and leave a gap strip.
         IReadOnlyList<Vec2> inset = outerBoundary;
-        if (headlandMargin > 0)
+        if (insetOverride is { Count: >= 3 })
+        {
+            inset = insetOverride;
+        }
+        else if (headlandMargin > 0)
         {
             var i = _offset.CreateInwardOffset(new List<Vec2>(outerBoundary), headlandMargin);
             if (i is { Count: >= 3 }) inset = i;

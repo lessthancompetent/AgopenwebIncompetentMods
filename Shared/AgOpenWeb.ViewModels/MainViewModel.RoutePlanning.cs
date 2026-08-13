@@ -162,6 +162,10 @@ public partial class MainViewModel
             Clearance, CornerRadius, TrailExt;
         public int Passes;
         public Vec3? StartPos;
+        /// <summary>Hand-built Field Builder headland interior (Line/Curve segments
+        /// present): passes fill THIS polygon and the planner must not clobber the
+        /// segments. Null when the headland is absent or planner-made (uniform).</summary>
+        public List<Vec2>? CustomHeadland;
     }
 
     private RouteCtx? TryBuildRouteContext(int headlandPasses)
@@ -245,7 +249,96 @@ public partial class MainViewModel
         // turn — otherwise every pass's coverage stops short of the headland.
         ctx.TrailExt = Math.Abs(ConfigStore.Tool.HitchLength)
             + (ConfigStore.Tool.IsToolTrailing ? Math.Abs(ConfigStore.Tool.TrailingHitchLength) : 0);
+
+        // A hand-built headland (any Line/Curve segment drawn in the Field Builder)
+        // is the operator's own demarcation — adopt it: passes fill its interior,
+        // laps trace its shape, and the planner must NOT replace the segments.
+        // Planner-made headlands are whole-Boundary segments and keep the uniform
+        // margin flow above.
+        bool handBuilt = false;
+        foreach (var seg in HeadlandSegments)
+            if (seg.Type != Models.Headland.HeadlandSegmentType.Boundary) { handBuilt = true; break; }
+        if (handBuilt && State.Field.HeadlandLine is { Count: >= 4 } hl)
+        {
+            var ring = new List<Vec2>(hl.Count);
+            int last = hl.Count;
+            // drop the closing duplicate point if present
+            if (Math.Abs(hl[0].Easting - hl[^1].Easting) < 0.01 && Math.Abs(hl[0].Northing - hl[^1].Northing) < 0.01)
+                last--;
+            for (int i = 0; i < last; i++) ring.Add(new Vec2(hl[i].Easting, hl[i].Northing));
+            if (ring.Count >= 3) ctx.CustomHeadland = ring;
+        }
         return ctx;
+    }
+
+    /// <summary>
+    /// Headland lap paths for a hand-built (variable-width) headland: outward
+    /// offsets of the built headland line toward the fence at half-width spacing,
+    /// outermost first (drive outside-in, same as planned laps), joined with
+    /// Approach connectors. The innermost lap's tool edge lands ON the built line.
+    /// </summary>
+    private RoutePlan? BuildCustomHeadlandLaps(RouteCtx ctx, int laps)
+    {
+        if (ctx.CustomHeadland == null || laps <= 0) return null;
+        var offset = new PolygonOffsetService();
+        var segs = new List<RouteSegment>();
+        Vec3? prevEnd = null;
+        for (int k = laps - 1; k >= 0; k--)
+        {
+            var ring2 = offset.CreateOutwardOffset(ctx.CustomHeadland, (k + 0.5) * ctx.Width);
+            if (ring2 is not { Count: >= 3 }) continue;
+            // start the ring at the vertex nearest the previous lap's end
+            int start = 0;
+            if (prevEnd is { } pe)
+            {
+                double best = double.MaxValue;
+                for (int i = 0; i < ring2.Count; i++)
+                {
+                    double dE = ring2[i].Easting - pe.Easting, dN = ring2[i].Northing - pe.Northing;
+                    double d = dE * dE + dN * dN;
+                    if (d < best) { best = d; start = i; }
+                }
+            }
+            var pts = new List<Vec3>(ring2.Count + 1);
+            for (int i = 0; i <= ring2.Count; i++)
+            {
+                var p = ring2[(start + i) % ring2.Count];
+                pts.Add(new Vec3(p.Easting, p.Northing, 0));
+            }
+            if (prevEnd is { } pv)
+                segs.Add(new RouteSegment(RouteSegmentType.Approach, new List<Vec3> { pv, pts[0] }));
+            segs.Add(new RouteSegment(RouteSegmentType.Headland, pts));
+            prevEnd = pts[^1];
+        }
+        if (segs.Count == 0) return null;
+        // metadata via the shared per-segment recompute
+        var plan = new RoutePlan(segs, new RoutePlanMetadata(0, 0, 0, 0, 0, 0, ctx.Width));
+        return Subplan(plan, 0, segs.Count);
+    }
+
+    /// <summary>Lap count for a hand-built headland when the panel says auto (0):
+    /// average fence→headland gap (area difference over perimeter) in tool widths.</summary>
+    private static int EstimateCustomLaps(IReadOnlyList<Vec2> fence, IReadOnlyList<Vec2> headland, double width)
+    {
+        double AreaOf(IReadOnlyList<Vec2> poly)
+        {
+            double a = 0;
+            for (int i = 0; i < poly.Count; i++)
+            {
+                var p = poly[i]; var q = poly[(i + 1) % poly.Count];
+                a += p.Easting * q.Northing - q.Easting * p.Northing;
+            }
+            return Math.Abs(a / 2.0);
+        }
+        double per = 0;
+        for (int i = 0; i < headland.Count; i++)
+        {
+            var p = headland[i]; var q = headland[(i + 1) % headland.Count];
+            per += Math.Sqrt((q.Easting - p.Easting) * (q.Easting - p.Easting) + (q.Northing - p.Northing) * (q.Northing - p.Northing));
+        }
+        if (per < 1) return 1;
+        double avgGap = (AreaOf(fence) - AreaOf(headland)) / per;
+        return Math.Clamp((int)Math.Round(avgGap / Math.Max(width, 0.1)), 1, 6);
     }
 
     /// <summary>
@@ -254,7 +347,8 @@ public partial class MainViewModel
     /// headlandPasses 0 = auto (route-planner rule); skipCount/blockSkip used by
     /// the skip/cross/block patterns; angleDeg rotates the field-aligned passes.
     /// </summary>
-    public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg, bool cornerFill = false)
+    public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg, bool cornerFill = false,
+        double? headingOverrideRad = null, IReadOnlyList<Vec3>? refCurve = null)
     {
         // Clear any prior plan up front so the web client, which polls
         // /api/routeplan for the result, can't pick up a stale plan while this
@@ -300,7 +394,7 @@ public partial class MainViewModel
             : 0;
         double crossAngleRad = 90.0 * Math.PI / 180.0;
         double angleRad = angleDeg * Math.PI / 180.0;
-        double heading = LongestEdgeHeading(pts) + angleRad;
+        double heading = headingOverrideRad ?? (LongestEdgeHeading(pts) + angleRad);
 
         // Auto-orientation: unless the user has dialled in a manual angle, quickly try
         // several candidate pass headings and keep the one with the lowest estimated
@@ -309,9 +403,10 @@ public partial class MainViewModel
         // plans skip obstacle handling for speed (it barely changes the ranking); the
         // winning heading is then planned in full below.
         EnsureRouteSplitsLoaded();
-        bool useSplits = !spiral && !cross && _routeSplitLines.Count > 0;
+        bool useSplits = !spiral && !cross && refCurve == null && _routeSplitLines.Count > 0;
 
-        if (!spiral && !cross && !useSplits && Math.Abs(angleDeg) < 0.01)
+        if (!spiral && !cross && !useSplits && refCurve == null && !headingOverrideRad.HasValue
+            && Math.Abs(angleDeg) < 0.01)
         {
             double bestSecs = double.MaxValue;
             foreach (double h in CandidateHeadings(pts))
@@ -334,12 +429,23 @@ public partial class MainViewModel
         // sliced into their own "Headland" layer. A manual panel angle overrides
         // every block for this plan. Blocks chain nearest label order (A, B, …),
         // approaches connecting them.
-        bool manualAngle = Math.Abs(angleDeg) >= 0.01;
+        bool manualAngle = Math.Abs(angleDeg) >= 0.01 || headingOverrideRad.HasValue;
+        // Hand-built Field Builder headland: passes fill ITS interior instead of a
+        // uniform inset, and the laps trace its (possibly variable-width) shape.
+        var customHl = ctx.CustomHeadland;
+        int customLaps = customHl == null ? 0
+            : headlandPasses > 0 ? headlandPasses
+            : EstimateCustomLaps(pts, customHl, width);
         if (useSplits)
         {
             var regions = RoutePlanner.ComputeSplitRegions(pts, _routeSplitLines);
             if (regions.Count > 1)
             {
+                if (customHl != null)
+                {
+                    var laps = BuildCustomHeadlandLaps(ctx, customLaps);
+                    if (laps != null) _routeLayers.Add(("Headland", laps));
+                }
                 Vec3? cursor = startPos;
                 for (int i = 0; i < regions.Count; i++)
                 {
@@ -348,12 +454,16 @@ public partial class MainViewModel
                         : _routeBlockAngles.TryGetValue(label, out var ba)
                             ? LongestEdgeHeading(pts) + ba * Math.PI / 180.0
                             : (double?)null;
+                    // With a custom headland the laps are prepended above, so no
+                    // block carries them (headlandPasses 0) and the shared inset is
+                    // the built headland polygon.
                     var bp = RoutePlanner.GenerateSplitField(pts, _routeSplitLines, width, turnRadius,
-                        headlandMargin, SwathPattern.Boustrophedon, i == 0 ? passes : 0, cursor,
+                        headlandMargin, SwathPattern.Boustrophedon,
+                        customHl == null && i == 0 ? passes : 0, cursor,
                         clearance, skipPasses, blkSkip, cornerRadius, inners, physWidth, trailExt,
-                        h, null, i);
+                        h, null, i, customHl);
                     if (bp == null || bp.Segments.Count == 0) continue;
-                    if (i == 0 && passes > 0)
+                    if (customHl == null && i == 0 && passes > 0)
                     {
                         var (laps, rest) = SplitLapsPrefix(bp);
                         if (laps != null) _routeLayers.Add(("Headland", laps));
@@ -374,19 +484,33 @@ public partial class MainViewModel
 
         if (!splitApplied)
         {
-            RoutePlan? plan = spiral
-                ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill, inners)
-                : cross
-                    ? RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
-                        SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners)
-                    : RoutePlanner.GenerateBoustrophedon(pts, width, turnRadius, headlandMargin, heading,
-                        SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners,
-                        physicalToolWidth: physWidth, passEndExtension: trailExt);
+            RoutePlan? plan = refCurve != null
+                ? RoutePlanner.GenerateAlongCurve(pts, refCurve, width, turnRadius, headlandMargin,
+                    SwathPattern.Boustrophedon, passes, startPos, false, false, clearance, skipPasses, blkSkip, cornerRadius)
+                : spiral
+                    ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill, inners)
+                    : cross
+                        ? RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
+                            SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners)
+                        : RoutePlanner.GenerateBoustrophedon(pts, width, turnRadius, headlandMargin, heading,
+                            SwathPattern.Boustrophedon, customHl == null ? passes : 0, startPos, 0, false, false,
+                            clearance, skipPasses, blkSkip, cornerRadius, inners,
+                            physicalToolWidth: physWidth, passEndExtension: trailExt,
+                            cultivatedOverride: customHl);
             if (plan != null && plan.Segments.Count > 0)
             {
-                var (laps, rest) = SplitLapsPrefix(plan);
-                if (laps != null) _routeLayers.Add(("Headland", laps));
-                if (rest.Segments.Count > 0) _routeLayers.Add(("Main", rest));
+                if (customHl != null && refCurve == null && !spiral)
+                {
+                    var laps = BuildCustomHeadlandLaps(ctx, customLaps);
+                    if (laps != null) _routeLayers.Add(("Headland", laps));
+                    _routeLayers.Add(("Main", plan));
+                }
+                else
+                {
+                    var (laps, rest) = SplitLapsPrefix(plan);
+                    if (laps != null) _routeLayers.Add(("Headland", laps));
+                    if (rest.Segments.Count > 0) _routeLayers.Add(("Main", rest));
+                }
             }
         }
 
@@ -401,15 +525,19 @@ public partial class MainViewModel
         // line so the native headland toggle / section-in-headland control just works.
         // Replace, don't stack: drop prior whole-boundary segments first (each replan
         // would otherwise add another "Boundary N" row to the Field Builder list).
-        // Hand-built Line/Curve segments are left alone.
-        try
+        // A hand-built headland (Line/Curve segments) IS the demarcation — leave it
+        // completely alone.
+        if (customHl == null)
         {
-            for (int i = HeadlandSegments.Count - 1; i >= 0; i--)
-                if (HeadlandSegments[i].Type == Models.Headland.HeadlandSegmentType.Boundary)
-                    RemoteDeleteHeadlandAt(i);
-            RemoteCreateHeadlandWholeBoundary(edgeOff + headlandMargin);
+            try
+            {
+                for (int i = HeadlandSegments.Count - 1; i >= 0; i--)
+                    if (HeadlandSegments[i].Type == Models.Headland.HeadlandSegmentType.Boundary)
+                        RemoteDeleteHeadlandAt(i);
+                RemoteCreateHeadlandWholeBoundary(edgeOff + headlandMargin);
+            }
+            catch { /* headland is a convenience here — never fail the plan on it */ }
         }
-        catch { /* headland is a convenience here — never fail the plan on it */ }
 
         // Make the plan's paths available as native guidance lines immediately.
         RegisterRouteSteerTracks();
@@ -424,9 +552,45 @@ public partial class MainViewModel
         string hdgTxt = splitApplied
             ? (manualAngle ? $"{blockCount} blocks @ {hdgDeg:F0}°" : $"{blockCount} blocks, per-block headings")
             : $"@ {hdgDeg:F0}°";
+        string hlTxt = customHl != null
+            ? $"(hand-built headland, {customLaps} laps)"
+            : $"(headland {headlandMargin:F1} m, {passes} laps)";
         StatusMessage = $"Route: {m.SwathCount} passes, {m.TurnCount} turns, " +
-            $"{m.TotalDistanceMeters / 1000.0:F2} km, {areaHa:F1} ha, ~{estMin:F0} min {hdgTxt} " +
-            $"(headland {headlandMargin:F1} m, {passes} laps)";
+            $"{m.TotalDistanceMeters / 1000.0:F2} km, {areaHa:F1} ha, ~{estMin:F0} min {hdgTxt} {hlTxt}";
+    }
+
+    /// <summary>
+    /// Plan the route referenced to the SELECTED saved track (Tracks manager /
+    /// Field Builder): an AB line sets the pass direction exactly; a curve makes
+    /// the passes follow its shape (offset copies clipped to the field). Splits
+    /// are bypassed — the track IS the reference.
+    /// </summary>
+    public void PlanRouteAlongSelectedTrack(int headlandPasses, int skipCount, int blockSkip)
+    {
+        var track = SelectedTrack;
+        if (track?.Points is not { Count: >= 2 } tp)
+        {
+            StatusMessage = "Select a track first (Tracks manager) — AB line or curve";
+            return;
+        }
+        if (track.Name.StartsWith("Route ", StringComparison.Ordinal))
+        {
+            StatusMessage = "That's a planned route path — pick a hand-made AB line or curve";
+            return;
+        }
+        if (tp.Count == 2)
+        {
+            double hdg = Math.Atan2(tp[1].Easting - tp[0].Easting, tp[1].Northing - tp[0].Northing);
+            PlanRoute(0, headlandPasses, skipCount, blockSkip, 0, false, headingOverrideRad: hdg);
+            if (_currentRoutePlan != null)
+                StatusMessage = $"Route aligned to '{track.Name}' — " + StatusMessage;
+        }
+        else
+        {
+            PlanRoute(0, headlandPasses, skipCount, blockSkip, 0, false, refCurve: tp);
+            if (_currentRoutePlan != null)
+                StatusMessage = $"Route follows curve '{track.Name}' — " + StatusMessage;
+        }
     }
 
     /// <summary>Discard the current route preview.</summary>
@@ -533,7 +697,7 @@ public partial class MainViewModel
         double? h = manual ? LongestEdgeHeading(ctx.Pts) + angleDeg * Math.PI / 180.0 : (double?)null;
         var bp = RoutePlanner.GenerateSplitField(ctx.Pts, _routeSplitLines, ctx.Width, ctx.TurnRadius,
             ctx.HeadlandMargin, SwathPattern.Boustrophedon, 0, ctx.StartPos, ctx.Clearance, 0, blk,
-            ctx.CornerRadius, ctx.Inners, ctx.PhysWidth, ctx.TrailExt, h, null, idx);
+            ctx.CornerRadius, ctx.Inners, ctx.PhysWidth, ctx.TrailExt, h, null, idx, ctx.CustomHeadland);
         if (bp == null || bp.Segments.Count == 0)
         {
             StatusMessage = $"Couldn't plan block {label}";

@@ -1977,6 +1977,21 @@ document.getElementById('rp-obsalarm').addEventListener('pointerdown', e => {
 document.getElementById('rp-splitdraw').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); drawSplitLine(); });
 document.getElementById('rp-splitclear').addEventListener('pointerdown', e => { e.stopPropagation(); clearSplitLines(); rpBlocksRefresh(); });
 document.getElementById('rp-applyblock').addEventListener('pointerdown', e => { e.stopPropagation(); applyBlockPath(); });
+document.getElementById('rp-plantrack').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  transport.send('route.planTrack|' + [rpHeadland, rpSkip, rpBlock].join(','));
+  document.getElementById('rp-stats').textContent = 'Planning along selected track…';
+  let tries = 0;
+  const poll = () => {
+    tries++;
+    refreshRoutePlan().then(ok => {
+      if (ok) { rpBlocksRefresh(); return; }
+      if (tries < 28) { setTimeout(poll, 250); return; }
+      document.getElementById('rp-stats').textContent = 'No route — select a track in the Tracks manager first.';
+    });
+  };
+  setTimeout(poll, 250);
+});
 document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
 document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
 document.getElementById('rp-steermain').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.steerMain'); });
