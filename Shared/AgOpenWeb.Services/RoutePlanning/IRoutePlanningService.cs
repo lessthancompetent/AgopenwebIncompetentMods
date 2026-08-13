@@ -53,6 +53,9 @@ public interface IRoutePlanningService
     /// into simpler shapes, each worked with its own (auto) pass direction while
     /// the headland laps still trace the whole true boundary. Returns null when
     /// the lines don't divide the field (caller falls back to plain planning).
+    /// <paramref name="headingRad"/> forces every planned region to that pass
+    /// direction (null = auto per region). <paramref name="onlyRegionAt"/> plans
+    /// just the region containing that point (null when the pick misses).
     /// </summary>
     RoutePlan? GenerateSplitField(
         IReadOnlyList<Vec2> outerBoundary,
@@ -69,7 +72,9 @@ public interface IRoutePlanningService
         double cornerRadius = 0,
         IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
         double physicalToolWidth = 0,
-        double passEndExtension = 0);
+        double passEndExtension = 0,
+        double? headingRad = null,
+        Vec2? onlyRegionAt = null);
 
     /// <summary>
     /// Cross-drill: two complete coverages, the second rotated by

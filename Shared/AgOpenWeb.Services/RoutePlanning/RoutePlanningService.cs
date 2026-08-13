@@ -606,13 +606,27 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double cornerRadius = 0,
         IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
         double physicalToolWidth = 0,
-        double passEndExtension = 0)
+        double passEndExtension = 0,
+        double? headingRad = null,
+        Vec2? onlyRegionAt = null)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0) return null;
         if (splitLines == null || splitLines.Count == 0) return null;
 
         var regions = SplitPolygon(outerBoundary, splitLines);
         if (regions.Count <= 1) return null;
+
+        // Single-block mode: keep only the region containing the pick point, so the
+        // operator can plan (and angle) each block independently. Null when the pick
+        // lands outside every region — the caller decides the fallback.
+        if (onlyRegionAt is { } pick)
+        {
+            List<Vec2>? sel = null;
+            foreach (var r in regions)
+                if (GeometryMath.IsPointInPolygon(r, pick)) { sel = r; break; }
+            if (sel == null) return null;
+            regions = new List<List<Vec2>> { sel };
+        }
 
         // The shared working area: the true boundary inset by the headland depth.
         // Regions are intersected with THIS, never inset themselves — insetting a
@@ -655,7 +669,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
                 // First call carries the headland laps for the WHOLE field (its
                 // boundary argument is the true fence); later calls are interior-only.
                 var plan = GenerateBoustrophedon(outerBoundary, swathWidth, turnRadius,
-                    headlandMargin, null, pattern, first ? headlandPasses : 0, cursor,
+                    headlandMargin, headingRad, pattern, first ? headlandPasses : 0, cursor,
                     0, false, false, boundaryClearance, skipPasses, blockSkip, cornerRadius,
                     innerBoundaries, addPondLoops: first, fastScore: false,
                     physicalToolWidth, passEndExtension, cultivatedOverride: piece);

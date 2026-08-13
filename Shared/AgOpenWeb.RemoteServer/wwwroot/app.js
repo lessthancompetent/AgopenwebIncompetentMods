@@ -778,6 +778,15 @@ function clearSplitLines() {
   rpSplits = [];
   rpSplitCountRender();
 }
+// Plan ONE split block: tap the block, only that region is planned (no headland
+// laps) using the panel's current Angle (0 = auto for that block). Lets each
+// block be planned, angled, and driven independently.
+function planBlock() {
+  startMapTap({
+    hint: 'Tap the block to plan (Angle setting applies to it)',
+    onTap: (e, n) => { endMapTap(); planRoute([e, n]); },
+  });
+}
 function drawRouteSplitsSk(canvas) {
   if (!rpSplits.length) return;
   for (const s of rpSplits)
@@ -874,8 +883,10 @@ document.getElementById('ft-setapplied').addEventListener('pointerdown', e => {
 document.getElementById('ft-exportcov').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('job.exportCoverage');
 });
-function planRoute() {
-  transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0].join(','));
+function planRoute(pick) {
+  const args = [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0];
+  if (pick) args.push(pick[0].toFixed(2), pick[1].toFixed(2)); // plan only the tapped split block
+  transport.send('route.plan|' + args.join(','));
   document.getElementById('rp-stats').textContent = 'Planning…';
   // The command runs on the backend dispatcher and can take a while on big fields
   // (obstacle-aware Dubins turns). Poll the result a few times before giving up.
@@ -1825,6 +1836,7 @@ document.getElementById('rp-obsalarm').addEventListener('pointerdown', e => {
 });
 document.getElementById('rp-splitdraw').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); drawSplitLine(); });
 document.getElementById('rp-splitclear').addEventListener('pointerdown', e => { e.stopPropagation(); clearSplitLines(); });
+document.getElementById('rp-planblock').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); planBlock(); });
 document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
 document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
 document.getElementById('rp-steermain').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.steerMain'); });

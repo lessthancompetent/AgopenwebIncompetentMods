@@ -85,6 +85,58 @@ public class SplitFieldPlanningTests
     }
 
     [Test]
+    public void SplitField_block_pick_plans_only_that_region_without_laps()
+    {
+        var svc = new RoutePlanningService(new PolygonOffsetService());
+        var plan = svc.GenerateSplitField(LShape, VerticalSplit,
+            swathWidth: 6, turnRadius: 6, headlandMargin: 12, headlandPasses: 0,
+            startPos: new Vec3(5, 5, 0), onlyRegionAt: new Vec2(50, 200)); // inside the tall left arm
+
+        Assert.That(plan, Is.Not.Null, "picking inside a block should plan it");
+        bool leftWork = false;
+        foreach (var seg in plan!.Segments)
+        {
+            Assert.That(seg.Type, Is.Not.EqualTo(RouteSegmentType.Headland),
+                "single-block plan must not include headland laps");
+            if (seg.Type != RouteSegmentType.Swath) continue;
+            foreach (var p in seg.Points)
+            {
+                Assert.That(p.Easting > 110 && p.Northing < 90, Is.False,
+                    "no work may land in the unpicked bottom-right arm");
+                if (p.Easting < 95 && p.Northing > 120) leftWork = true;
+            }
+        }
+        Assert.That(leftWork, Is.True, "the picked left arm should contain passes");
+    }
+
+    [Test]
+    public void SplitField_pick_outside_every_region_returns_null()
+    {
+        var svc = new RoutePlanningService(new PolygonOffsetService());
+        var plan = svc.GenerateSplitField(LShape, VerticalSplit,
+            swathWidth: 6, turnRadius: 6, headlandMargin: 12,
+            onlyRegionAt: new Vec2(250, 250)); // in the L's notch — outside the field
+        Assert.That(plan, Is.Null);
+    }
+
+    [Test]
+    public void SplitField_manual_heading_overrides_every_region()
+    {
+        var svc = new RoutePlanningService(new PolygonOffsetService());
+        // Force east-west passes (heading π/2) — even the tall arm, whose auto
+        // choice is north-south, must follow the operator's angle.
+        var plan = svc.GenerateSplitField(LShape, VerticalSplit,
+            swathWidth: 6, turnRadius: 6, headlandMargin: 12, headlandPasses: 1,
+            startPos: new Vec3(5, 5, 0), headingRad: Math.PI / 2.0);
+
+        Assert.That(plan, Is.Not.Null);
+        Assert.That(DominantAxisIsNorthSouth(plan!, eMax: 95, nMin: 120), Is.False,
+            "manual angle must override the tall arm's auto north-south heading");
+        Assert.That(DominantAxisIsNorthSouth(plan!, eMin: 110, nMax: 90), Is.False,
+            "wide arm follows the manual east-west heading too");
+    }
+
+    [Test]
     public void SplitField_returns_null_when_line_does_not_divide()
     {
         var svc = new RoutePlanningService(new PolygonOffsetService());

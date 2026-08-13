@@ -126,7 +126,8 @@ public partial class MainViewModel
     /// headlandPasses 0 = auto (route-planner rule); skipCount/blockSkip used by
     /// the skip/cross/block patterns; angleDeg rotates the field-aligned passes.
     /// </summary>
-    public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg, bool cornerFill = false)
+    public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg, bool cornerFill = false,
+        double? blockPickE = null, double? blockPickN = null)
     {
         // Clear any prior plan up front so the web client, which polls
         // /api/routeplan for the result, can't pick up a stale plan while this
@@ -267,13 +268,31 @@ public partial class MainViewModel
         }
 
         // Split lines beat pattern selection: each region auto-picks its own
-        // heading, laps stay on the whole true boundary. Null (lines missed the
-        // field) falls through to the plain whole-field plan.
-        RoutePlan? plan = useSplits
-            ? RoutePlanner.GenerateSplitField(pts, _routeSplitLines, width, turnRadius, headlandMargin,
+        // heading unless the operator dialled in a manual angle (then every
+        // planned region uses it); laps stay on the whole true boundary. A block
+        // pick plans just the tapped region, lap-free, so blocks can be worked
+        // (and angled) one at a time. Null falls through to the plain plan.
+        bool manualAngle = Math.Abs(angleDeg) >= 0.01;
+        Vec2? blockPick = blockPickE.HasValue && blockPickN.HasValue
+            ? new Vec2(blockPickE.Value, blockPickN.Value) : null;
+        RoutePlan? plan = null;
+        bool blockOnly = false;
+        if (useSplits)
+        {
+            double? forced = manualAngle ? heading : null;
+            if (blockPick != null)
+            {
+                plan = RoutePlanner.GenerateSplitField(pts, _routeSplitLines, width, turnRadius, headlandMargin,
+                    SwathPattern.Boustrophedon, 0, startPos, clearance, skipPasses, blkSkip, cornerRadius,
+                    inners, physWidth, trailExt, forced, blockPick);
+                blockOnly = plan != null;
+                if (!blockOnly)
+                    StatusMessage = "Tap landed outside the blocks — planning all of them";
+            }
+            plan ??= RoutePlanner.GenerateSplitField(pts, _routeSplitLines, width, turnRadius, headlandMargin,
                 SwathPattern.Boustrophedon, passes, startPos, clearance, skipPasses, blkSkip, cornerRadius,
-                inners, physWidth, trailExt)
-            : null;
+                inners, physWidth, trailExt, forced);
+        }
         bool splitApplied = plan != null;
         if (useSplits && !splitApplied)
             StatusMessage = "Split lines don't divide this field — planned as one piece";
@@ -317,7 +336,10 @@ public partial class MainViewModel
             m, RouteWorkSpeedMps, RouteTurnSpeedMps, RouteTurnOverheadSec) / 60.0;
         double hdgDeg = ((heading * 180.0 / Math.PI) % 180.0 + 180.0) % 180.0;
         string hdgTxt = splitApplied
-            ? $"{_routeSplitLines.Count} split line{(_routeSplitLines.Count == 1 ? "" : "s")}, per-region headings"
+            ? (blockOnly
+                ? (manualAngle ? $"single block @ {hdgDeg:F0}°" : "single block, auto heading")
+                : manualAngle ? $"all blocks @ {hdgDeg:F0}°"
+                : $"{_routeSplitLines.Count} split line{(_routeSplitLines.Count == 1 ? "" : "s")}, per-region headings")
             : $"@ {hdgDeg:F0}°";
         StatusMessage = $"Route: {m.SwathCount} passes, {m.TurnCount} turns, " +
             $"{m.TotalDistanceMeters / 1000.0:F2} km, {areaHa:F1} ha, ~{estMin:F0} min {hdgTxt} " +

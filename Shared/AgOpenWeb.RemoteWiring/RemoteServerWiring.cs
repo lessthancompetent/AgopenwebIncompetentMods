@@ -131,7 +131,7 @@ public static partial class RemoteServerWiring
                                         vm.TryOpenFieldAtTap(te, tn);
                                     return;
                                 }
-                                case "route.plan": // "pattern,headlandPasses,skip,block,angleDeg[,cornerFill]"
+                                case "route.plan": // "pattern,headlandPasses,skip,block,angleDeg[,cornerFill[,pickE,pickN]]"
                                 {
                                     var rp = arg.Split(',');
                                     var iNum = System.Globalization.NumberStyles.Integer;
@@ -141,7 +141,15 @@ public static partial class RemoteServerWiring
                                         && int.TryParse(rp[2], iNum, inv, out var rskip)
                                         && int.TryParse(rp[3], iNum, inv, out var rblk)
                                         && double.TryParse(rp[4], num, inv, out var rang))
-                                        vm.PlanRoute(rpat, rhl, rskip, rblk, rang, rp.Length >= 6 && rp[5] == "1");
+                                    {
+                                        // Optional block pick: plan only the split region containing this point.
+                                        double? rpe = null, rpn = null;
+                                        if (rp.Length >= 8
+                                            && double.TryParse(rp[6], num, inv, out var pe)
+                                            && double.TryParse(rp[7], num, inv, out var pn))
+                                        { rpe = pe; rpn = pn; }
+                                        vm.PlanRoute(rpat, rhl, rskip, rblk, rang, rp.Length >= 6 && rp[5] == "1", rpe, rpn);
+                                    }
                                     return;
                                 }
                                 case "route.clear":
