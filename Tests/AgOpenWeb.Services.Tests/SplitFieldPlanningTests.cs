@@ -110,6 +110,42 @@ public class SplitFieldPlanningTests
     }
 
     [Test]
+    public void ComputeSplitRegions_orders_blocks_north_first_for_stable_labels()
+    {
+        var svc = new RoutePlanningService(new PolygonOffsetService());
+        var regions = svc.ComputeSplitRegions(LShape, VerticalSplit);
+        Assert.That(regions.Count, Is.EqualTo(2));
+        // Block A (index 0) = tall left arm (north-most centroid); B = bottom-right arm.
+        double cn0 = 0, cn1 = 0;
+        foreach (var p in regions[0]) cn0 += p.Northing; cn0 /= regions[0].Count;
+        foreach (var p in regions[1]) cn1 += p.Northing; cn1 /= regions[1].Count;
+        Assert.That(cn0, Is.GreaterThan(cn1), "A must be the northern block");
+    }
+
+    [Test]
+    public void SplitField_region_index_addresses_the_labelled_block()
+    {
+        var svc = new RoutePlanningService(new PolygonOffsetService());
+        // Index 1 = block B = the bottom-right arm; no work may land in the tall arm.
+        var plan = svc.GenerateSplitField(LShape, VerticalSplit,
+            swathWidth: 6, turnRadius: 6, headlandMargin: 12, headlandPasses: 0,
+            onlyRegionIndex: 1);
+        Assert.That(plan, Is.Not.Null);
+        bool rightWork = false;
+        foreach (var seg in plan!.Segments)
+        {
+            if (seg.Type != RouteSegmentType.Swath) continue;
+            foreach (var p in seg.Points)
+            {
+                Assert.That(p.Easting < 95 && p.Northing > 120, Is.False,
+                    "index 1 must not work the tall left arm");
+                if (p.Easting > 110 && p.Northing < 90) rightWork = true;
+            }
+        }
+        Assert.That(rightWork, Is.True);
+    }
+
+    [Test]
     public void SplitField_pick_outside_every_region_returns_null()
     {
         var svc = new RoutePlanningService(new PolygonOffsetService());

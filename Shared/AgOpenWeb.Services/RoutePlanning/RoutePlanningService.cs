@@ -608,18 +608,25 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double physicalToolWidth = 0,
         double passEndExtension = 0,
         double? headingRad = null,
-        Vec2? onlyRegionAt = null)
+        Vec2? onlyRegionAt = null,
+        int onlyRegionIndex = -1)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0) return null;
         if (splitLines == null || splitLines.Count == 0) return null;
 
-        var regions = SplitPolygon(outerBoundary, splitLines);
+        var regions = ComputeSplitRegions(outerBoundary, splitLines);
         if (regions.Count <= 1) return null;
 
-        // Single-block mode: keep only the region containing the pick point, so the
-        // operator can plan (and angle) each block independently. Null when the pick
-        // lands outside every region — the caller decides the fallback.
-        if (onlyRegionAt is { } pick)
+        // Single-block mode: keep only the region at the label index (stable
+        // ComputeSplitRegions order) or containing the pick point, so the operator
+        // can plan (and angle) each block independently. Null when the pick misses
+        // every region — the caller decides the fallback.
+        if (onlyRegionIndex >= 0)
+        {
+            if (onlyRegionIndex >= regions.Count) return null;
+            regions = new List<List<Vec2>> { regions[onlyRegionIndex] };
+        }
+        else if (onlyRegionAt is { } pick)
         {
             List<Vec2>? sel = null;
             foreach (var r in regions)
@@ -683,6 +690,25 @@ public sealed class RoutePlanningService : IRoutePlanningService
         }
 
         return segs.Count > 0 ? new RoutePlan(segs, BuildMeta(segs, swathWidth)) : null;
+    }
+
+    /// <summary>
+    /// The split regions in stable "block label" order (north-most centroid
+    /// first, then west-most): region 0 is block A, 1 is B, and so on. This
+    /// order is what onlyRegionIndex on GenerateSplitField addresses, and it
+    /// only changes when the split lines themselves change.
+    /// </summary>
+    public List<List<Vec2>> ComputeSplitRegions(
+        IReadOnlyList<Vec2> outerBoundary, IReadOnlyList<(Vec2 A, Vec2 B)> splitLines)
+    {
+        var regions = SplitPolygon(outerBoundary, splitLines);
+        regions.Sort((a, b) =>
+        {
+            var ca = Centroid(a); var cb = Centroid(b);
+            int byN = cb.Northing.CompareTo(ca.Northing);       // north-most first
+            return byN != 0 ? byN : ca.Easting.CompareTo(cb.Easting); // then west-most
+        });
+        return regions;
     }
 
     /// <summary>

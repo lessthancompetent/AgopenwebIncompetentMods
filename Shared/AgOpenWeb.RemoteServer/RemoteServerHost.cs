@@ -97,6 +97,10 @@ public sealed class RemoteServerHost
     /// metadata) in the active map plane. Served at GET /api/routeplan.</summary>
     public Func<string>? RoutePlanJsonProvider { get; set; }
 
+    /// <summary>Host-supplied JSON of the field's split blocks (labels + centroids
+    /// for the map overlay). Served at GET /api/routeblocks.</summary>
+    public Func<string>? RouteBlocksJsonProvider { get; set; }
+
     /// <summary>Host-supplied persisted web-camera view (pitch radians, zoom px/m).
     /// Read once per connection and sent in the seed so the client restores its last
     /// tilt+zoom (issue #35). Set after <see cref="StartAsync"/>.</summary>
@@ -222,6 +226,10 @@ public sealed class RemoteServerHost
         // Route planner: the current planned coverage route (segments + metadata).
         server.MapGet("/api/routeplan", () => SimpleWebServer.Response.Text(
             RoutePlanJsonProvider?.Invoke() ?? "{}", "application/json", noStore));
+
+        // Field splitting: block labels + centroids for the map overlay.
+        server.MapGet("/api/routeblocks", () => SimpleWebServer.Response.Text(
+            RouteBlocksJsonProvider?.Invoke() ?? "{\"blocks\":[]}", "application/json", noStore));
 
         // CanvasKit (WASM Skia) — bundled locally for offline in-cab use. The wasm is
         // served as application/wasm so the browser can streaming-compile it.

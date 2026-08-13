@@ -479,6 +479,8 @@ function buildSkPaints() {
     routeHeadland: mk('rgba(90,190,235,0.95)', 1), routeApproach: mk('rgba(190,190,190,0.7)', 1, [8, 6]),
     // Field-split lines (operator-drawn region dividers) — dashed magenta.
     routeSplit: mk('rgba(235,90,205,0.95)', 2, [10, 7]),
+    // Angle reference line (live pass-direction preview while dialling) — dashed yellow.
+    angleRef: mk('rgba(255,225,80,0.85)', 1.5, [14, 8]),
   };
   // Section footprint bars: one stroke paint per ColorCode (butt cap so adjacent
   // sections abut without rounded overhang), matching the 2D SECTION_COLORS.
@@ -682,16 +684,51 @@ window.toggleSatBackground = toggleSatBackground;
 // block, angleDeg) args. Plan Route posts route.plan|… then fetches /api/routeplan
 // (a list of typed segment polylines) and draws them client-side — same lightweight
 // pattern as pick-from-map, no binary scene-protocol layer.
-let routePlan = null; // { segments:[{type,pts:[{e,n}…]}…], meta:{…} } or null
+let routePlan = null; // { layers:[{name, segments:[{type,pts:[{e,n}…]}…]}…], meta:{…} } or null
+let rpLayerVis = {};  // layer name -> false when hidden (anything else = visible)
+let rpBlocks = [];    // split blocks: [{label,'e','n',angle?}] from /api/routeblocks
+let rpSelBlock = null; // selected block label (Apply path targets it)
 let rpPattern = 0, rpHeadland = 0, rpSkip = 0, rpBlock = 3, rpAngle = 0, rpCornerFill = false;
 let rpObsW = 4, rpObsL = 4, rpObsType = 'HOLE';
 const RP_PAINT = { Swath: 'routeSwath', Turn: 'routeTurn', Headland: 'routeHeadland', Approach: 'routeApproach' };
 function drawRoutePlanSk(canvas) {
-  if (!routePlan || !routePlan.segments) return;
-  for (const seg of routePlan.segments) {
-    if (!seg.pts || seg.pts.length < 2) continue;
-    strokePtsSk(canvas, seg.pts, false, SKP[RP_PAINT[seg.type] || 'routeSwath']);
+  if (!routePlan || !routePlan.layers) return;
+  for (const layer of routePlan.layers) {
+    if (rpLayerVis[layer.name] === false) continue; // toggled off in the Show-paths row
+    for (const seg of layer.segments) {
+      if (!seg.pts || seg.pts.length < 2) continue;
+      strokePtsSk(canvas, seg.pts, false, SKP[RP_PAINT[seg.type] || 'routeSwath']);
+    }
   }
+}
+// Live pass-direction preview: while the Route Planner is open, a dashed yellow
+// line through the selected block (or field centre) shows where passes will run
+// for the current Angle setting — updates instantly as the stepper is pressed.
+function fieldDefaultHeadingJS() {
+  const b = scene && scene.boundaries && scene.boundaries[0];
+  if (!b || b.length < 3) return 0;
+  let best = 0, bl = -1;
+  for (let i = 0; i < b.length; i++) {
+    const p = b[i], q = b[(i + 1) % b.length];
+    const dE = q.e - p.e, dN = q.n - p.n, l = dE * dE + dN * dN;
+    if (l > bl) { bl = l; best = Math.atan2(dE, dN); }
+  }
+  return best;
+}
+function drawAngleRefSk(canvas) {
+  if (!document.getElementById('routeplan').classList.contains('open')) return;
+  const b = scene && scene.boundaries && scene.boundaries[0];
+  if (!b || b.length < 3) return;
+  let minE = 1e18, maxE = -1e18, minN = 1e18, maxN = -1e18;
+  for (const p of b) { minE = Math.min(minE, p.e); maxE = Math.max(maxE, p.e); minN = Math.min(minN, p.n); maxN = Math.max(maxN, p.n); }
+  const sel = rpSelBlock && rpBlocks.find(x => x.label === rpSelBlock);
+  const cx = sel ? sel.e : (minE + maxE) / 2, cy = sel ? sel.n : (minN + maxN) / 2;
+  const h = fieldDefaultHeadingJS() + rpAngle * Math.PI / 180;
+  const L = Math.hypot(maxE - minE, maxN - minN) / 2 + 30;
+  strokePtsSk(canvas, [
+    { e: cx - Math.sin(h) * L, n: cy - Math.cos(h) * L },
+    { e: cx + Math.sin(h) * L, n: cy + Math.cos(h) * L },
+  ], false, SKP.angleRef);
 }
 function rpRender() {
   rpFillSpeeds();
@@ -756,6 +793,7 @@ function rpSplitsRefresh() {
     rpSplits = (d && d.splits) || [];
     rpSplitCountRender();
   }).catch(() => {});
+  rpBlocksRefresh();
 }
 function drawSplitLine() {
   let first = null;
@@ -775,24 +813,133 @@ function drawSplitLine() {
 }
 function clearSplitLines() {
   transport.send('route.splitClear');
-  rpSplits = [];
-  rpSplitCountRender();
+  rpSplits = []; rpBlocks = []; rpSelBlock = null;
+  rpSplitCountRender(); rpBlocksRender();
+  setTimeout(rpBlocksRefresh, 400); // re-sync once the backend has cleared
 }
-// Plan ONE split block: tap the block, only that region is planned (no headland
-// laps) using the panel's current Angle (0 = auto for that block). Lets each
-// block be planned, angled, and driven independently.
-function planBlock() {
-  startMapTap({
-    hint: 'Tap the block to plan (Angle setting applies to it)',
-    onTap: (e, n) => { endMapTap(); planRoute([e, n]); },
-  });
+// ---- Named blocks (A, B, C…) ----------------------------------------------
+// Splits carve the field into labelled blocks. The panel lists them as buttons
+// (tap to select — the label highlights on the map), "Apply path" plans ONLY
+// the selected block with the current Angle (0 = auto), stored per block so a
+// full re-plan keeps each block's chosen direction. Each block's path is a
+// layer ("A", "B", …) that replans without touching the others.
+function rpBlocksRefresh() {
+  fetch('/api/routeblocks').then(r => r.json()).then(d => {
+    rpBlocks = (d && d.blocks) || [];
+    if (rpSelBlock && !rpBlocks.some(b => b.label === rpSelBlock)) rpSelBlock = null;
+    rpBlocksRender();
+  }).catch(() => {});
+}
+function rpBlocksRender() {
+  const row = document.getElementById('rp-blocks');
+  if (!row) return;
+  row.innerHTML = '';
+  const show = rpBlocks.length > 0;
+  document.getElementById('rp-blocks-label').style.display = show ? '' : 'none';
+  row.style.display = show ? '' : 'none';
+  document.getElementById('rp-applyblock-row').style.display = show ? '' : 'none';
+  row.style.gridTemplateColumns = 'repeat(' + Math.min(Math.max(rpBlocks.length, 1), 6) + ',1fr)';
+  for (const b of rpBlocks) {
+    const btn = document.createElement('button');
+    btn.className = 'rp-pat' + (rpSelBlock === b.label ? ' on' : '');
+    btn.textContent = b.label + (b.angle != null ? ' ' + b.angle + '°' : '');
+    btn.title = b.angle != null ? ('Block ' + b.label + ' — manual angle ' + b.angle + '°') : ('Block ' + b.label + ' — auto heading');
+    btn.addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      rpSelBlock = rpSelBlock === b.label ? null : b.label;
+      rpBlocksRender();
+    });
+    row.appendChild(btn);
+  }
+  const ab = document.getElementById('rp-applyblock');
+  ab.textContent = rpSelBlock ? ('Apply path to block ' + rpSelBlock) : 'Select a block above';
+  ab.disabled = !rpSelBlock;
+}
+function applyBlockPath() {
+  if (!rpSelBlock) return;
+  transport.send('route.planBlock|' + rpSelBlock + ',' + rpHeadland + ',' + rpAngle);
+  document.getElementById('rp-stats').textContent = 'Planning block ' + rpSelBlock + '…';
+  // The layer swaps in place on the backend; refresh the preview a few times so
+  // the result lands even on a slow (obstacle-heavy) plan.
+  for (const ms of [400, 1200, 3000]) setTimeout(refreshRoutePlan, ms);
+  setTimeout(rpBlocksRefresh, 500); // stored angle badge
+}
+// Fetch /api/routeplan once and adopt it when it carries layers. Returns the
+// promise so callers can chain; planRoute polls this until layers appear.
+function applyPlanPayload(d) {
+  if (!d || !d.layers || !d.layers.length) return false;
+  routePlan = {
+    layers: d.layers.map(L => ({
+      name: L.name,
+      segments: L.segments.map(s => ({ type: s.type, pts: s.pts.map(p => ({ e: p[0], n: p[1] })) })),
+    })),
+    meta: d.meta,
+  };
+  rpSplits = d.splits || []; rpSplitCountRender();
+  rpLayersRender();
+  const m = d.meta || {};
+  const km = ((m.distanceM || 0) / 1000).toFixed(2);
+  document.getElementById('rp-stats').textContent =
+    `${m.swaths || 0} passes · ${m.turns || 0} turns · ${km} km · ${(m.toolWidthM || 0).toFixed(2)} m tool`;
+  return true;
+}
+function refreshRoutePlan() {
+  return fetch('/api/routeplan').then(r => r.json()).then(applyPlanPayload).catch(() => false);
+}
+// Show-paths row: one toggle per layer so only the path being driven is shown
+// (e.g. hide block B while finishing the headland, then swap).
+function rpLayersRender() {
+  const row = document.getElementById('rp-layers');
+  if (!row) return;
+  row.innerHTML = '';
+  const layers = (routePlan && routePlan.layers) || [];
+  document.getElementById('rp-layers-label').style.display = layers.length ? '' : 'none';
+  row.style.display = layers.length ? '' : 'none';
+  row.style.gridTemplateColumns = 'repeat(' + Math.min(Math.max(layers.length, 1), 6) + ',1fr)';
+  for (const L of layers) {
+    const btn = document.createElement('button');
+    const vis = rpLayerVis[L.name] !== false;
+    btn.className = 'rp-pat' + (vis ? ' on' : '');
+    btn.textContent = L.name === 'Headland' ? 'Hdl' : L.name;
+    btn.title = (vis ? 'Hide' : 'Show') + ' the ' + L.name + ' path';
+    btn.addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      rpLayerVis[L.name] = vis ? false : true;
+      rpLayersRender();
+    });
+    row.appendChild(btn);
+  }
 }
 function drawRouteSplitsSk(canvas) {
   if (!rpSplits.length) return;
   for (const s of rpSplits)
     strokePtsSk(canvas, [{ e: s[0], n: s[1] }, { e: s[2], n: s[3] }], false, SKP.routeSplit);
 }
-function openRoutePlanner() { lnOpen('routeplan', 'ln-fieldtools', rpRender); rpSplitsRefresh(); }
+// Block letters (A, B, …) anchored at each block's centroid — DOM spans like the
+// AB dot labels (CanvasKit has no text). Selected block glows yellow.
+const blockLabelsEl = document.getElementById('block-labels');
+function renderBlockLabels() {
+  if (!blockLabelsEl || !perspM) return; // matrix only exists inside the render path
+  const n = scene && scene.fieldName && scene.fieldName !== 'No Field' ? rpBlocks.length : 0;
+  while (blockLabelsEl.children.length < n) blockLabelsEl.appendChild(document.createElement('span'));
+  for (let i = 0; i < blockLabelsEl.children.length; i++) {
+    const span = blockLabelsEl.children[i];
+    if (i >= n || pw(rpBlocks[i].e, rpBlocks[i].n) < 1.0) { span.style.display = 'none'; continue; }
+    const b = rpBlocks[i];
+    const xy = w2s(b.e, b.n);
+    span.textContent = b.label;
+    span.style.left = xy[0] + 'px';
+    span.style.top = xy[1] + 'px';
+    span.style.color = rpSelBlock === b.label ? '#ffe14d' : '#ffffff';
+    span.style.display = '';
+  }
+}
+function openRoutePlanner() {
+  lnOpen('routeplan', 'ln-fieldtools', rpRender);
+  rpSplitsRefresh();
+  if (!routePlan) refreshRoutePlan(); // restore the preview after a page reload
+  else rpLayersRender();
+}
 function openObstacles() { lnOpen('obstacles', 'ln-fieldtools', rpRender); }
 // Live route ETA: EMA of ACTUAL speed while working (any section on) vs turning/
 // transit, seeded from the profile speed model; x remaining plan distance (scaled
@@ -821,10 +968,13 @@ function routeEtaText() {
   const t = min >= 90 ? '~' + (min / 60).toFixed(1) + ' h left' : '~' + min + ' min left';
   return t + (emaWorkMps ? '  (' + (emaWorkMps * 3.6).toFixed(1) + '/' + (emaTurnMps * 3.6 || 0).toFixed(1) + ' km/h)' : '');
 }
+let rpBlocksField = null; // refetch blocks when the open field changes
 setInterval(() => {
   etaLearnTick();
   const el = document.getElementById('rp-eta');
   if (el) el.textContent = routeEtaText();
+  const f = scene && scene.fieldName;
+  if (f !== rpBlocksField) { rpBlocksField = f; rpSelBlock = null; rpBlocksRefresh(); }
 }, 2000);
 // Missed-spots overlay: red tint under the coverage layer inside the field.
 let showMissed = false;
@@ -883,32 +1033,21 @@ document.getElementById('ft-setapplied').addEventListener('pointerdown', e => {
 document.getElementById('ft-exportcov').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('job.exportCoverage');
 });
-function planRoute(pick) {
-  const args = [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0];
-  if (pick) args.push(pick[0].toFixed(2), pick[1].toFixed(2)); // plan only the tapped split block
-  transport.send('route.plan|' + args.join(','));
+function planRoute() {
+  transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0].join(','));
   document.getElementById('rp-stats').textContent = 'Planning…';
   // The command runs on the backend dispatcher and can take a while on big fields
-  // (obstacle-aware Dubins turns). Poll the result a few times before giving up.
+  // (obstacle-aware Dubins turns). The backend clears the plan first, so poll
+  // until layers appear or give up.
   let tries = 0;
   const poll = () => {
     tries++;
-    fetch('/api/routeplan').then(r => r.json()).then(d => {
-      if (!d || !d.segments || d.segments.length === 0) {
-        if (tries < 28) { setTimeout(poll, 250); return; }   // up to ~4 s
-        routePlan = null;
-        document.getElementById('rp-stats').textContent = 'No route (open a field with a boundary).';
-        return;
-      }
-      routePlan = { segments: d.segments.map(s => ({ type: s.type, pts: s.pts.map(p => ({ e: p[0], n: p[1] })) })), meta: d.meta };
-      rpSplits = d.splits || []; rpSplitCountRender();
-      const m = d.meta || {};
-      const km = ((m.distanceM || 0) / 1000).toFixed(2);
-      document.getElementById('rp-stats').textContent =
-        `${m.swaths || 0} passes · ${m.turns || 0} turns · ${km} km · ${(m.toolWidthM || 0).toFixed(2)} m tool`;
-    }).catch(() => {
-      if (tries < 28) { setTimeout(poll, 250); return; }
-      document.getElementById('rp-stats').textContent = 'Plan fetch failed.';
+    refreshRoutePlan().then(ok => {
+      if (ok) { rpBlocksRefresh(); return; }
+      if (tries < 28) { setTimeout(poll, 250); return; }   // up to ~7 s
+      routePlan = null;
+      rpLayersRender();
+      document.getElementById('rp-stats').textContent = 'No route (open a field with a boundary).';
     });
   };
   setTimeout(poll, 250);
@@ -916,6 +1055,7 @@ function planRoute(pick) {
 function clearRoute() {
   transport.send('route.clear');
   routePlan = null;
+  rpLayersRender();
   document.getElementById('rp-stats').textContent = 'No route planned.';
 }
 
@@ -1835,8 +1975,8 @@ document.getElementById('rp-obsalarm').addEventListener('pointerdown', e => {
   rpRender();
 });
 document.getElementById('rp-splitdraw').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); drawSplitLine(); });
-document.getElementById('rp-splitclear').addEventListener('pointerdown', e => { e.stopPropagation(); clearSplitLines(); });
-document.getElementById('rp-planblock').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); planBlock(); });
+document.getElementById('rp-splitclear').addEventListener('pointerdown', e => { e.stopPropagation(); clearSplitLines(); rpBlocksRefresh(); });
+document.getElementById('rp-applyblock').addEventListener('pointerdown', e => { e.stopPropagation(); applyBlockPath(); });
 document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
 document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
 document.getElementById('rp-steermain').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.steerMain'); });
@@ -5031,6 +5171,7 @@ function updateLineWidths() {
   SKP.routeHeadland.setStrokeWidth(w(0.7));
   SKP.routeApproach.setStrokeWidth(w(0.4));
   SKP.routeSplit.setStrokeWidth(w(0.8));
+  SKP.angleRef.setStrokeWidth(w(0.5));
 }
 function vehicleSk(canvas, p) {
   const veh = config && config.vehicle;
@@ -5537,6 +5678,7 @@ function renderSkia(canvas, rp) {
   drawPickOutlinesSk(canvas); // pick-from-map: all mapped field outlines
   drawRoutePlanSk(canvas); // route planner: generated coverage-route preview
   drawRouteSplitsSk(canvas); // field-split divider lines (dashed magenta)
+  drawAngleRefSk(canvas); // live pass-direction preview while the planner is open
   drawMissedSk(canvas); // missed-spots tint: red under coverage, so unworked ground shows
   drawCoverageSk(canvas);
   drawCoverageEdgeSk(canvas); // crisp vector perimeter over the raster (server-fed)
@@ -5606,6 +5748,7 @@ function skFrame() {
   renderRightNav();
   renderUTurnIndicator();
   renderAbDotLabels(); // #40 — letters beside the dropped AB/curve points
+  renderBlockLabels(); // split-block letters (A, B, …) at block centroids
   renderRoll();
   renderCampad();
   renderCharts();

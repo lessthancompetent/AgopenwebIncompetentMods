@@ -186,6 +186,10 @@
     #ab-dot-labels span { position: fixed; z-index: 41; display: none; pointer-events: none;
       font: 900 20px system-ui, sans-serif; transform: translate(11px, -26px);
       text-shadow: 0 0 3px #000, 0 1px 5px rgba(0,0,0,0.95); }
+    /* Split-block letters (A, B, …) at each block's centroid. Positioned per-frame. */
+    #block-labels span { position: fixed; z-index: 40; display: none; pointer-events: none;
+      font: 900 24px system-ui, sans-serif; transform: translate(-50%, -50%);
+      text-shadow: 0 0 4px #000, 0 1px 6px rgba(0,0,0,0.95); }
     /* Draw-track toolbar (Phase MT) — top-centre, directly under the instruction pill
        (#maptap-hint at top:60px) so the action buttons sit with the prompt, not across
        the screen from it. (The distance HUD is hidden during these flows — updateHeadlandHud.) */
@@ -1138,6 +1142,7 @@
   <button id="maptap-cancel">✕ Cancel</button>
   <div id="maptap-ab">A</div>
   <div id="ab-dot-labels"></div>
+  <div id="block-labels"></div>
   <!-- Phase MT — draw-track toolbar. Shown while drawing an AB/curve on the map.
        Undo/Finish appear only in curve mode; Cancel always. -->
   <div id="draw-toolbar">
@@ -1279,9 +1284,13 @@
       <button class="cfg-act" id="rp-splitdraw">✂ Draw split</button>
       <button class="cfg-act" id="rp-splitclear">Clear splits<span id="rp-splitcount"></span></button>
     </div>
-    <div class="rp-pats" id="rp-planblock-row" style="grid-template-columns:1fr">
-      <button id="rp-planblock" title="Tap a split block to plan just that block (no headland laps). The Angle setting applies to it — 0 keeps auto heading. Plan Route always plans everything.">▦ Plan one block</button>
+    <div class="cfg-label" id="rp-blocks-label" style="display:none">Blocks (tap to select)</div>
+    <div class="rp-pats" id="rp-blocks" style="display:none"></div>
+    <div class="rp-pats" id="rp-applyblock-row" style="grid-template-columns:1fr;display:none">
+      <button id="rp-applyblock" title="Plan ONLY the selected block (no headland laps) with the current Angle — 0 keeps auto heading for its shape. The angle is remembered per block; other blocks' paths are untouched, so block B can change after block A is planned or driven.">Select a block above</button>
     </div>
+    <div class="cfg-label" id="rp-layers-label" style="display:none">Show paths</div>
+    <div class="rp-pats" id="rp-layers" style="display:none"></div>
     <div class="rp-btns">
       <button class="cfg-act fj-primary" id="rp-plan">Plan Route</button>
       <button class="cfg-act fj-danger" id="rp-clear">Clear</button>

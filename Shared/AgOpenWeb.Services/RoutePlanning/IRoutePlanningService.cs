@@ -74,7 +74,16 @@ public interface IRoutePlanningService
         double physicalToolWidth = 0,
         double passEndExtension = 0,
         double? headingRad = null,
-        Vec2? onlyRegionAt = null);
+        Vec2? onlyRegionAt = null,
+        int onlyRegionIndex = -1);
+
+    /// <summary>
+    /// The split regions in stable "block label" order (north-most centroid
+    /// first, then west-most): region 0 = block A, 1 = B, … Addressed by
+    /// GenerateSplitField's onlyRegionIndex; stable while the lines don't change.
+    /// </summary>
+    List<List<Vec2>> ComputeSplitRegions(
+        IReadOnlyList<Vec2> outerBoundary, IReadOnlyList<(Vec2 A, Vec2 B)> splitLines);
 
     /// <summary>
     /// Cross-drill: two complete coverages, the second rotated by
