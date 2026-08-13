@@ -82,23 +82,32 @@ public sealed class RoutePlanningService : IRoutePlanningService
         bool addPondLoops = true,
         bool fastScore = false,
         double physicalToolWidth = 0,
-        double passEndExtension = 0)
+        double passEndExtension = 0,
+        IReadOnlyList<Vec2>? cultivatedOverride = null)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0)
             return null;
 
         var boundary = new List<Vec2>(outerBoundary);
 
-        // 1. Cultivated polygon = boundary inset by the headland margin.
+        // 1. Cultivated polygon = boundary inset by the headland margin. A split-field
+        // region call overrides this with (region ∩ full-field inset): the interior
+        // passes then fill only the region, while `boundary` stays the TRUE fence so
+        // headland laps and turn validation see the whole field.
         var cultivated = boundary;
-        if (headlandMargin > 0)
+        if (cultivatedOverride is { Count: >= 3 })
+        {
+            cultivated = new List<Vec2>(cultivatedOverride);
+        }
+        else if (headlandMargin > 0)
         {
             var inset = _offset.CreateInwardOffset(boundary, headlandMargin);
             if (inset is { Count: >= 3 }) cultivated = inset;
         }
 
-        // 2. Heading: caller-supplied (e.g. an AB line), else the longest edge.
-        double theta = headingRad ?? LongestEdgeHeading(boundary);
+        // 2. Heading: caller-supplied (e.g. an AB line), else the longest edge —
+        // of the WORKED area, so a split region orients to its own shape.
+        double theta = headingRad ?? LongestEdgeHeading(cultivatedOverride is { Count: >= 3 } ? cultivated : boundary);
         double dE = Math.Sin(theta), dN = Math.Cos(theta);    // travel direction
         double pE = Math.Cos(theta), pN = -Math.Sin(theta);   // perpendicular (spacing axis)
 
@@ -568,6 +577,198 @@ public sealed class RoutePlanningService : IRoutePlanningService
         segs.AddRange(second.Segments);
 
         return new RoutePlan(segs, BuildMeta(segs, swathWidth));
+    }
+
+    /// <summary>
+    /// Plan a field the way an operator would work it by hand: split lines carve
+    /// the boundary into simpler regions (a triangle and a square instead of one
+    /// awkward L), and each region is worked with its own pass direction (auto:
+    /// the region's longest edge). The headland laps still trace the WHOLE true
+    /// boundary once — split lines are working aids, not fences — and each
+    /// region's interior is clipped to (region ∩ full-field headland inset) so
+    /// nothing double-plants along the split and nothing leaks into the band.
+    /// Regions chain nearest-first from the start position via the normal
+    /// approach machinery. Returns null when the splits don't actually divide
+    /// the field (caller falls back to plain planning).
+    /// </summary>
+    public RoutePlan? GenerateSplitField(
+        IReadOnlyList<Vec2> outerBoundary,
+        IReadOnlyList<(Vec2 A, Vec2 B)> splitLines,
+        double swathWidth,
+        double turnRadius,
+        double headlandMargin,
+        SwathPattern pattern = SwathPattern.Boustrophedon,
+        int headlandPasses = 0,
+        Vec3? startPos = null,
+        double boundaryClearance = 0,
+        int skipPasses = 0,
+        int blockSkip = 0,
+        double cornerRadius = 0,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
+        double physicalToolWidth = 0,
+        double passEndExtension = 0)
+    {
+        if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0) return null;
+        if (splitLines == null || splitLines.Count == 0) return null;
+
+        var regions = SplitPolygon(outerBoundary, splitLines);
+        if (regions.Count <= 1) return null;
+
+        // The shared working area: the true boundary inset by the headland depth.
+        // Regions are intersected with THIS, never inset themselves — insetting a
+        // region would pull passes back from the split line and leave a gap strip.
+        IReadOnlyList<Vec2> inset = outerBoundary;
+        if (headlandMargin > 0)
+        {
+            var i = _offset.CreateInwardOffset(new List<Vec2>(outerBoundary), headlandMargin);
+            if (i is { Count: >= 3 }) inset = i;
+        }
+
+        // Work regions nearest-first from the start position so the machine flows
+        // across the field instead of criss-crossing between distant regions.
+        var ordered = new List<List<Vec2>>(regions);
+        var cursorPt = startPos != null
+            ? new Vec2(startPos.Value.Easting, startPos.Value.Northing)
+            : Centroid(outerBoundary);
+        for (int i = 0; i < ordered.Count - 1; i++)
+        {
+            int best = i; double bestD = double.MaxValue;
+            for (int j = i; j < ordered.Count; j++)
+            {
+                double d = (Centroid(ordered[j]) - cursorPt).GetLengthSquared();
+                if (d < bestD) { bestD = d; best = j; }
+            }
+            (ordered[i], ordered[best]) = (ordered[best], ordered[i]);
+            cursorPt = Centroid(ordered[i]);
+        }
+
+        var segs = new List<RouteSegment>();
+        Vec3? cursor = startPos;
+        bool first = true;
+        foreach (var region in ordered)
+        {
+            var cult = IntersectPolygons(region, inset);
+            foreach (var piece in cult)
+            {
+                if (Math.Abs(SignedArea(piece)) < swathWidth * swathWidth) continue; // sliver
+
+                // First call carries the headland laps for the WHOLE field (its
+                // boundary argument is the true fence); later calls are interior-only.
+                var plan = GenerateBoustrophedon(outerBoundary, swathWidth, turnRadius,
+                    headlandMargin, null, pattern, first ? headlandPasses : 0, cursor,
+                    0, false, false, boundaryClearance, skipPasses, blockSkip, cornerRadius,
+                    innerBoundaries, addPondLoops: first, fastScore: false,
+                    physicalToolWidth, passEndExtension, cultivatedOverride: piece);
+                if (plan == null || plan.Segments.Count == 0) continue;
+
+                segs.AddRange(plan.Segments);
+                var lastSeg = plan.Segments[^1];
+                if (lastSeg.Points.Count > 0) cursor = lastSeg.Points[^1];
+                first = false;
+            }
+        }
+
+        return segs.Count > 0 ? new RoutePlan(segs, BuildMeta(segs, swathWidth)) : null;
+    }
+
+    /// <summary>
+    /// Cut a polygon by each split line in turn (the line is extended to
+    /// infinity, so a partial stroke across the map still cuts cleanly).
+    /// Implemented as Clipper intersections with a huge half-plane quad on each
+    /// side of the line; a concave boundary can yield several pieces per side
+    /// and every piece becomes its own region. Slivers below ~25 m² are dropped.
+    /// </summary>
+    internal static List<List<Vec2>> SplitPolygon(
+        IReadOnlyList<Vec2> polygon, IReadOnlyList<(Vec2 A, Vec2 B)> splitLines)
+    {
+        const double S = 100.0;             // 1 cm integer grid
+        const double MinAreaM2 = 25.0;
+
+        // Extent that safely exceeds the polygon from any line position.
+        double minE = double.MaxValue, maxE = double.MinValue, minN = double.MaxValue, maxN = double.MinValue;
+        foreach (var p in polygon)
+        {
+            minE = Math.Min(minE, p.Easting); maxE = Math.Max(maxE, p.Easting);
+            minN = Math.Min(minN, p.Northing); maxN = Math.Max(maxN, p.Northing);
+        }
+        double ext = 2.0 * Math.Max(maxE - minE, maxN - minN) + 100.0;
+
+        var regions = new List<List<Vec2>> { new(polygon) };
+        foreach (var (a, b) in splitLines)
+        {
+            var dir = b - a;
+            double len = dir.GetLength();
+            if (len < 0.5) continue;                       // degenerate stroke
+            dir = new Vec2(dir.Easting / len, dir.Northing / len);
+            var nrm = new Vec2(dir.Northing, -dir.Easting); // perpendicular
+
+            var p0 = new Vec2(a.Easting - dir.Easting * ext, a.Northing - dir.Northing * ext);
+            var p1 = new Vec2(b.Easting + dir.Easting * ext, b.Northing + dir.Northing * ext);
+            Path64 HalfPlane(double side) => new(new[]
+            {
+                new Point64((long)(p0.Easting * S), (long)(p0.Northing * S)),
+                new Point64((long)(p1.Easting * S), (long)(p1.Northing * S)),
+                new Point64((long)((p1.Easting + side * nrm.Easting * ext) * S), (long)((p1.Northing + side * nrm.Northing * ext) * S)),
+                new Point64((long)((p0.Easting + side * nrm.Easting * ext) * S), (long)((p0.Northing + side * nrm.Northing * ext) * S)),
+            });
+
+            var next = new List<List<Vec2>>();
+            foreach (var region in regions)
+            {
+                var subject = new Path64(region.Count);
+                foreach (var p in region)
+                    subject.Add(new Point64((long)(p.Easting * S), (long)(p.Northing * S)));
+
+                foreach (double side in new[] { 1.0, -1.0 })
+                {
+                    var clipped = Clipper.Intersect(
+                        new Paths64 { subject }, new Paths64 { HalfPlane(side) }, FillRule.NonZero);
+                    foreach (var path in clipped)
+                    {
+                        if (path.Count < 3) continue;
+                        if (Math.Abs(Clipper.Area(path)) / (S * S) < MinAreaM2) continue;
+                        var poly = new List<Vec2>(path.Count);
+                        foreach (var pt in path) poly.Add(new Vec2(pt.X / S, pt.Y / S));
+                        next.Add(poly);
+                    }
+                }
+            }
+            if (next.Count > 0) regions = next;
+        }
+        return regions;
+    }
+
+    private static List<List<Vec2>> IntersectPolygons(IReadOnlyList<Vec2> a, IReadOnlyList<Vec2> b)
+    {
+        const double S = 100.0;
+        Path64 ToPath(IReadOnlyList<Vec2> poly)
+        {
+            var p = new Path64(poly.Count);
+            foreach (var v in poly) p.Add(new Point64((long)(v.Easting * S), (long)(v.Northing * S)));
+            return p;
+        }
+        var outp = Clipper.Intersect(new Paths64 { ToPath(a) }, new Paths64 { ToPath(b) }, FillRule.NonZero);
+        var result = new List<List<Vec2>>(outp.Count);
+        foreach (var path in outp)
+        {
+            if (path.Count < 3) continue;
+            var poly = new List<Vec2>(path.Count);
+            foreach (var pt in path) poly.Add(new Vec2(pt.X / S, pt.Y / S));
+            result.Add(poly);
+        }
+        return result;
+    }
+
+    private static double SignedArea(IReadOnlyList<Vec2> poly)
+    {
+        double a = 0;
+        for (int i = 0; i < poly.Count; i++)
+        {
+            var p = poly[i];
+            var q = poly[(i + 1) % poly.Count];
+            a += p.Easting * q.Northing - q.Easting * p.Northing;
+        }
+        return a / 2.0;
     }
 
     public RoutePlan? GenerateAlongCurve(

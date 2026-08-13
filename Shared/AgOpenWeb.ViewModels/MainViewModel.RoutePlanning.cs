@@ -38,6 +38,88 @@ public partial class MainViewModel
     /// record/playback feature leaves the user in control of speed, so this is gated).</summary>
     private bool _haltSimAtRouteEnd;
 
+    // ---- Field splitting -----------------------------------------------------
+    // Operator-drawn split lines (two map taps each) carve the field into simpler
+    // regions the way it would be worked by hand — e.g. an L into a tall and a wide
+    // rectangle, each with straight passes in its own best direction, instead of
+    // one compromise heading across the whole shape. Persisted per field.
+    private readonly List<(Vec2 A, Vec2 B)> _routeSplitLines = new();
+    private string? _routeSplitsFieldDir;
+    private const string RouteSplitsFileName = "RouteSplits.json";
+
+    /// <summary>Reload the split lines when the active field changes (lazy — no
+    /// field-open hook needed; every split entry point calls this first).</summary>
+    private void EnsureRouteSplitsLoaded()
+    {
+        string? dir = ActiveField?.DirectoryPath;
+        if (dir == _routeSplitsFieldDir) return;
+        _routeSplitsFieldDir = dir;
+        _routeSplitLines.Clear();
+        if (string.IsNullOrWhiteSpace(dir)) return;
+        try
+        {
+            string path = System.IO.Path.Combine(dir, RouteSplitsFileName);
+            if (!System.IO.File.Exists(path)) return;
+            var rows = System.Text.Json.JsonSerializer.Deserialize<List<double[]>>(
+                System.IO.File.ReadAllText(path));
+            if (rows == null) return;
+            foreach (var r in rows)
+                if (r is { Length: >= 4 })
+                    _routeSplitLines.Add((new Vec2(r[0], r[1]), new Vec2(r[2], r[3])));
+        }
+        catch { /* unreadable splits file — start empty */ }
+    }
+
+    private void SaveRouteSplits()
+    {
+        string? dir = ActiveField?.DirectoryPath;
+        if (string.IsNullOrWhiteSpace(dir)) return;
+        try
+        {
+            string path = System.IO.Path.Combine(dir, RouteSplitsFileName);
+            if (_routeSplitLines.Count == 0)
+            {
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                return;
+            }
+            var rows = new List<double[]>(_routeSplitLines.Count);
+            foreach (var (a, b) in _routeSplitLines)
+                rows.Add(new[] { a.Easting, a.Northing, b.Easting, b.Northing });
+            System.IO.File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(rows));
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't save split lines: {ex.Message}";
+        }
+    }
+
+    /// <summary>Add a split line from two map taps (field-local metres). The line is
+    /// extended to infinity when planning, so a short stroke across the waist works.</summary>
+    public void AddRouteSplitLine(double e1, double n1, double e2, double n2)
+    {
+        if (ActiveField == null) { StatusMessage = "Open a field first to add a split"; return; }
+        double dE = e2 - e1, dN = n2 - n1;
+        if (Math.Sqrt(dE * dE + dN * dN) < 1.0)
+        {
+            StatusMessage = "Split taps too close together — tap two points across the field";
+            return;
+        }
+        EnsureRouteSplitsLoaded();
+        _routeSplitLines.Add((new Vec2(e1, n1), new Vec2(e2, n2)));
+        SaveRouteSplits();
+        StatusMessage = $"Split line {_routeSplitLines.Count} added — Plan Route to use it";
+    }
+
+    /// <summary>Remove all split lines for the open field.</summary>
+    public void ClearRouteSplitLines()
+    {
+        EnsureRouteSplitsLoaded();
+        if (_routeSplitLines.Count == 0) { StatusMessage = "No split lines to clear"; return; }
+        _routeSplitLines.Clear();
+        SaveRouteSplits();
+        StatusMessage = "Split lines cleared";
+    }
+
     /// <summary>
     /// Plan a coverage route for the open field and stash it for the web preview.
     /// Pattern: 0 auto, 1 skip, 2 cross-drill, 3 spiral, 4 block.
@@ -164,7 +246,10 @@ public partial class MainViewModel
         double trailExt = Math.Abs(ConfigStore.Tool.HitchLength)
             + (ConfigStore.Tool.IsToolTrailing ? Math.Abs(ConfigStore.Tool.TrailingHitchLength) : 0);
 
-        if (!spiral && !cross && Math.Abs(angleDeg) < 0.01)
+        EnsureRouteSplitsLoaded();
+        bool useSplits = !spiral && !cross && _routeSplitLines.Count > 0;
+
+        if (!spiral && !cross && !useSplits && Math.Abs(angleDeg) < 0.01)
         {
             double bestSecs = double.MaxValue;
             foreach (double h in CandidateHeadings(pts))
@@ -181,7 +266,19 @@ public partial class MainViewModel
             }
         }
 
-        RoutePlan? plan = spiral
+        // Split lines beat pattern selection: each region auto-picks its own
+        // heading, laps stay on the whole true boundary. Null (lines missed the
+        // field) falls through to the plain whole-field plan.
+        RoutePlan? plan = useSplits
+            ? RoutePlanner.GenerateSplitField(pts, _routeSplitLines, width, turnRadius, headlandMargin,
+                SwathPattern.Boustrophedon, passes, startPos, clearance, skipPasses, blkSkip, cornerRadius,
+                inners, physWidth, trailExt)
+            : null;
+        bool splitApplied = plan != null;
+        if (useSplits && !splitApplied)
+            StatusMessage = "Split lines don't divide this field — planned as one piece";
+
+        plan ??= spiral
             ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill, inners)
             : cross
                 ? RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
@@ -219,8 +316,11 @@ public partial class MainViewModel
         double estMin = RoutePlanningService.EstimateWorkSeconds(
             m, RouteWorkSpeedMps, RouteTurnSpeedMps, RouteTurnOverheadSec) / 60.0;
         double hdgDeg = ((heading * 180.0 / Math.PI) % 180.0 + 180.0) % 180.0;
+        string hdgTxt = splitApplied
+            ? $"{_routeSplitLines.Count} split line{(_routeSplitLines.Count == 1 ? "" : "s")}, per-region headings"
+            : $"@ {hdgDeg:F0}°";
         StatusMessage = $"Route: {m.SwathCount} passes, {m.TurnCount} turns, " +
-            $"{m.TotalDistanceMeters / 1000.0:F2} km, {areaHa:F1} ha, ~{estMin:F0} min @ {hdgDeg:F0}° " +
+            $"{m.TotalDistanceMeters / 1000.0:F2} km, {areaHa:F1} ha, ~{estMin:F0} min {hdgTxt} " +
             $"(headland {headlandMargin:F1} m, {passes} laps)";
     }
 
@@ -444,9 +544,23 @@ public partial class MainViewModel
     /// </summary>
     public string GetRoutePlanJson()
     {
-        var plan = _currentRoutePlan;
-        if (plan == null) return "{}";
         var inv = CultureInfo.InvariantCulture;
+        EnsureRouteSplitsLoaded();
+        var splits = new StringBuilder("[");
+        for (int i = 0; i < _routeSplitLines.Count; i++)
+        {
+            var (a, b) = _routeSplitLines[i];
+            if (i > 0) splits.Append(',');
+            splits.Append('[')
+                .Append(a.Easting.ToString("0.0", inv)).Append(',')
+                .Append(a.Northing.ToString("0.0", inv)).Append(',')
+                .Append(b.Easting.ToString("0.0", inv)).Append(',')
+                .Append(b.Northing.ToString("0.0", inv)).Append(']');
+        }
+        splits.Append(']');
+
+        var plan = _currentRoutePlan;
+        if (plan == null) return $"{{\"splits\":{splits}}}";
         var sb = new StringBuilder(64 * 1024);
         sb.Append("{\"segments\":[");
         bool firstSeg = true;
@@ -475,7 +589,7 @@ public partial class MainViewModel
           .Append(",\"workM\":").Append(m.WorkDistanceMeters.ToString("0.0", inv))
           .Append(",\"turnM\":").Append(m.TurnDistanceMeters.ToString("0.0", inv))
           .Append(",\"toolWidthM\":").Append(m.ToolWidthMeters.ToString("0.00", inv))
-          .Append("}}");
+          .Append("},\"splits\":").Append(splits).Append('}');
         return sb.ToString();
     }
 

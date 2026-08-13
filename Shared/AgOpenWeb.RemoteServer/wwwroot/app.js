@@ -477,6 +477,8 @@ function buildSkPaints() {
     // (cyan), transport/approach moves (grey dashed). Widths set in updateLineWidths.
     routeSwath: mk('rgba(90,210,100,0.95)', 1), routeTurn: mk('rgba(255,176,64,0.95)', 1),
     routeHeadland: mk('rgba(90,190,235,0.95)', 1), routeApproach: mk('rgba(190,190,190,0.7)', 1, [8, 6]),
+    // Field-split lines (operator-drawn region dividers) — dashed magenta.
+    routeSplit: mk('rgba(235,90,205,0.95)', 2, [10, 7]),
   };
   // Section footprint bars: one stroke paint per ColorCode (butt cap so adjacent
   // sections abut without rounded overhang), matching the 2D SECTION_COLORS.
@@ -740,7 +742,48 @@ function deleteObstacle() {
     onTap: (e, n) => { transport.send('obstacle.delete|' + e + ',' + n); endMapTap(); },
   });
 }
-function openRoutePlanner() { lnOpen('routeplan', 'ln-fieldtools', rpRender); }
+// ---- Field splitting: operator-drawn region dividers -----------------------
+// Two taps define a split line; the backend extends it to the boundary and
+// (on Plan Route) works each region with its own straight-pass direction.
+// Persisted per field on the backend; this mirror is refreshed from /api/routeplan.
+let rpSplits = []; // [[e1,n1,e2,n2], …]
+function rpSplitCountRender() {
+  const el = document.getElementById('rp-splitcount');
+  if (el) el.textContent = rpSplits.length ? ' (' + rpSplits.length + ')' : '';
+}
+function rpSplitsRefresh() {
+  fetch('/api/routeplan').then(r => r.json()).then(d => {
+    rpSplits = (d && d.splits) || [];
+    rpSplitCountRender();
+  }).catch(() => {});
+}
+function drawSplitLine() {
+  let first = null;
+  startMapTap({
+    hint: 'Split: tap the FIRST point of the divider',
+    onTap: (e, n) => {
+      if (!first) {
+        first = [e, n];
+        document.getElementById('maptap-hint').textContent = 'Split: tap the SECOND point';
+        return;
+      }
+      transport.send('route.splitAdd|' + first[0].toFixed(2) + ',' + first[1].toFixed(2) + ',' + e.toFixed(2) + ',' + n.toFixed(2));
+      endMapTap();
+      setTimeout(rpSplitsRefresh, 300);
+    },
+  });
+}
+function clearSplitLines() {
+  transport.send('route.splitClear');
+  rpSplits = [];
+  rpSplitCountRender();
+}
+function drawRouteSplitsSk(canvas) {
+  if (!rpSplits.length) return;
+  for (const s of rpSplits)
+    strokePtsSk(canvas, [{ e: s[0], n: s[1] }, { e: s[2], n: s[3] }], false, SKP.routeSplit);
+}
+function openRoutePlanner() { lnOpen('routeplan', 'ln-fieldtools', rpRender); rpSplitsRefresh(); }
 function openObstacles() { lnOpen('obstacles', 'ln-fieldtools', rpRender); }
 // Live route ETA: EMA of ACTUAL speed while working (any section on) vs turning/
 // transit, seeded from the profile speed model; x remaining plan distance (scaled
@@ -847,6 +890,7 @@ function planRoute() {
         return;
       }
       routePlan = { segments: d.segments.map(s => ({ type: s.type, pts: s.pts.map(p => ({ e: p[0], n: p[1] })) })), meta: d.meta };
+      rpSplits = d.splits || []; rpSplitCountRender();
       const m = d.meta || {};
       const km = ((m.distanceM || 0) / 1000).toFixed(2);
       document.getElementById('rp-stats').textContent =
@@ -1779,6 +1823,8 @@ document.getElementById('rp-obsalarm').addEventListener('pointerdown', e => {
   if (config && config.display) config.display.obstacleAlarmEnabled = on;
   rpRender();
 });
+document.getElementById('rp-splitdraw').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); drawSplitLine(); });
+document.getElementById('rp-splitclear').addEventListener('pointerdown', e => { e.stopPropagation(); clearSplitLines(); });
 document.getElementById('rp-plan').addEventListener('pointerdown', e => { e.stopPropagation(); planRoute(); });
 document.getElementById('rp-clear').addEventListener('pointerdown', e => { e.stopPropagation(); clearRoute(); });
 document.getElementById('rp-steermain').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('route.steerMain'); });
@@ -4972,6 +5018,7 @@ function updateLineWidths() {
   SKP.routeTurn.setStrokeWidth(w(0.5));
   SKP.routeHeadland.setStrokeWidth(w(0.7));
   SKP.routeApproach.setStrokeWidth(w(0.4));
+  SKP.routeSplit.setStrokeWidth(w(0.8));
 }
 function vehicleSk(canvas, p) {
   const veh = config && config.vehicle;
@@ -5477,6 +5524,7 @@ function renderSkia(canvas, rp) {
   drawImagerySk(canvas); // imagery overlays the ground where present
   drawPickOutlinesSk(canvas); // pick-from-map: all mapped field outlines
   drawRoutePlanSk(canvas); // route planner: generated coverage-route preview
+  drawRouteSplitsSk(canvas); // field-split divider lines (dashed magenta)
   drawMissedSk(canvas); // missed-spots tint: red under coverage, so unworked ground shows
   drawCoverageSk(canvas);
   drawCoverageEdgeSk(canvas); // crisp vector perimeter over the raster (server-fed)

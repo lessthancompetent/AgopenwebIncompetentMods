@@ -147,6 +147,20 @@ public static partial class RemoteServerWiring
                                 case "route.clear":
                                     vm.ClearRoutePlan();
                                     return;
+                                case "route.splitAdd": // "e1,n1,e2,n2" (field-local m)
+                                {
+                                    var sp = arg.Split(',');
+                                    if (sp.Length >= 4
+                                        && double.TryParse(sp[0], num, inv, out var s1e)
+                                        && double.TryParse(sp[1], num, inv, out var s1n)
+                                        && double.TryParse(sp[2], num, inv, out var s2e)
+                                        && double.TryParse(sp[3], num, inv, out var s2n))
+                                        vm.AddRouteSplitLine(s1e, s1n, s2e, s2n);
+                                    return;
+                                }
+                                case "route.splitClear":
+                                    vm.ClearRouteSplitLines();
+                                    return;
                                 case "route.drive":
                                     vm.DriveRoute();
                                     return;

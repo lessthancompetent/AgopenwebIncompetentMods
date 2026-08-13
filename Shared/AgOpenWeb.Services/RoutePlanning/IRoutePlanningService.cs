@@ -45,6 +45,30 @@ public interface IRoutePlanningService
         bool addPondLoops = true,
         bool fastScore = false,
         double physicalToolWidth = 0,
+        double passEndExtension = 0,
+        IReadOnlyList<Vec2>? cultivatedOverride = null);
+
+    /// <summary>
+    /// Plan the field as operator-drawn regions: split lines carve the boundary
+    /// into simpler shapes, each worked with its own (auto) pass direction while
+    /// the headland laps still trace the whole true boundary. Returns null when
+    /// the lines don't divide the field (caller falls back to plain planning).
+    /// </summary>
+    RoutePlan? GenerateSplitField(
+        IReadOnlyList<Vec2> outerBoundary,
+        IReadOnlyList<(Vec2 A, Vec2 B)> splitLines,
+        double swathWidth,
+        double turnRadius,
+        double headlandMargin,
+        SwathPattern pattern = SwathPattern.Boustrophedon,
+        int headlandPasses = 0,
+        Vec3? startPos = null,
+        double boundaryClearance = 0,
+        int skipPasses = 0,
+        int blockSkip = 0,
+        double cornerRadius = 0,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
+        double physicalToolWidth = 0,
         double passEndExtension = 0);
 
     /// <summary>
