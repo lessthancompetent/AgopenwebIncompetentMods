@@ -81,7 +81,7 @@ cat > "$AGHOME/.config/autostart/agopenweb-kiosk.desktop" << EOF
 [Desktop Entry]
 Type=Application
 Name=AgOpenWeb Kiosk
-Exec=sh -c 'sleep 6; chromium --kiosk --noerrdialogs --disable-session-crashed-bubble http://localhost:5174'
+Exec=sh -c 'sleep 6; chromium --kiosk --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required http://localhost:5174'
 X-GNOME-Autostart-enabled=true
 EOF
 chown -R "$AGUSER:$AGUSER" "$AGHOME/.config"
