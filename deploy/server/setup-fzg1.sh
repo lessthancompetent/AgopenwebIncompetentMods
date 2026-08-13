@@ -86,6 +86,63 @@ X-GNOME-Autostart-enabled=true
 EOF
 chown -R "$AGUSER:$AGUSER" "$AGHOME/.config"
 
+echo "== entertainment split (autosteer passenger mode) =="
+apt-get install -y -qq wmctrl xdotool x11-utils >/dev/null
+# Spotify web player needs Widevine DRM that Debian chromium lacks — use the
+# official Linux client instead.
+curl -fsSL https://download.spotify.com/debian/pubkey_C85668DF69375001.gpg | gpg --dearmor -o /usr/share/keyrings/spotify.gpg 2>/dev/null || true
+echo "deb [signed-by=/usr/share/keyrings/spotify.gpg] http://repository.spotify.com stable non-free" > /etc/apt/sources.list.d/spotify.list
+apt-get update -qq && apt-get install -y -qq spotify-client >/dev/null 2>&1 || echo "(spotify install failed - retry later)"
+
+cat > /usr/local/bin/ag-split << 'EOF'
+#!/bin/bash
+# Toggle guidance/entertainment split. Usage: ag-split youtube|spotify|full
+# Geometry is read live from the current screen, so rotation just works.
+read -r W H < <(xdotool getdisplaygeometry)
+HALF=$((W / 2))
+AG=$(wmctrl -l | grep -i "AgOpenWeb" | head -1 | cut -d" " -f1)
+case "$1" in
+  youtube)
+    [ -n "$AG" ] && { wmctrl -i -r "$AG" -b remove,fullscreen,maximized_vert,maximized_horz
+                      wmctrl -i -r "$AG" -e "0,0,0,$HALF,$H"; }
+    chromium --new-window --app=https://www.youtube.com &
+    sleep 3
+    YT=$(wmctrl -l | grep -iE "youtube" | head -1 | cut -d" " -f1)
+    [ -n "$YT" ] && { wmctrl -i -r "$YT" -b remove,maximized_vert,maximized_horz
+                      wmctrl -i -r "$YT" -e "0,$HALF,0,$HALF,$H"; }
+    ;;
+  spotify)
+    [ -n "$AG" ] && { wmctrl -i -r "$AG" -b remove,fullscreen,maximized_vert,maximized_horz
+                      wmctrl -i -r "$AG" -e "0,0,0,$HALF,$H"; }
+    pgrep -x spotify >/dev/null || spotify &
+    sleep 4
+    SP=$(wmctrl -l | grep -i "spotify" | head -1 | cut -d" " -f1)
+    [ -n "$SP" ] && { wmctrl -i -r "$SP" -b remove,maximized_vert,maximized_horz
+                      wmctrl -i -r "$SP" -e "0,$HALF,0,$HALF,$H"; }
+    ;;
+  full|*)
+    # close entertainment windows, guidance back to full screen
+    for w in $(wmctrl -l | grep -iE "youtube|spotify" | cut -d" " -f1); do wmctrl -i -c "$w"; done
+    [ -n "$AG" ] && wmctrl -i -r "$AG" -b add,fullscreen
+    ;;
+esac
+EOF
+chmod +x /usr/local/bin/ag-split
+mkdir -p "$AGHOME/Desktop"
+mkdesk() { cat > "$AGHOME/Desktop/$1.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=$1
+Exec=/usr/local/bin/ag-split $2
+Icon=$3
+Terminal=false
+EOF
+chmod +x "$AGHOME/Desktop/$1.desktop"; }
+mkdesk "Split YouTube" youtube youtube
+mkdesk "Split Spotify" spotify spotify-client
+mkdesk "Guidance Full" full view-fullscreen
+chown -R "$AGUSER:$AGUSER" "$AGHOME/Desktop"
+
 echo
 echo "== DONE =="
 echo "1. Open the tailscale auth link above (if shown)."
