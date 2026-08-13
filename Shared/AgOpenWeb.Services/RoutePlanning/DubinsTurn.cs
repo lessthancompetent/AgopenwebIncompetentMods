@@ -34,7 +34,16 @@ internal static class DubinsTurn
     /// <paramref name="goal"/> at radius <paramref name="r"/>, as densely-sampled
     /// Vec2 coordinate lists paired with total length, sorted shortest first.
     /// </summary>
-    public static List<(List<Vec2> Coords, double Length)> AllPaths(Vec3 start, Vec3 goal, double r)
+    /// <param name="ccBlend">
+    ///   Continuous-curvature blend distance (m). When &gt; 0, the region ±ccBlend
+    ///   around each arc/line junction is replaced with a cubic Bezier so the
+    ///   curvature ramps instead of stepping — the steering sweeps to lock rather
+    ///   than being asked for an instant jump, so the tractor can actually track
+    ///   the turn entry/exit. Ported from the upstream F2C branch (Bezier stand-in
+    ///   for clothoid CC-Dubins; G1 blend, visually equivalent at these sizes).
+    ///   Falls back to the plain path when segments are too short to cut.
+    /// </param>
+    public static List<(List<Vec2> Coords, double Length)> AllPaths(Vec3 start, Vec3 goal, double r, double ccBlend = 0)
     {
         var result = new List<(List<Vec2>, double)>();
         if (r <= 0.01) return result;
@@ -77,9 +86,84 @@ internal static class DubinsTurn
         foreach (var pd in paths)
         {
             var coords = BuildCoords(pd, startPos, startHeading, goalPos, r);
-            if (coords.Count >= 2) result.Add((coords, pd.TotalLength));
+            if (coords.Count < 2) continue;
+            if (ccBlend > 0)
+            {
+                // Junction indices follow BuildCoords' layout: index 0 is the start,
+                // then each AddArc call appends floor(len/step)+1 points. The error
+                // smear preserves indices, so these stay valid on the final coords.
+                int seg1 = (int)Math.Floor(pd.Length1 / DriveDistance);
+                int seg2 = (int)Math.Floor(pd.Length2 / DriveDistance);
+                coords = CcBlendJunctions(coords, seg1 + 1, seg1 + seg2 + 2, ccBlend);
+            }
+            result.Add((coords, pd.TotalLength));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Replace ±blend meters of waypoints around the two segment junctions with
+    /// cubic Beziers whose control points lie along the local travel tangents
+    /// (chord/3 — the canonical heuristic). Endpoints and the exact goal are
+    /// never touched; if the cut regions would overlap each other or the path
+    /// ends, the original (plain Dubins) coords are returned unchanged.
+    /// </summary>
+    private static List<Vec2> CcBlendJunctions(List<Vec2> raw, int junction12, int junction23, double blend)
+    {
+        int blendSteps = Math.Max(1, (int)Math.Round(blend / DriveDistance));
+        int n = raw.Count;
+
+        int cut1Start = Math.Max(1, junction12 - blendSteps);
+        int cut1End = junction12 + blendSteps;
+        int cut2Start = junction23 - blendSteps;
+        int cut2End = Math.Min(n - 2, junction23 + blendSteps);
+
+        if (cut1Start >= cut1End || cut2Start >= cut2End || cut1End >= cut2Start)
+            return raw;
+        if (cut1End >= n || cut2Start < 0)
+            return raw;
+
+        var result = new List<Vec2>(n);
+        for (int i = 0; i <= cut1Start; i++) result.Add(raw[i]);
+        AppendBezier(result, raw, cut1Start, cut1End);
+        for (int i = cut1End + 1; i < cut2Start; i++) result.Add(raw[i]);
+        AppendBezier(result, raw, cut2Start, cut2End);
+        for (int i = cut2End + 1; i < n; i++) result.Add(raw[i]);
+        return result;
+    }
+
+    private static void AppendBezier(List<Vec2> result, List<Vec2> raw, int a, int b)
+    {
+        var p0 = raw[a];
+        var p3 = raw[b];
+        // Travel tangents from finite differences: arriving direction at the cut
+        // entry (G1 with the retained polyline before it), departing at the exit.
+        var tin = Normalize(a > 0 ? p0 - raw[a - 1] : raw[a + 1] - p0);
+        var tout = Normalize(b < raw.Count - 1 ? raw[b + 1] - p3 : p3 - raw[b - 1]);
+
+        double chord = (p3 - p0).GetLength();
+        double d = chord / 3.0;
+        var p1 = new Vec2(p0.Easting + d * tin.Easting, p0.Northing + d * tin.Northing);
+        var p2 = new Vec2(p3.Easting - d * tout.Easting, p3.Northing - d * tout.Northing);
+
+        // Control-polygon length bounds the Bezier arc length — sets the sample count.
+        double controlLen = (p1 - p0).GetLength() + (p2 - p1).GetLength() + (p3 - p2).GetLength();
+        int steps = Math.Max(2, (int)Math.Ceiling(controlLen / DriveDistance));
+
+        for (int k = 1; k <= steps; k++)
+        {
+            double t = (double)k / steps, mt = 1.0 - t;
+            double w0 = mt * mt * mt, w1 = 3.0 * mt * mt * t, w2 = 3.0 * mt * t * t, w3 = t * t * t;
+            result.Add(new Vec2(
+                w0 * p0.Easting + w1 * p1.Easting + w2 * p2.Easting + w3 * p3.Easting,
+                w0 * p0.Northing + w1 * p1.Northing + w2 * p2.Northing + w3 * p3.Northing));
+        }
+    }
+
+    private static Vec2 Normalize(Vec2 v)
+    {
+        double len = v.GetLength();
+        return len < 1e-12 ? new Vec2(0, 1) : new Vec2(v.Easting / len, v.Northing / len);
     }
 
     // ---- circle centers ----

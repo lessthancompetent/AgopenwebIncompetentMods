@@ -1913,7 +1913,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         //    detour it around obstacles. This is the common case for long
         //    block-transition connectors around a pond. Only if Dubins yields
         //    nothing at all do we drop to the legacy omega.
-        var fallback = DubinsTurn.AllPaths(from, to, turnRadius);
+        var fallback = DubinsTurn.AllPaths(from, to, turnRadius, CcBlendFor(turnRadius));
         if (fallback.Count > 0)
             return DensifyToVec3(fallback[0].Coords, from.Heading);
         return LegacyOmega(from, toPt, turnRadius);
@@ -1926,13 +1926,20 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// Returns the path (sub-sampled Vec3 with headings) only if every point stays
     /// inside <paramref name="limit"/> and outside <paramref name="holes"/>; else null.
     /// </summary>
+    /// <summary>Continuous-curvature blend distance for a given turn radius: a
+    /// quarter of the radius, capped at 1.5 m. Big enough that the steering
+    /// sweeps rather than steps at arc junctions, small enough that the path
+    /// barely deviates from the analytic Dubins (which the boundary checks then
+    /// validate as-driven anyway).</summary>
+    private static double CcBlendFor(double turnRadius) => Math.Min(1.5, turnRadius * 0.25);
+
     private static List<Vec3>? ValidatedDubinsTurn(Vec3 from, double forward, Vec3 to,
         double turnRadius, IReadOnlyList<Vec2>? limit, List<List<Vec2>>? holes)
     {
         double dE = Math.Sin(from.Heading), dN = Math.Cos(from.Heading);
         var arcStart = new Vec3(from.Easting + forward * dE, from.Northing + forward * dN, from.Heading);
 
-        foreach (var (coords, _) in DubinsTurn.AllPaths(arcStart, to, turnRadius))
+        foreach (var (coords, _) in DubinsTurn.AllPaths(arcStart, to, turnRadius, CcBlendFor(turnRadius)))
         {
             // Prepend the straight forward leg (sampled) so it's validated too.
             var dense = new List<Vec2>();

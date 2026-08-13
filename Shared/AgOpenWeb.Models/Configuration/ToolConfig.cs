@@ -271,7 +271,12 @@ public class ToolConfig : ObservableObject
         set => SetProperty(ref _singleCoverageColor, value);
     }
 
-    private bool _isSectionOffWhenOut;
+    // Default TRUE (cut sections outside the boundary) — matches the native
+    // default and the tool-profile fallback. The section service short-circuits
+    // its boundary checks on this flag, so a false default silently disabled
+    // the boundary gate anywhere config wasn't loaded from a profile (bit the
+    // test harness as "sections never turn on").
+    private bool _isSectionOffWhenOut = true;
     public bool IsSectionOffWhenOut
     {
         get => _isSectionOffWhenOut;

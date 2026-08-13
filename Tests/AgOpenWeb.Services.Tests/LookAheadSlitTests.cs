@@ -771,9 +771,13 @@ public class LookAheadSlitTests
     }
 
     /// <summary>
-    /// Verify timing with different turn-off delays. The look-ahead projection
-    /// should compensate for the configured turn-off delay so transitions land
-    /// at the same position regardless of delay.
+    /// Turn-Off Delay semantics: the section keeps applying (and painting) for
+    /// the configured seconds PAST the off trigger — the "spinner keeps
+    /// throwing after the gate closes" behavior. The look-ahead projection
+    /// cancels only the LookAheadOff phase, so the OFF transition lands
+    /// delay × speed past the slit start, not on it. (Historically this
+    /// setting was stored but unread and this test pinned the dead-setting
+    /// behavior of OFF-always-at-the-line; wired for real 2026-08.)
     /// </summary>
     [TestCase(0.0, TestName = "Timing_TurnOffDelay_0s")]
     [TestCase(0.2, TestName = "Timing_TurnOffDelay_0.2s")]
@@ -807,9 +811,13 @@ public class LookAheadSlitTests
         TestContext.Out.WriteLine($"  OFF at N={offN:F2} ({offN - slitSouth:+0.00;-0.00}m vs slit start)");
         TestContext.Out.WriteLine($"  ON  at N={onN:F2} ({onN - slitNorth:+0.00;-0.00}m vs slit end)");
 
-        // OFF should land near slit start regardless of configured turn-off delay
-        Assert.That(Math.Abs(offN - slitSouth), Is.LessThan(0.5),
-            $"OFF transition should be near slit start with TurnOffDelay={turnOffDelaySec}s, got offset={offN - slitSouth}m");
+        // OFF lands delay × speed PAST the slit start: the section deliberately
+        // keeps applying through the configured delay. Tolerance covers frame
+        // discretization at 15 km/h (~0.42 m/frame) plus threshold geometry.
+        double speedMps = 15.0 / 3.6;
+        double expectedOffset = turnOffDelaySec * speedMps;
+        Assert.That(offN - slitSouth, Is.EqualTo(expectedOffset).Within(0.8),
+            $"OFF should land ~{expectedOffset:F2}m past slit start with TurnOffDelay={turnOffDelaySec}s, got offset={offN - slitSouth}m");
     }
 
     #endregion
