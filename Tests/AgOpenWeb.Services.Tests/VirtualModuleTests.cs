@@ -83,8 +83,8 @@ public class VirtualModuleTests
         // Speed: 15.0 km/h = 150 raw
         data[0] = 150 & 0xFF;
         data[1] = (150 >> 8) & 0xFF;
-        // Status: engaged + GPS valid
-        data[2] = 0x0C;
+        // Status: stock wire contract — 1 = engaged (whole byte is guidanceStatus)
+        data[2] = 1;
         // Steer angle: -12.5 degrees = -1250 raw
         short angle = -1250;
         data[3] = (byte)(angle & 0xFF);
@@ -95,7 +95,6 @@ public class VirtualModuleTests
         Assert.That(cmd.SpeedKmh, Is.EqualTo(15.0).Within(0.1));
         Assert.That(cmd.SteerAngleDeg, Is.EqualTo(-12.5).Within(0.1));
         Assert.That(cmd.IsEngaged, Is.True);
-        Assert.That(cmd.IsGpsValid, Is.True);
     }
 
     #endregion

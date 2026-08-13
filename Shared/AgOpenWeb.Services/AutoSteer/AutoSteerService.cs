@@ -402,6 +402,19 @@ public class AutoSteerService : IAutoSteerService
         _udpService.SendToModules(pgn);
     }
 
+    /// <summary>
+    /// Push the full machine-module setup to the hardware: hydraulic/relay
+    /// config (238), the 24-pin relay map (236) and the section dimensions
+    /// (235). Mirrors what stock AgOpenGPS sends on config change — without
+    /// this a machine board runs on whatever its EEPROM last held.
+    /// </summary>
+    public void SendMachineConfigAll()
+    {
+        SendMachineConfig();
+        SendMachinePinConfig();
+        _udpService.SendToModules(PgnBuilder.BuildSectionDimensionsPgn(_configStore.Tool, _configStore.NumSections));
+    }
+
     public void SetMachineState(ulong sectionBits, bool isInUTurn, byte hydLiftState = 0)
     {
         _state.SectionStates = sectionBits;
@@ -627,15 +640,11 @@ public class AutoSteerService : IAutoSteerService
             geoStop: _state.GeoStopState);
         _udpService.SendToModules(machinePgn);
 
-        // Send PGN 229 (64-section on/off) alongside PGN 239 only when more
-        // than 16 sections are configured. PGN 239 still carries sections 1–16;
-        // the firmware reconciles the overlap. Below 17 sections, 239 is
-        // sufficient and 229 is skipped to keep the bus quiet.
-        if (_configStore.NumSections > 16)
-        {
-            var sections64Pgn = PgnBuilder.BuildSection64Pgn(ref _state);
-            _udpService.SendToModules(sections64Pgn);
-        }
+        // Send PGN 229 (64-section on/off + L/R tool-tip speeds) alongside 239
+        // unconditionally — stock AOG sends it every section frame, and on-wire
+        // listeners (rate controllers) key on it regardless of section count.
+        var sections64Pgn = PgnBuilder.BuildSection64Pgn(ref _state, _configStore.ActualToolWidth / 2.0);
+        _udpService.SendToModules(sections64Pgn);
     }
 
     /// <summary>

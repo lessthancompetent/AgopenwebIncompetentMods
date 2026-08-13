@@ -9,27 +9,16 @@ using AgOpenWeb.Services.AutoSteer;
 namespace AgOpenWeb.Services.Tests;
 
 /// <summary>
-/// Pins the free-drive PGN 254 status byte so receivers — both the
-/// real firmware autosteer task and the simulator's
-/// <c>VirtualSteerModule</c> — engage their PID loops on the wizard's
-/// motor-calibration ramp commands.
-///
-/// Pre-fix bug: <see cref="PgnBuilder.BuildAutoSteerPgn"/> set the
-/// status byte to <c>0x01</c> (SteerSwitchActive) when
-/// <see cref="VehicleState.IsInFreeDriveMode"/> was true. The
-/// receiver's engagement gate, however, checks bit <c>0x04</c>
-/// (IsAutoSteerEngaged) — see <c>PgnProtocol.ParseAutoSteerCommand</c>
-/// in the simulator's PgnProtocol.cs. The PID therefore stayed in
-/// the "not engaged → pwm = 0" branch and the wheels never moved.
+/// Pins the PGN 254 status byte to the STOCK AgOpenGPS wire contract:
+/// strictly 0 or 1. Real AIO firmware reads the whole byte as
+/// guidanceStatus (any nonzero = engaged), so packing flag bits in here —
+/// as an earlier version did with GPS-valid/work-switch bits — could
+/// engage the wheel off a mere GPS fix. Free drive must steer, so it
+/// sends 1; normal mode sends 1 only while autosteer is engaged.
 /// </summary>
 [TestFixture]
 public class FreeDrivePgnEngagementTests
 {
-    /// <summary>
-    /// Build the wire-level PGN 254 for a free-drive command at the
-    /// given angle. Mirrors what <c>SendPgnsForControlTick</c> would
-    /// emit while the wizard's motor ramp is running.
-    /// </summary>
     private static byte[] BuildFreeDrivePgn(double angleDeg)
     {
         var state = new VehicleState
@@ -41,16 +30,56 @@ public class FreeDrivePgnEngagementTests
     }
 
     [Test]
-    public void FreeDrivePgn254_StatusByte_HasAutoSteerEngagedBit()
+    public void FreeDrivePgn254_StatusByte_IsExactlyOne()
     {
-        // 0x04 is the bit the receiver's parser inspects for "is engaged".
         var packet = BuildFreeDrivePgn(angleDeg: 5.0);
-        byte status = packet[7];
+        Assert.That(packet[7], Is.EqualTo(1),
+            "Free-drive PGN 254 status must be exactly 1 (stock contract) so the " +
+            "firmware PID engages and drives toward the commanded angle.");
+    }
 
-        Assert.That(status & 0x04, Is.Not.Zero,
-            "Free-drive PGN 254 must set the IsAutoSteerEngaged bit (0x04) " +
-            "so the firmware/simulator PID engages and drives toward the " +
-            "commanded angle. Without it the wizard's motor ramp is a no-op.");
+    [Test]
+    public void NormalPgn254_StatusByte_IsZeroOrOne_NeverFlagBits()
+    {
+        var disengaged = new VehicleState
+        {
+            GpsValid = true,          // must NOT leak into the status byte
+            GuidanceValid = true,
+            WorkSwitchActive = true,
+            SteerSwitchActive = true,
+            IsAutoSteerEngaged = false,
+        };
+        var packet = (byte[])PgnBuilder.BuildAutoSteerPgn(ref disengaged).Clone();
+        Assert.That(packet[7], Is.EqualTo(0),
+            "Disengaged status must be 0 even with GPS/switch flags set — real " +
+            "firmware treats ANY nonzero byte as engaged.");
+
+        var engaged = new VehicleState { IsAutoSteerEngaged = true, GuidanceValid = true };
+        packet = (byte[])PgnBuilder.BuildAutoSteerPgn(ref engaged).Clone();
+        Assert.That(packet[7], Is.EqualTo(1));
+    }
+
+    [Test]
+    public void NormalPgn254_Xte_UsesStockOffset127HalfCmEncoding()
+    {
+        // Stock lightbar encoding: mm × 0.05 (2 cm units), clamp ±127, +127
+        // offset; 255 = no guidance line.
+        var state = new VehicleState
+        {
+            IsAutoSteerEngaged = true,
+            GuidanceValid = true,
+            CrossTrackError = 0.50, // 50 cm right of line -> 25 units -> 152
+        };
+        var packet = (byte[])PgnBuilder.BuildAutoSteerPgn(ref state).Clone();
+        Assert.That(packet[10], Is.EqualTo(127 + 25));
+
+        state.CrossTrackError = 0;
+        packet = (byte[])PgnBuilder.BuildAutoSteerPgn(ref state).Clone();
+        Assert.That(packet[10], Is.EqualTo(127), "on line = centred (127)");
+
+        state.GuidanceValid = false;
+        packet = (byte[])PgnBuilder.BuildAutoSteerPgn(ref state).Clone();
+        Assert.That(packet[10], Is.EqualTo(255), "no guidance line = 255 sentinel");
     }
 
     [Test]

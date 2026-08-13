@@ -948,10 +948,13 @@ public partial class MainViewModel : ObservableObject
     {
         try
         {
+            int helloTick = 0;
             while (_udpService.IsConnected)
             {
-                // Send hello packet every second
-                _udpService.SendHelloPacket();
+                // Hello at 1 Hz (stock AgIO rate); the surrounding status checks
+                // stay at 10 Hz for fast connection-LED response.
+                if (helloTick++ % 10 == 0)
+                    _udpService.SendHelloPacket();
 
                 // Check module status using appropriate method for each:
                 // - AutoSteer: Data flow (sends PGN 250/253 regularly)

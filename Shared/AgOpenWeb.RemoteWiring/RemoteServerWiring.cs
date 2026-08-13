@@ -497,6 +497,13 @@ public static partial class RemoteServerWiring
                                 // MarkChanged / free-drive logic is shared with native, not
                                 // duplicated. All "autosteer." → Tier-2 gated (push to module
                                 // / motor actuation). Plain field edits ride config.set above.
+                                case "machine.sendSave": // push 238 + 236 + 235 to the machine module
+                                {
+                                    services.GetRequiredService<AgOpenWeb.Services.Interfaces.IAutoSteerService>()
+                                        .SendMachineConfigAll();
+                                    vm.StatusMessage = "Machine config sent to module (238/236/235)";
+                                    return;
+                                }
                                 case "autosteer.sendSave": case "autosteer.zeroWas":
                                 case "autosteer.reset":
                                 case "autosteer.freedrive.toggle": case "autosteer.freedrive.left":

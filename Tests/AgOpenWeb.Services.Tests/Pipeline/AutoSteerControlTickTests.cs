@@ -53,8 +53,9 @@ public class AutoSteerControlTickTests
 
         loop.Tick(0);
 
-        // PGN 254 (autosteer) + PGN 239 (machine) = 2 sends per tick.
-        _udp.Received(2).SendToModules(Arg.Any<byte[]>());
+        // PGN 254 (autosteer) + PGN 239 (machine) + PGN 229 (64 sections,
+        // now unconditional like stock) = 3 sends per tick.
+        _udp.Received(3).SendToModules(Arg.Any<byte[]>());
     }
 
     [Test]
@@ -80,7 +81,7 @@ public class AutoSteerControlTickTests
         for (int i = 0; i < 5; i++)
             loop.Tick(i);
 
-        // 5 ticks × 2 PGNs each = 10 sends.
-        _udp.Received(10).SendToModules(Arg.Any<byte[]>());
+        // 5 ticks × 3 PGNs each (254 + 239 + 229) = 15 sends.
+        _udp.Received(15).SendToModules(Arg.Any<byte[]>());
     }
 }

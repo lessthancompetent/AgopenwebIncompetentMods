@@ -172,14 +172,13 @@ public class VirtualSteerModuleTests
 
     private static AutoSteerCommand SteerCommand(double angleDeg, bool engaged)
     {
-        byte status = engaged ? (byte)0x0C : (byte)0x00; // bit 2 = engaged, bit 3 = gps valid
+        byte status = engaged ? (byte)1 : (byte)0; // stock wire contract: 0/1 only
         return new AutoSteerCommand
         {
             SpeedKmh = 10.0,
             Status = status,
             SteerAngleDeg = angleDeg,
             IsEngaged = engaged,
-            IsGpsValid = true,
         };
     }
 

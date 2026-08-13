@@ -123,11 +123,12 @@ public static class PgnProtocol
             SpeedKmh = BitConverter.ToInt16(data, 5) / 10.0,
             Status = data[7],
             SteerAngleDeg = BitConverter.ToInt16(data, 8) / 100.0,
-            CrossTrackErrorCm = (sbyte)data[10],
+            // Stock lightbar encoding: 2 cm units with +127 offset; 255 = no line.
+            CrossTrackErrorCm = data[10] == 255 ? 0 : (data[10] - 127) * 2,
             SectionBits1to8 = data[11],
             SectionBits9to16 = data[12],
-            IsEngaged = (data[7] & 0x04) != 0,
-            IsGpsValid = (data[7] & 0x08) != 0
+            // Real firmware reads the whole byte as guidanceStatus — nonzero engages.
+            IsEngaged = data[7] != 0,
         };
     }
 
@@ -228,11 +229,10 @@ public struct AutoSteerCommand
     public double SpeedKmh;
     public byte Status;
     public double SteerAngleDeg;
-    public sbyte CrossTrackErrorCm;
+    public int CrossTrackErrorCm;
     public byte SectionBits1to8;
     public byte SectionBits9to16;
     public bool IsEngaged;
-    public bool IsGpsValid;
 }
 
 public struct MachineCommand

@@ -5,20 +5,21 @@ using NUnit.Framework;
 namespace AgOpenWeb.Services.Tests;
 
 /// <summary>
-/// Fences PGN 254 status byte bit 2 (AutoSteerEngaged) so the wire-level
-/// engage signal can never silently regress again. The companion VM-level
-/// wiring tests (UI.Tests) ensure VehicleState.IsAutoSteerEngaged actually
-/// gets set when the user toggles autosteer; this test ensures that, once
-/// set, the bit ends up on the outbound packet.
+/// Fences the PGN 254 status byte so the wire-level engage signal can never
+/// silently regress. Contract (stock AgOpenGPS): the byte is EXACTLY 0 or 1 —
+/// real AIO firmware reads it whole as guidanceStatus and treats any nonzero
+/// value as engaged, so auxiliary flags (GPS fix, switches) must never leak in.
+/// The companion VM-level wiring tests ensure VehicleState.IsAutoSteerEngaged
+/// actually gets set when the user toggles autosteer; this ensures that, once
+/// set, the byte ends up right on the outbound packet.
 /// </summary>
 [TestFixture]
 public class PgnBuilderEngageBitTests
 {
     private const int STATUS_BYTE_INDEX = 7;
-    private const byte ENGAGED_BIT = 0x04;
 
     [Test]
-    public void BuildAutoSteerPgn_WhenEngaged_SetsStatusBit2()
+    public void BuildAutoSteerPgn_WhenEngaged_StatusIsOne()
     {
         var state = new VehicleState
         {
@@ -29,23 +30,25 @@ public class PgnBuilderEngageBitTests
 
         var packet = PgnBuilder.BuildAutoSteerPgn(ref state);
 
-        Assert.That(packet[STATUS_BYTE_INDEX] & ENGAGED_BIT, Is.EqualTo(ENGAGED_BIT),
-            "Status bit 2 (engaged) must be set when state.IsAutoSteerEngaged is true.");
+        Assert.That(packet[STATUS_BYTE_INDEX], Is.EqualTo(1),
+            "Status must be exactly 1 when engaged (stock contract, no flag bits).");
     }
 
     [Test]
-    public void BuildAutoSteerPgn_WhenNotEngaged_ClearsStatusBit2()
+    public void BuildAutoSteerPgn_WhenNotEngaged_StatusIsZero()
     {
         var state = new VehicleState
         {
             IsAutoSteerEngaged = false,
             GpsValid = true,
-            SteerSwitchActive = true
+            SteerSwitchActive = true,
+            WorkSwitchActive = true
         };
 
         var packet = PgnBuilder.BuildAutoSteerPgn(ref state);
 
-        Assert.That(packet[STATUS_BYTE_INDEX] & ENGAGED_BIT, Is.EqualTo(0),
-            "Status bit 2 (engaged) must be clear when state.IsAutoSteerEngaged is false.");
+        Assert.That(packet[STATUS_BYTE_INDEX], Is.EqualTo(0),
+            "Status must be exactly 0 when disengaged — firmware engages on ANY " +
+            "nonzero byte, so GPS/switch flags must never leak into it.");
     }
 }

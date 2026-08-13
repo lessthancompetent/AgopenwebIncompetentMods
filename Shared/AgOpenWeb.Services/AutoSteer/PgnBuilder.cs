@@ -51,9 +51,11 @@ public static class PgnBuilder
     public const int MACHINE_PGN_SIZE = 14;         // 5 header + 8 data + 1 crc
     public const int SECTIONS_64_PGN_SIZE = 16;     // 5 header + 10 data + 1 crc
     public const int STEER_SETTINGS_PGN_SIZE = 14;  // 5 header + 8 data + 1 crc
-    public const int STEER_CONFIG_PGN_SIZE = 11;    // 5 header + 5 data + 1 crc
+    public const int STEER_CONFIG_PGN_SIZE = 14;    // 5 header + 8 data + 1 crc (stock frame)
     public const int MACHINE_CONFIG_PGN_SIZE = 14;  // 5 header + 8 data + 1 crc
     public const int MACHINE_PINS_PGN_SIZE = 30;    // 5 header + 24 data + 1 crc
+    public const byte PGN_SECTION_DIMENSIONS = 0xEB; // 235 - Section Dimensions
+    public const int SECTION_DIMENSIONS_PGN_SIZE = 39; // 5 header + 33 data + 1 crc
 
     // Thread-local buffers to avoid allocation
     [ThreadStatic]
@@ -115,11 +117,11 @@ public static class PgnBuilder
             buf[5] = (byte)(freeSpeed & 0xFF);        // low byte
             buf[6] = (byte)(freeSpeed >> 8);          // high byte
 
-            // Status: SteerSwitchActive (0x01) + AutoSteerEngaged (0x04).
-            // The receiver's PID gates on bit 0x04; the lone bit 0x01
-            // alone (former value) was insufficient and left free-drive
-            // commands as no-ops on the simulator.
-            buf[7] = 0x01 | 0x04;
+            // Status: stock AgOpenGPS wire contract — 0 or 1 ONLY (1 = steer).
+            // Real firmware reads this whole byte as guidanceStatus; extra flag
+            // bits would read as "engaged" on any nonzero check. Free drive
+            // must steer, so 1.
+            buf[7] = 1;
 
             // Use free drive steer angle instead of guidance angle
             // Little-endian: low byte first
@@ -144,24 +146,30 @@ public static class PgnBuilder
             buf[5] = (byte)(speedInt & 0xFF);         // low byte
             buf[6] = (byte)(speedInt >> 8);           // high byte
 
-            // Status byte
-            byte status = 0;
-            if (state.SteerSwitchActive) status |= 0x01;
-            if (state.WorkSwitchActive) status |= 0x02;
-            if (state.IsAutoSteerEngaged) status |= 0x04;
-            if (state.GpsValid) status |= 0x08;
-            if (state.GuidanceValid) status |= 0x10;
-            buf[7] = status;
+            // Status byte — stock AgOpenGPS wire contract: strictly 0 or 1.
+            // Real AIO firmware reads the WHOLE byte as guidanceStatus (any
+            // nonzero = steer), so flag bits here would engage the wheel off a
+            // mere GPS fix. Switch states travel module→host in PGN 253, not
+            // host→module.
+            buf[7] = state.IsAutoSteerEngaged ? (byte)1 : (byte)0;
 
             // Steer angle * 100 (signed, 2 bytes)
             short angleInt = (short)(state.SteerAngle * 100);
             buf[8] = (byte)(angleInt & 0xFF);         // low byte
             buf[9] = (byte)(angleInt >> 8);           // high byte
 
-            // XTE - cross-track error (single byte, clamped to -127 to 127 cm)
-            int xte = (int)(state.CrossTrackError * 100); // meters to cm
-            xte = Math.Clamp(xte, -127, 127);
-            buf[10] = (byte)(sbyte)xte;
+            // XTE for the module lightbar — stock encoding: mm × 0.05 (2 cm
+            // units), clamped ±127, +127 offset; 255 = no guidance line.
+            if (!state.GuidanceValid)
+            {
+                buf[10] = 255;
+            }
+            else
+            {
+                int xte = (int)(state.CrossTrackError * 50.0); // m → 2cm units (mm × 0.05)
+                xte = Math.Clamp(xte, -127, 127) + 127;
+                buf[10] = (byte)xte;
+            }
 
             // Section states (16 bits = 2 bytes)
             buf[11] = (byte)(state.SectionStates & 0xFF);         // Sections 1-8
@@ -249,7 +257,7 @@ public static class PgnBuilder
     /// Byte 15: CRC
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static byte[] BuildSection64Pgn(ref VehicleState state)
+    public static byte[] BuildSection64Pgn(ref VehicleState state, double toolHalfWidthM = 0)
     {
         _sections64Buffer ??= new byte[SECTIONS_64_PGN_SIZE];
         var buf = _sections64Buffer;
@@ -266,10 +274,16 @@ public static class PgnBuilder
         for (int i = 0; i < 8; i++)
             buf[5 + i] = (byte)((sections >> (8 * i)) & 0xFF);
 
-        // L/R speed mirror PGN 239's speed byte (speed * 10, clamped to a byte)
-        byte speed = (byte)Math.Clamp((int)(state.SpeedKmh * 10), 0, 255);
-        buf[13] = speed;
-        buf[14] = speed;
+        // L/R tool-tip speeds (km/h × 10) — stock sends the far-left/far-right
+        // boom speeds so rate controllers can turn-compensate. Derived here from
+        // yaw rate: in a right-hand turn (compass yaw rate positive) the LEFT
+        // tip travels faster. Falls back to vehicle speed when yaw is ~0 or the
+        // tool width is unknown.
+        double v = Math.Max(0, state.SpeedKmh);
+        double omega = state.YawRate * Math.PI / 180.0;      // rad/s
+        double dv = omega * toolHalfWidthM * 3.6;            // m/s → km/h at the tip
+        buf[13] = (byte)Math.Clamp((int)((v + dv) * 10), 0, 255); // left tip
+        buf[14] = (byte)Math.Clamp((int)((v - dv) * 10), 0, 255); // right tip
 
         // CRC: sum of bytes 2 through 14 (source through last data byte)
         buf[15] = CalculateCrc(buf, 2, 13);
@@ -346,6 +360,36 @@ public static class PgnBuilder
     }
 
     /// <summary>
+    /// Build PGN 235 (0xEB) Section Dimensions — 16 section widths + count.
+    /// Sent with machine config (not periodic); this is how the machine module
+    /// AND on-wire listeners (rate controllers) learn the tool geometry.
+    /// Stock frame: [0x80,0x81,0x7F,0xEB,33, 16×(widthLo,widthHi in cm), numSections, CRC]
+    /// </summary>
+    public static byte[] BuildSectionDimensionsPgn(ToolConfig tool, int numSections)
+    {
+        var buf = new byte[SECTION_DIMENSIONS_PGN_SIZE];
+
+        buf[0] = HEADER1;
+        buf[1] = HEADER2;
+        buf[2] = SOURCE;
+        buf[3] = PGN_SECTION_DIMENSIONS;
+        buf[4] = 33;
+
+        int n = Math.Clamp(numSections, 0, 16);
+        for (int i = 0; i < 16; i++)
+        {
+            // ToolConfig widths are already centimetres (stock sends metres×100).
+            ushort cm = i < n ? (ushort)Math.Clamp(tool.GetSectionWidth(i), 0, 65535) : (ushort)0;
+            buf[5 + i * 2] = (byte)(cm & 0xFF);
+            buf[6 + i * 2] = (byte)(cm >> 8);
+        }
+        buf[37] = (byte)n;
+
+        buf[38] = CalculateCrc(buf, 2, 36);
+        return buf;
+    }
+
+    /// <summary>
     /// Calculate CRC as sum of bytes (matching PgnMessage.CalculateCRC)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -409,13 +453,16 @@ public static class PgnBuilder
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool ValidateChecksum(ReadOnlySpan<byte> data)
     {
-        if (data.Length < 2) return false;
+        // Stock AgOpenGPS CRC: additive sum of bytes 2 .. n-2 (source through
+        // last data byte), compared to the final byte. (An earlier version of
+        // this method XORed from byte 0 — wrong algorithm AND wrong range.)
+        if (data.Length < 6) return false;
 
         int checksumPos = data.Length - 1;
         byte calculated = 0;
-        for (int i = 0; i < checksumPos; i++)
+        for (int i = 2; i < checksumPos; i++)
         {
-            calculated ^= data[i];
+            calculated += data[i];
         }
         return calculated == data[checksumPos];
     }
@@ -478,7 +525,7 @@ public static class PgnBuilder
 
     /// <summary>
     /// Build PGN 251 (Steer Config) from AutoSteerConfig.
-    /// Format: [0x80, 0x81, 0x7F, 0xFB, 5, set0, pulseCount, minSpeed, set1, angVel, CRC]
+    /// Format (stock 14-byte frame): [0x80, 0x81, 0x7F, 0xFB, 8, set0, maxPulse, minSpeed, set1, angVel, 0, 0, 0, CRC]
     ///
     /// Byte 5 (set0):
     ///   bit 0: Invert WAS
@@ -496,7 +543,8 @@ public static class PgnBuilder
     ///   bit 2: Current Sensor
     ///   bit 3-4: IMU Axis Swap
     /// Byte 9:  Angular velocity
-    /// Byte 10: CRC
+    /// Bytes 10-12: reserved (0)
+    /// Byte 13: CRC
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static byte[] BuildSteerConfigPgn(AutoSteerConfig config)
@@ -504,18 +552,20 @@ public static class PgnBuilder
         _steerConfigBuffer ??= new byte[STEER_CONFIG_PGN_SIZE];
         var buf = _steerConfigBuffer;
 
-        // Header
+        // Header — stock frame is 14 bytes with len = 8 (data bytes 5..12,
+        // 10-12 always zero). Firmware that validates the length byte or reads
+        // a fixed frame rejects the previous short (11-byte, len 5) form.
         buf[0] = HEADER1;
         buf[1] = HEADER2;
         buf[2] = SOURCE;
         buf[3] = PGN_STEER_CONFIG;
-        buf[4] = 5;  // Data length
+        buf[4] = 8;  // Data length (stock)
 
         // Set0 byte (use helper from config)
         buf[5] = config.GetSetting0Byte();
 
-        // Pulse count (not currently used, set to 0)
-        buf[6] = 0;
+        // Max pulse counts (turn-sensor kickout threshold)
+        buf[6] = (byte)Math.Clamp(config.TurnSensorCounts, 0, 255);
 
         // Min steer speed * 10
         buf[7] = (byte)Math.Clamp((int)(config.MinSteerSpeed * 10), 0, 255);
@@ -523,11 +573,16 @@ public static class PgnBuilder
         // Set1 byte (use helper from config)
         buf[8] = config.GetSetting1Byte();
 
-        // Angular velocity (not currently used, set to 0)
+        // Angular velocity (stock sends 0)
         buf[9] = 0;
 
-        // CRC
-        buf[10] = CalculateCrc(buf, 2, 8);
+        // Bytes 10-12: reserved, zero (stock)
+        buf[10] = 0;
+        buf[11] = 0;
+        buf[12] = 0;
+
+        // CRC over bytes 2..12
+        buf[13] = CalculateCrc(buf, 2, 11);
 
         return buf;
     }

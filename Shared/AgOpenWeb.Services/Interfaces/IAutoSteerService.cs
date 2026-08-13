@@ -149,6 +149,10 @@ public interface IAutoSteerService
     /// </summary>
     void SendMachinePinConfig();
 
+    /// <summary>Push the full machine-module setup: config (238), pin map (236)
+    /// and section dimensions (235) — the "Send to module" action.</summary>
+    void SendMachineConfigAll();
+
     /// <summary>
     /// Update machine control state sent via PGN 239 (low 16 sections) and,
     /// when more than 16 sections are configured, PGN 229 (all 64 sections).

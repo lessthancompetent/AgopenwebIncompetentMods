@@ -2563,6 +2563,7 @@ wireTabStrip(tcPanel, 'tc-mac');
 tcHitchSel.addEventListener('change', () => cfgSend('tool.hitchType', tcHitchSel.value));
 tcSingleColor.addEventListener('change', () => cfgSend('tool.singleCoverageColor', tcSingleColor.value.slice(1)));
 document.getElementById('tc-resetpins').addEventListener('pointerdown', e => { e.stopPropagation(); cfgSend('machine.resetPins', '1'); });
+document.getElementById('tc-machinesend').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('machine.sendSave'); });
 document.getElementById('tc-save').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('profile.save'); });
 // PinFunction enum labels (mirror MachineConfig.PinFunction).
 const PIN_FUNCS = ['None', 'Sec1', 'Sec2', 'Sec3', 'Sec4', 'Sec5', 'Sec6', 'Sec7', 'Sec8', 'Sec9', 'Sec10',

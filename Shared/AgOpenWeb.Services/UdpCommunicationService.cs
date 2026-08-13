@@ -87,6 +87,11 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
     private const int DATA_TIMEOUT_IMU_MS = 300; // 10Hz data = 100ms cycle, allow 300ms
 
     public bool IsConnected { get; private set; }
+
+    /// <summary>Inbound binary PGNs whose additive CRC didn't verify (observation
+    /// only — packets are still processed). Bench check: should stay 0 on a clean
+    /// wire with real AIO modules; nonzero means noise or a framing bug.</summary>
+    public long CrcMismatchCount { get; private set; }
     public string? LocalIPAddress { get; private set; }
 
     public UdpCommunicationService(ILocalNetworkInfoProvider localNetworkInfoProvider)
@@ -355,6 +360,19 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
                 if (data.Length < 6) return;
 
                 byte pgn = data[3];
+
+                // CRC observation (log-only, no drop): count mismatches so the
+                // bench can prove the wire is clean before we ever enforce.
+                // Excluded: scan replies (203) and hello replies (121/122/123/126)
+                // — various firmware builds hard-code the CRC byte in those.
+                if (pgn != 203 && pgn != 121 && pgn != 122 && pgn != 123 && pgn != 126
+                    && !AutoSteer.PgnBuilder.ValidateChecksum(data))
+                {
+                    CrcMismatchCount++;
+                    if ((CrcMismatchCount & 0x3F) == 1) // log 1st, 65th, …
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[UDP] CRC mismatch #{CrcMismatchCount} on PGN {pgn} ({data.Length} bytes)");
+                }
 
                 // Track module connections based on hello messages
                 UpdateModuleConnection(data, remoteEndPoint);
