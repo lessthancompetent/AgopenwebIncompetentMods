@@ -60,6 +60,22 @@ public class PgnWireFormatTests
     }
 
     [Test]
+    public void CorrectedPosition100_CarriesLonLatDoubles()
+    {
+        // The layout RateController's PGN100 parser documents:
+        // len 16, longitude double at 5-12, latitude double at 13-20, CRC 21.
+        var p = (byte[])PgnBuilder.BuildCorrectedPositionPgn(51.1234567, -0.7654321).Clone();
+
+        Assert.That(p.Length, Is.EqualTo(22));
+        Assert.That(p[3], Is.EqualTo(0x64));
+        Assert.That(p[4], Is.EqualTo(16));
+        Assert.That(System.BitConverter.ToDouble(p, 5), Is.EqualTo(-0.7654321).Within(1e-9), "longitude");
+        Assert.That(System.BitConverter.ToDouble(p, 13), Is.EqualTo(51.1234567).Within(1e-9), "latitude");
+        Assert.That(p[21], Is.EqualTo(SumCrc(p)));
+        Assert.That(PgnBuilder.ValidateChecksum(p), Is.True);
+    }
+
+    [Test]
     public void Sections229_LeftRightTipSpeeds_TurnCompensated()
     {
         // 10 km/h, turning right at 10°/s with a 15 m tool: the LEFT tip

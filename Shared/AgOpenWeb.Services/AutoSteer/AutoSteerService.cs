@@ -645,7 +645,19 @@ public class AutoSteerService : IAutoSteerService
         // listeners (rate controllers) key on it regardless of section count.
         var sections64Pgn = PgnBuilder.BuildSection64Pgn(ref _state, _configStore.ActualToolWidth / 2.0);
         _udpService.SendToModules(sections64Pgn);
+
+        // PGN 100 corrected position at ~10 Hz (every 10th control tick) for
+        // ecosystem apps on the loopback plane — RateController paints its
+        // application maps from it. Skipped without a fix.
+        if (++_correctedPosDivider >= 10)
+        {
+            _correctedPosDivider = 0;
+            if (_state.GpsValid && (_state.Latitude != 0 || _state.Longitude != 0))
+                _udpService.SendToModules(PgnBuilder.BuildCorrectedPositionPgn(_state.Latitude, _state.Longitude));
+        }
     }
+
+    private int _correctedPosDivider;
 
     /// <summary>
     /// Build and send PGN 254 + PGN 239 from the current vehicle state.

@@ -2077,7 +2077,10 @@ document.getElementById('rp-back').addEventListener('pointerdown', e => {
 document.getElementById('rp-tab-rec').addEventListener('pointerdown', e => { e.stopPropagation(); recPathTab = 0; renderRecPath(); });
 document.getElementById('rp-tab-play').addEventListener('pointerdown', e => { e.stopPropagation(); recPathTab = 1; renderRecPath(); });
 document.getElementById('rp-start').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('recpath.start'); });
-document.getElementById('rp-stop').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('recpath.stop'); });
+// NOTE: was id "rp-stop", which COLLIDED with the Route Planner's Stop button —
+// getElementById bound both handlers to the route panel and this button was dead.
+document.getElementById('rec-stop').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('recpath.stop'); });
+document.getElementById('rec-stopplay').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('recpath.stopPlay'); });
 document.getElementById('rp-save').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('recpath.save|' + document.getElementById('rp-name').value);
 });
@@ -4678,7 +4681,7 @@ function renderRecPath() {
   document.getElementById('rp-play').classList.toggle('active', recPathTab === 1);
   // Record tab.
   document.getElementById('rp-start').style.display = r.isRecording ? 'none' : '';
-  document.getElementById('rp-stop').style.display = r.isRecording ? '' : 'none';
+  document.getElementById('rec-stop').style.display = r.isRecording ? '' : 'none';
   document.getElementById('rp-recind').style.display = r.isRecording ? 'block' : 'none';
   document.getElementById('rp-saverow').style.display = r.hasUnsaved ? 'flex' : 'none';
   // Auto-fill the Save-as name from the host's generated default (native parity), but

@@ -56,6 +56,8 @@ public static class PgnBuilder
     public const int MACHINE_PINS_PGN_SIZE = 30;    // 5 header + 24 data + 1 crc
     public const byte PGN_SECTION_DIMENSIONS = 0xEB; // 235 - Section Dimensions
     public const int SECTION_DIMENSIONS_PGN_SIZE = 39; // 5 header + 33 data + 1 crc
+    public const byte PGN_CORRECTED_POSITION = 0x64; // 100 - Corrected lat/lon (app plane)
+    public const int CORRECTED_POS_PGN_SIZE = 22;    // 5 header + 16 data + 1 crc
 
     // Thread-local buffers to avoid allocation
     [ThreadStatic]
@@ -358,6 +360,33 @@ public static class PgnBuilder
         buf[29] = CalculateCrc(buf, 2, 27);
         return buf;
     }
+
+    /// <summary>
+    /// Build PGN 100 (0x64) Corrected Position — WGS84 longitude + latitude as
+    /// little-endian doubles. Stock AOG emits this per GPS fix for ecosystem
+    /// apps (RateController uses it for its application maps). Loopback-plane
+    /// traffic; harmless if it also reaches modules.
+    /// Frame: [0x80,0x81,0x7F,0x64,16, lon(8), lat(8), CRC]
+    /// </summary>
+    public static byte[] BuildCorrectedPositionPgn(double latitude, double longitude)
+    {
+        _correctedPosBuffer ??= new byte[CORRECTED_POS_PGN_SIZE];
+        var buf = _correctedPosBuffer;
+
+        buf[0] = HEADER1;
+        buf[1] = HEADER2;
+        buf[2] = SOURCE;
+        buf[3] = PGN_CORRECTED_POSITION;
+        buf[4] = 16;
+
+        BitConverter.TryWriteBytes(buf.AsSpan(5, 8), longitude);
+        BitConverter.TryWriteBytes(buf.AsSpan(13, 8), latitude);
+
+        buf[21] = CalculateCrc(buf, 2, 19);
+        return buf;
+    }
+
+    [ThreadStatic] private static byte[]? _correctedPosBuffer;
 
     /// <summary>
     /// Build PGN 235 (0xEB) Section Dimensions — 16 section widths + count.

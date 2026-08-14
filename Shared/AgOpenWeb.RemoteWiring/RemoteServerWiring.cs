@@ -722,6 +722,7 @@ public static partial class RemoteServerWiring
                                 "recpath.start" => vm.StartRecordedPathCommand,
                                 "recpath.stop" => vm.StopRecordedPathCommand,
                                 "recpath.play" => vm.PlayRecordedPathCommand,
+                                "recpath.stopPlay" => vm.StopPlaybackCommand, // halt path FOLLOWING (stop = recording)
                                 "recpath.cycleResume" => vm.CycleResumeModeCommand,
                                 "recpath.reverse" => vm.ReverseRecordedPathCommand,
                                 "recpath.turnOff" => vm.TurnOffRecordedPathCommand,
@@ -787,6 +788,11 @@ public static partial class RemoteServerWiring
                             if (vm.IsSectionMasterOn
                                 && vm.ToggleSectionMasterCommand?.CanExecute(null) == true)
                                 vm.ToggleSectionMasterCommand.Execute(null);
+                            // Recorded-path / planned-route playback keeps steering the
+                            // vehicle on its own — halt it too (StopRouteDrive covers
+                            // both: stops the follower and zeroes the sim speed).
+                            if (vm.State.RecordedPath.IsDrivingRecordedPath)
+                                vm.StopRouteDrive();
                         });
                     };
 

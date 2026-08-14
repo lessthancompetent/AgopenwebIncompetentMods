@@ -214,6 +214,9 @@ public partial class MainViewModel
         StopPlaybackCommand = new RelayCommand(() =>
         {
             StopDrivingRecordedPath();
+            // A sim vehicle would keep rolling at the playback speed — halt it.
+            if (IsSimulatorEnabled) SimulatorSpeedKph = 0;
+            StatusMessage = "Path playback stopped";
         });
 
         CycleResumeModeCommand = new RelayCommand(() =>

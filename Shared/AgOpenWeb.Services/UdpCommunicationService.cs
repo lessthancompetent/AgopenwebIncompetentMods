@@ -92,6 +92,23 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
     /// only — packets are still processed). Bench check: should stay 0 on a clean
     /// wire with real AIO modules; nonzero means noise or a framing bug.</summary>
     public long CrcMismatchCount { get; private set; }
+
+    // ---- AgIO loopback plane (RateController bridge, Phase 0) ---------------
+    // Stock AgIO exposes a local app plane: ecosystem apps (RateController,
+    // AgDiag, …) SEND to 127.0.0.1:15555 and LISTEN on 17777, and AgIO fans
+    // every AOG/module PGN out to 127.255.255.255:17777. AgOpenWeb replaces
+    // AgIO, so it must own that plane too — otherwise an unmodified installed
+    // RateController hears nothing. We bind 15555, feed anything an app sends
+    // into the normal receive path, and mirror every outbound module PGN to
+    // the 17777 app broadcast.
+    private Socket? _loopbackSocket;
+    private static readonly IPEndPoint _loopbackAppsEndpoint =
+        new(IPAddress.Parse("127.255.255.255"), 17777);
+
+    /// <summary>True when the AgIO-parity loopback app plane is up (15555 bound).
+    /// False usually means real AgIO is running on this machine — the bridge
+    /// then stands down so the two don't fight over the port.</summary>
+    public bool LoopbackPlaneActive { get; private set; }
     public string? LocalIPAddress { get; private set; }
 
     public UdpCommunicationService(ILocalNetworkInfoProvider localNetworkInfoProvider)
@@ -150,6 +167,30 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
             _cancellationTokenSource = new CancellationTokenSource();
             _ = Task.Run(() => ReceiveLoop(_cancellationTokenSource.Token));
 
+            // AgIO loopback app plane (RateController bridge). Bind failure is
+            // non-fatal: it means real AgIO (or a second AgOpenWeb) owns the
+            // plane on this machine — stand down and let it.
+            try
+            {
+                _loopbackSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                _loopbackSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true);
+                if (OperatingSystem.IsWindows())
+                {
+                    const int SIO_UDP_CONNRESET = -1744830452; // 0x9800000C
+                    _loopbackSocket.IOControl((IOControlCode)SIO_UDP_CONNRESET, new byte[] { 0 }, null);
+                }
+                _loopbackSocket.Bind(new IPEndPoint(IPAddress.Loopback, 15555));
+                LoopbackPlaneActive = true;
+                _ = Task.Run(() => LoopbackReceiveLoop(_cancellationTokenSource.Token));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[UDP] loopback app plane unavailable (AgIO running?): {ex.Message}");
+                _loopbackSocket?.Dispose();
+                _loopbackSocket = null;
+                LoopbackPlaneActive = false;
+            }
+
             await Task.CompletedTask;
         }
         catch (Exception ex)
@@ -167,6 +208,10 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
         _udpSocket?.Close();
         _udpSocket?.Dispose();
         _udpSocket = null;
+        _loopbackSocket?.Close();
+        _loopbackSocket?.Dispose();
+        _loopbackSocket = null;
+        LoopbackPlaneActive = false;
         IsConnected = false;
 
         await Task.CompletedTask;
@@ -208,6 +253,14 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
             // Discovery: broadcast on all interfaces
             foreach (var ep in _discoveryEndpoints)
                 SendPacket(data, ep);
+        }
+
+        // AgIO parity: fan every module-bound PGN out to the local app plane
+        // too, so ecosystem apps (RateController) see the same traffic they
+        // would from AgIO. Loopback send is microseconds; failure is ignored.
+        if (_loopbackSocket is { } lb)
+        {
+            try { lb.SendTo(data, _loopbackAppsEndpoint); } catch { }
         }
 
         if (perf)
@@ -285,6 +338,30 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
         while (!cancellationToken.IsCancellationRequested)
         {
             await Task.Delay(100, cancellationToken);
+        }
+    }
+
+    /// <summary>Receive loop for the AgIO loopback app plane (15555): whatever an
+    /// ecosystem app (RateController, …) sends lands in the same processing path
+    /// as module traffic, so its PGNs raise DataReceived like any other source.
+    /// Sync receive on a dedicated task — app traffic is sparse.</summary>
+    private void LoopbackReceiveLoop(CancellationToken ct)
+    {
+        var buf = new byte[1024];
+        EndPoint from = new IPEndPoint(IPAddress.Any, 0);
+        while (!ct.IsCancellationRequested && _loopbackSocket is { } sock)
+        {
+            try
+            {
+                int n = sock.ReceiveFrom(buf, ref from);
+                if (n <= 0) continue;
+                var data = new byte[n];
+                Array.Copy(buf, data, n);
+                ProcessReceivedData(data, (IPEndPoint)from);
+            }
+            catch (ObjectDisposedException) { break; }
+            catch (SocketException) { if (ct.IsCancellationRequested) break; }
+            catch { }
         }
     }
 
