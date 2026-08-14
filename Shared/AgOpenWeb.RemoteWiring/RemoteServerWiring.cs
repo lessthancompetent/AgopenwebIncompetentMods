@@ -144,6 +144,29 @@ public static partial class RemoteServerWiring
                                         vm.PlanRoute(rpat, rhl, rskip, rblk, rang, rp.Length >= 6 && rp[5] == "1");
                                     return;
                                 }
+                                case "rate.set": // "productIdx,key,value" — rate-control product setting
+                                {
+                                    var ra = arg.Split(',', 3);
+                                    if (ra.Length >= 3
+                                        && int.TryParse(ra[0], System.Globalization.NumberStyles.Integer, inv, out var ri))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .SetProductValue(ri, ra[1], ra[2]);
+                                    return;
+                                }
+                                case "rate.resetQty": // arg = productIdx
+                                {
+                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var rq))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .ResetQuantity(rq);
+                                    return;
+                                }
+                                case "rate.resetArea": // arg = productIdx
+                                {
+                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var rar))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .ResetArea(rar);
+                                    return;
+                                }
                                 case "route.planTrack": // "headlandPasses,skip,block" — align to the SELECTED track
                                 {
                                     var pt2 = arg.Split(',');
@@ -764,7 +787,8 @@ public static partial class RemoteServerWiring
                         || (id.StartsWith("headland.") && !UngatedHeadlandIds.Contains(id))
                         || id.StartsWith("smartwas.") || id.StartsWith("wizard.action")
                         || id == "net.subnet" // restarts every module → gate it
-                        || id == "recpath.play"; // drives the vehicle along the path → actuation
+                        || id == "recpath.play" // drives the vehicle along the path → actuation
+                        || id.StartsWith("rate."); // commands product-application hardware
 
                     // One operator, via the browser. When the control session ends —
                     // release, disconnect, or deadman — the machine must not keep
@@ -843,6 +867,12 @@ public static partial class RemoteServerWiring
                     server.NearbyFieldsJsonProvider = () => vm.GetNearbyFieldOutlinesJson();
                     server.RoutePlanJsonProvider = () => vm.GetRoutePlanJson();
                     server.RouteBlocksJsonProvider = () => vm.GetRouteBlocksJson();
+
+                    // Rate control (AOG_RC port): start the module plane (29999/28888)
+                    // and expose status for the web Rate panel.
+                    var rateSvc = services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>();
+                    rateSvc.Start();
+                    server.RateControlJsonProvider = () => rateSvc.BuildStatusJson();
 
                     server.BoundaryProvider = () =>
                     {

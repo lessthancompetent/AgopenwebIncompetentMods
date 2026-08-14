@@ -149,6 +149,7 @@ public static class ServiceCollectionExtensions
 
         // Section control service (automatic section on/off based on coverage, boundaries, headlands)
         services.AddSingleton<ISectionControlService, SectionControlService>();
+        services.AddSingleton<AgOpenWeb.Services.RateControl.IRateControlService, AgOpenWeb.Services.RateControl.RateControlService>();
 
         // Tram line services (controlled traffic farming)
         services.AddSingleton<ITramLineOffsetService, TramLineOffsetService>();

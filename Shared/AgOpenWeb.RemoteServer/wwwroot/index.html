@@ -2197,6 +2197,7 @@
       <button class="fo-btn" id="ft-fieldbuilder" title="On-map track / headland / tram editor">Field Builder</button>
       <button class="fo-btn" id="ft-boundary">Boundary</button>
       <button class="fo-btn" id="ft-routeplan" title="Coverage route planner">Route Planner</button>
+      <button class="fo-btn" id="ft-ratecontrol" title="Product rate control — RC modules (RCnano / Teensy / ESP32) native, no RateController app needed">Rate Control</button>
       <button class="fo-btn" id="ft-obstacles" title="Add / delete obstacles + proximity alarm">Obstacles</button>
       <button class="fo-btn" id="ft-setproduct" title="Set the active job's product + rate (stored in the application record)">Job Product</button>
       <button class="fo-btn" id="ft-setapplied" title="Record the measured total product used this job (loader scale weight, tank total, drill counter) — actual rate = amount / covered area">Applied Total</button>
@@ -2205,6 +2206,34 @@
       <button class="fo-btn" id="ft-importtracks">Import Tracks</button>
       <button class="fo-btn" id="ft-recpath">Recorded Path</button>
       <button class="fo-btn" id="ft-offsetfix">Offset Fix</button>
+    </div>
+  </div>
+  <!-- Rate Control — native AOG_RC port: products A-E on RC hardware modules
+       (RCnano / Teensy / ESP32) over the RC module plane (:29999/:28888). -->
+  <div id="ratecontrol" class="ln-panel rp-panel">
+    <div class="ln-hdr"><button class="ln-x" id="rt-back" title="Back">←</button><span class="ln-hdr-title">Rate Control</span><button class="ln-x ln-closex" title="Close">✕</button></div>
+    <div class="rp-pats" id="rt-tabs" style="grid-template-columns:repeat(5,1fr)"></div>
+    <div class="rp-row"><span class="cfg-label">Product name</span><input id="rt-name" class="of-input" type="text" style="width:130px"></div>
+    <div class="rp-pats" style="grid-template-columns:1fr 1fr">
+      <button class="rp-pat" id="rt-enabled">Enabled</button>
+      <button class="rp-pat" id="rt-auto">Auto</button>
+    </div>
+    <div class="rp-row"><span class="cfg-label">Module / Sensor</span>
+      <input id="rt-mod" type="number" min="0" max="15" style="width:44px"> <input id="rt-sen" type="number" min="0" max="15" style="width:44px"></div>
+    <div class="rp-row"><span class="cfg-label">Target rate</span>
+      <input id="rt-target" type="number" step="0.5" min="0" style="width:70px"><select id="rt-units"><option value="1">/Ha</option><option value="0">/Ac</option><option value="2">/min</option><option value="3">/hr</option></select></div>
+    <div class="rp-row"><span class="cfg-label">Flow cal (pulses/unit)</span>
+      <input id="rt-cal" type="number" step="0.1" min="0" style="width:70px"></div>
+    <div class="rp-row"><span class="cfg-label">Control type</span>
+      <select id="rt-ctype"><option value="0">Valve</option><option value="1">Combo close</option><option value="2">Motor</option><option value="3">Motor+weights</option><option value="4">Fan</option><option value="5">Combo timed</option></select></div>
+    <div class="rp-row"><span class="cfg-label">Manual PWM</span>
+      <div class="rp-step"><button class="rp-sb" data-rt="pwm" data-d="-10">−</button><span id="rt-pwm">0</span><button class="rp-sb" data-rt="pwm" data-d="10">+</button></div></div>
+    <div class="rp-row"><span class="cfg-label">Tank size / remaining</span>
+      <input id="rt-tanksize" type="number" step="10" min="0" style="width:60px"><input id="rt-tank" type="number" step="10" min="0" style="width:60px"></div>
+    <div class="rp-stats" id="rt-live">—</div>
+    <div class="rp-btns">
+      <button class="cfg-act" id="rt-resetqty">Reset Qty</button>
+      <button class="cfg-act" id="rt-resetarea">Reset Area</button>
     </div>
   </div>
   <!-- Field Builder (native FieldBuilderDialogPanel) — Tracks / Headland / Tram editor.

@@ -1876,7 +1876,7 @@ document.getElementById('dlg-tracks-close').addEventListener('pointerdown', e =>
 // to ConfigurationStore). Grows one entry per sub-phase.
 // Navigation: top-level buttons open a panel; sub-panels (vehicle/tool config) are
 // reached from the hub and carry a Back button. One panel open at a time.
-const LN_NAV_PANELS = ['routeplan', 'obstacles', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
+const LN_NAV_PANELS = ['routeplan', 'ratecontrol', 'obstacles', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
 // Watch-the-tractor panels opt OUT of the light-dismiss scrim — the map must stay
 // interactive (pan/zoom to follow the tractor while capturing). They close only via
 // the header (Back / ✕).
@@ -2092,6 +2092,79 @@ document.getElementById('ft-boundary').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('boundary.refresh'); lnOpen('boundarymenu', 'ln-fieldtools', renderBoundaryMenu);
 });
 document.getElementById('ft-routeplan').addEventListener('pointerdown', e => { e.stopPropagation(); openRoutePlanner(); });
+document.getElementById('ft-ratecontrol').addEventListener('pointerdown', e => { e.stopPropagation(); rtOpen(); });
+
+// ---- Rate Control (native AOG_RC port) -------------------------------------
+// Products A-E on RC hardware modules. Status polls /api/ratecontrol at 1 Hz
+// while the panel is open; edits go out as rate.set|idx,key,value (Tier-2).
+let rtProducts = [], rtSel = 0, rtPlane = false, rtPoll = null;
+function rtOpen() {
+  lnOpen('ratecontrol', 'ln-fieldtools', rtRender);
+  rtRefresh();
+  if (rtPoll) clearInterval(rtPoll);
+  rtPoll = setInterval(() => {
+    if (!document.getElementById('ratecontrol').classList.contains('open')) { clearInterval(rtPoll); rtPoll = null; return; }
+    rtRefresh();
+  }, 1000);
+}
+function rtRefresh() {
+  fetch('/api/ratecontrol').then(r => r.json()).then(d => {
+    rtProducts = (d && d.products) || [];
+    rtPlane = !!(d && d.plane);
+    rtRender();
+  }).catch(() => {});
+}
+function rtSend(key, value) { transport.send('rate.set|' + rtSel + ',' + key + ',' + value); setTimeout(rtRefresh, 250); }
+function rtRender() {
+  const tabs = document.getElementById('rt-tabs');
+  tabs.innerHTML = '';
+  for (let i = 0; i < 5; i++) {
+    const p = rtProducts[i];
+    const b = document.createElement('button');
+    b.className = 'rp-pat' + (i === rtSel ? ' on' : '');
+    const dot = p && p.connected ? '🟢' : (p && p.enabled ? '🔴' : '');
+    b.textContent = String.fromCharCode(65 + i) + dot;
+    b.addEventListener('pointerdown', e => { e.stopPropagation(); rtSel = i; rtRender(); });
+    tabs.appendChild(b);
+  }
+  const p = rtProducts[rtSel];
+  if (!p) return;
+  const set = (id, v) => { const el = document.getElementById(id); if (document.activeElement !== el) el.value = v; };
+  set('rt-name', p.name || '');
+  document.getElementById('rt-enabled').classList.toggle('on', !!p.enabled);
+  document.getElementById('rt-auto').classList.toggle('on', !!p.auto);
+  set('rt-mod', p.moduleId); set('rt-sen', p.sensorId);
+  set('rt-target', p.targetRate);
+  const un = document.getElementById('rt-units'); if (document.activeElement !== un) un.value = String(p.coverageUnits);
+  set('rt-cal', p.meterCal);
+  const ct = document.getElementById('rt-ctype'); if (document.activeElement !== ct) ct.value = String(p.controlType);
+  document.getElementById('rt-pwm').textContent = p.manualPwm;
+  set('rt-tanksize', p.tankSize); set('rt-tank', p.tank);
+  const unitTxt = ['/Ac', '/Ha', '/min', '/hr'][p.coverageUnits] || '';
+  const tankPct = p.tankSize > 0 ? Math.round(p.tank / p.tankSize * 100) : 0;
+  document.getElementById('rt-live').textContent = (rtPlane ? '' : 'PLANE OFFLINE · ')
+    + (p.connected ? 'module OK' : 'module —')
+    + ` · flow ${p.upm} u/min · PWM ${p.pwm} · ${p.hz} Hz`
+    + ` · qty ${p.qty} · area ${p.area} ha · tank ${tankPct}%`
+    + (p.binEmpty ? ' · BIN EMPTY' : '');
+}
+document.getElementById('rt-back').addEventListener('pointerdown', e => { e.stopPropagation(); lnOpen('fieldtools', 'ln-fieldtools'); });
+document.getElementById('rt-name').addEventListener('change', () => rtSend('name', document.getElementById('rt-name').value.replace(/[|,]/g, ' ')));
+document.getElementById('rt-enabled').addEventListener('pointerdown', e => { e.stopPropagation(); const p = rtProducts[rtSel]; rtSend('enabled', p && p.enabled ? 0 : 1); });
+document.getElementById('rt-auto').addEventListener('pointerdown', e => { e.stopPropagation(); const p = rtProducts[rtSel]; rtSend('auto', p && p.auto ? 0 : 1); });
+for (const [id, key] of [['rt-mod','moduleId'],['rt-sen','sensorId'],['rt-target','targetRate'],['rt-cal','meterCal'],['rt-tanksize','tankSize'],['rt-tank','tankRemaining']]) {
+  document.getElementById(id).addEventListener('change', () => rtSend(key, document.getElementById(id).value));
+}
+document.getElementById('rt-units').addEventListener('change', () => rtSend('coverageUnits', document.getElementById('rt-units').value));
+document.getElementById('rt-ctype').addEventListener('change', () => rtSend('controlType', document.getElementById('rt-ctype').value));
+for (const b of document.querySelectorAll('#ratecontrol .rp-sb'))
+  b.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    const p = rtProducts[rtSel]; if (!p) return;
+    rtSend('manualPwm', Math.max(-255, Math.min(255, (p.manualPwm | 0) + (+b.dataset.d))));
+  });
+document.getElementById('rt-resetqty').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('rate.resetQty|' + rtSel); setTimeout(rtRefresh, 250); });
+document.getElementById('rt-resetarea').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('rate.resetArea|' + rtSel); setTimeout(rtRefresh, 250); });
 document.getElementById('ft-obstacles').addEventListener('pointerdown', e => { e.stopPropagation(); openObstacles(); });
 document.getElementById('bm-back').addEventListener('pointerdown', e => { e.stopPropagation(); lnOpen('fieldtools', 'ln-fieldtools'); });
 
