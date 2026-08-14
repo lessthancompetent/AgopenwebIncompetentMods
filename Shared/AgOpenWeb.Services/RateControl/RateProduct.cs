@@ -39,6 +39,13 @@ public sealed class RateProduct
     /// <summary>Session totals (persisted so they survive restarts, like AOG_RC).</summary>
     public double QuantityApplied { get; set; }
     public double AreaApplied { get; set; }
+    /// <summary>Unit label for quantities (L, kg, …) — used when auto-filling the
+    /// job's measured applied amount.</summary>
+    public string Units { get; set; } = "L";
+
+    /// <summary>QuantityApplied snapshot taken when the active job opened, so the
+    /// job record gets measured-THIS-JOB product, not the lifetime total.</summary>
+    [JsonIgnore] public double JobStartQuantity { get; set; }
 
     // ---- live, not persisted ----
     [JsonIgnore] public double MeasuredUpm { get; set; }
@@ -50,6 +57,16 @@ public sealed class RateProduct
     [JsonIgnore] public bool AccumSeeded { get; set; }
     [JsonIgnore] public double AccumLast { get; set; }
     [JsonIgnore] public bool ResetQuantityPending { get; set; }
+
+    // ---- calibration (live) ----
+    /// <summary>Catch-test running: module in manual at the panel's PWM; the
+    /// indicated quantity accumulates from the flow counter.</summary>
+    [JsonIgnore] public bool CalActive { get; set; }
+    [JsonIgnore] public double CalStartQuantity { get; set; }
+    [JsonIgnore] public bool CalPriorAuto { get; set; }
+    /// <summary>Units the meter THINKS went through during the catch test.</summary>
+    [JsonIgnore] public double CalIndicated => CalActive || CalStopped ? QuantityApplied - CalStartQuantity : 0;
+    [JsonIgnore] public bool CalStopped { get; set; }
 
     [JsonIgnore]
     public bool ModuleConnected => (DateTime.UtcNow - LastFrameUtc).TotalSeconds < 4;

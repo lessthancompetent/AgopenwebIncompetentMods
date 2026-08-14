@@ -2228,6 +2228,8 @@
       <select id="rt-ctype"><option value="0">Valve</option><option value="1">Combo close</option><option value="2">Motor</option><option value="3">Motor+weights</option><option value="4">Fan</option><option value="5">Combo timed</option></select></div>
     <div class="rp-row"><span class="cfg-label">Manual PWM</span>
       <div class="rp-step"><button class="rp-sb" data-rt="pwm" data-d="-10">−</button><span id="rt-pwm">0</span><button class="rp-sb" data-rt="pwm" data-d="10">+</button></div></div>
+    <div class="rp-row"><span class="cfg-label">Units</span>
+      <input id="rt-units-txt" type="text" style="width:44px" title="Quantity unit (L, kg, …) — used in job records"></div>
     <div class="rp-row"><span class="cfg-label">Tank size / remaining</span>
       <input id="rt-tanksize" type="number" step="10" min="0" style="width:60px"><input id="rt-tank" type="number" step="10" min="0" style="width:60px"></div>
     <div class="rp-stats" id="rt-live">—</div>
@@ -2235,6 +2237,14 @@
       <button class="cfg-act" id="rt-resetqty">Reset Qty</button>
       <button class="cfg-act" id="rt-resetarea">Reset Area</button>
     </div>
+    <div class="cfg-label" title="Catch test: runs the product manually at the Manual PWM above into a container; enter what you actually caught and the flow cal rescales.">Flow calibration (catch test)</div>
+    <div class="rp-btns">
+      <button class="cfg-act" id="rt-calstart">▶ Start cal run</button>
+      <button class="cfg-act fj-danger" id="rt-calstop">■ Stop</button>
+    </div>
+    <div class="rp-row" id="rt-calrow" style="display:none"><span class="cfg-label" id="rt-calind">Indicated: —</span>
+      <input id="rt-calactual" type="number" step="0.1" min="0" style="width:64px" placeholder="actual">
+      <button class="cfg-act" id="rt-calapply">Apply</button></div>
   </div>
   <!-- Field Builder (native FieldBuilderDialogPanel) — Tracks / Headland / Tram editor.
        Reuses the main map + s2w for drawing/editing; this panel is the control surface. -->

@@ -32,6 +32,16 @@ public interface IRateControlService
     void SetProductValue(int index, string key, string value);
     void ResetQuantity(int index);
     void ResetArea(int index);
+    void CalibrationStart(int index);
+    void CalibrationStop(int index);
+    void CalibrationApply(int index, double actualUnits);
+    /// <summary>Snapshot every product's quantity as the job baseline (called
+    /// when a job becomes active).</summary>
+    void MarkJobStart();
+    /// <summary>Measured product applied since the job baseline: the enabled,
+    /// module-measured product with the largest delta, or null when nothing
+    /// meaningful flowed. Feeds the job record's applied amount.</summary>
+    (string Product, double Amount, string Unit)? GetMeasuredJobApplied();
     string BuildStatusJson();
 }
 
@@ -222,6 +232,24 @@ public sealed class RateControlService : IRateControlService, IDisposable
                     try { _socket.SendTo(frame, new IPEndPoint(modAddr, RcPgn.ModuleListenPort)); } catch { }
             }
 
+            // Relay/section states (32501) once per distinct enabled module — the
+            // firmware's auto-PID gate requires nonzero relay bits, and modules
+            // with relay outputs switch their sections from this.
+            ushort secBits = _sections.GetSectionBits();
+            var sentModules = new HashSet<int>();
+            foreach (var p in _products)
+            {
+                if (!p.Enabled || !sentModules.Add(p.ModuleId)) continue;
+                var relayFrame = RcPgn.BuildRelaySettings(p.ModuleId,
+                    (byte)(secBits & 0xFF), (byte)(secBits >> 8));
+                foreach (var ep in BroadcastEndpoints())
+                    try { _socket.SendTo(relayFrame, ep); } catch { }
+                IPAddress? ma;
+                lock (_ioLock) _moduleAddresses.TryGetValue(p.ModuleId, out ma);
+                if (ma != null)
+                    try { _socket.SendTo(relayFrame, new IPEndPoint(ma, RcPgn.ModuleListenPort)); } catch { }
+            }
+
             if (_dirty && (now - _lastSaveUtc).TotalSeconds > 10)
             {
                 _dirty = false;
@@ -315,6 +343,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
                 case "tankRemaining": p.TankRemaining = Math.Max(0, D()); break;
                 case "auto": p.AutoOn = B(); break;
                 case "manualPwm": p.ManualPwm = Math.Clamp((int)D(), -255, 255); break;
+                case "units": p.Units = value.Trim(); break;
             }
             _dirty = true;
         }
@@ -336,6 +365,84 @@ public sealed class RateControlService : IRateControlService, IDisposable
     {
         if (index < 0 || index >= _products.Count) return;
         lock (_ioLock) { _products[index].AreaApplied = 0; _dirty = true; }
+    }
+
+    // ---- job-record integration ----
+
+    public void MarkJobStart()
+    {
+        lock (_ioLock)
+            foreach (var p in _products) p.JobStartQuantity = p.QuantityApplied;
+    }
+
+    public (string Product, double Amount, string Unit)? GetMeasuredJobApplied()
+    {
+        lock (_ioLock)
+        {
+            RateProduct? best = null;
+            double bestDelta = 0.05; // ignore meter noise
+            foreach (var p in _products)
+            {
+                if (!p.Enabled) continue;
+                double delta = p.QuantityApplied - p.JobStartQuantity;
+                if (delta > bestDelta) { bestDelta = delta; best = p; }
+            }
+            return best == null ? null
+                : (string.IsNullOrWhiteSpace(best.Name) ? "Product" : best.Name,
+                   Math.Round(bestDelta, 1), best.Units);
+        }
+    }
+
+    // ---- calibration (AOG_RC catch-test method) ----
+    // Run the product manually at the panel's PWM into a catch container, then
+    // enter the ACTUAL amount caught; the meter cal rescales so indicated
+    // matches actual: newCal = oldCal × indicated/actual (pulses are invariant).
+
+    public void CalibrationStart(int index)
+    {
+        if (index < 0 || index >= _products.Count) return;
+        var p = _products[index];
+        lock (_ioLock)
+        {
+            p.CalPriorAuto = p.AutoOn;
+            p.AutoOn = false;            // manual drive at ManualPwm
+            p.CalStartQuantity = p.QuantityApplied;
+            p.CalActive = true;
+            p.CalStopped = false;
+        }
+    }
+
+    public void CalibrationStop(int index)
+    {
+        if (index < 0 || index >= _products.Count) return;
+        var p = _products[index];
+        lock (_ioLock)
+        {
+            if (!p.CalActive) return;
+            p.CalActive = false;
+            p.CalStopped = true;         // freeze the indicated reading for entry
+            p.ManualPwm = 0;             // stop the flow
+        }
+    }
+
+    public void CalibrationApply(int index, double actualUnits)
+    {
+        if (index < 0 || index >= _products.Count) return;
+        var p = _products[index];
+        lock (_ioLock)
+        {
+            double indicated = p.CalIndicated;
+            if (p.CalStopped && indicated > 0.01 && actualUnits > 0.01)
+            {
+                p.MeterCal = p.MeterCal * indicated / actualUnits;
+                // the catch test wasn't field application — take it back out
+                p.QuantityApplied = p.CalStartQuantity;
+            }
+            p.CalStopped = false;
+            p.AutoOn = p.CalPriorAuto;
+            _dirty = true;
+        }
+        SaveProducts();
     }
 
     // ---- status for the web panel ----
@@ -371,6 +478,10 @@ public sealed class RateControlService : IRateControlService, IDisposable
                   .Append(",\"area\":").Append(p.AreaApplied.ToString("0.##", inv))
                   .Append(",\"tankSize\":").Append(p.TankSize.ToString("0.#", inv))
                   .Append(",\"tank\":").Append(p.TankRemaining.ToString("0.#", inv))
+                  .Append(",\"units\":").Append(JsonSerializer.Serialize(p.Units))
+                  .Append(",\"calActive\":").Append(p.CalActive ? "true" : "false")
+                  .Append(",\"calStopped\":").Append(p.CalStopped ? "true" : "false")
+                  .Append(",\"calIndicated\":").Append(p.CalIndicated.ToString("0.##", inv))
                   .Append('}');
             }
         }

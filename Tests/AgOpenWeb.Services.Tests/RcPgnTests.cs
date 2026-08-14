@@ -99,6 +99,22 @@ public class RcPgnTests
     }
 
     [Test]
+    public void RelaySettings32501_BuildsStockLayout()
+    {
+        // Sections 1,2,3,10 on → relayLo 0b0000_0111, relayHi 0b0000_0010.
+        var d = RcPgn.BuildRelaySettings(moduleId: 1, relayLo: 0b0000_0111, relayHi: 0b0000_0010);
+
+        Assert.That(d.Length, Is.EqualTo(11));
+        Assert.That(d[0], Is.EqualTo(0xF5));
+        Assert.That(d[1], Is.EqualTo(0x7E));
+        Assert.That(d[2], Is.EqualTo(1 << 4), "module id in high nibble");
+        Assert.That(d[3], Is.EqualTo(0b0000_0111));
+        Assert.That(d[4], Is.EqualTo(0b0000_0010));
+        Assert.That(d[9], Is.EqualTo(255), "no flow master valve");
+        Assert.That(RcPgn.GoodCrc(d), Is.True);
+    }
+
+    [Test]
     public void TargetUpm_MatchesAogRcMath()
     {
         var p = new RateProduct { Enabled = true, TargetRate = 100, CoverageUnits = 1 }; // 100 u/ha

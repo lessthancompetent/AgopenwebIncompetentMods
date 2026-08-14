@@ -123,6 +123,34 @@ public static class RcPgn
         return true;
     }
 
+    public const ushort PGN_RELAY_SETTINGS = 32501; // 0xF5 0x7E host → module
+
+    /// <summary>
+    /// Build PGN 32501 (relay/section states host → module). 11 bytes.
+    /// The firmware's auto-PID gate requires nonzero relay bits (PIDenabled =
+    /// … && (RelayLo || RelayHi)), so this frame is what lets auto rate run at
+    /// all; it also drives the module's physical relay outputs per section.
+    /// <paramref name="masterValveIndex"/> 255 = no flow master valve.
+    /// </summary>
+    public static byte[] BuildRelaySettings(int moduleId, byte relayLo, byte relayHi,
+        byte powerRelayLo = 0, byte powerRelayHi = 0, byte invertedLo = 0, byte invertedHi = 0,
+        byte masterValveIndex = 255)
+    {
+        var d = new byte[11];
+        d[0] = 0xF5;   // 245
+        d[1] = 0x7E;   // 126
+        d[2] = BuildModSenId(moduleId, 0);
+        d[3] = relayLo;
+        d[4] = relayHi;
+        d[5] = powerRelayLo;
+        d[6] = powerRelayHi;
+        d[7] = invertedLo;
+        d[8] = invertedHi;
+        d[9] = masterValveIndex;
+        d[10] = Crc(d, 10);
+        return d;
+    }
+
     // PGN 32500 command bits (CommandPGN32500 in AOG_RC).
     private const byte CmdResetQuantity = 1;
     private const byte CmdMasterOn = 16;

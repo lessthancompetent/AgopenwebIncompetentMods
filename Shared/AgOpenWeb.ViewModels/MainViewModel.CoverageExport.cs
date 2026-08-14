@@ -19,6 +19,12 @@ namespace AgOpenWeb.ViewModels;
 
 public partial class MainViewModel
 {
+    /// <summary>Host-supplied source of measured product applied this job (the
+    /// rate-control service's flowmeter totals since job start). When the
+    /// operator hasn't entered an applied amount manually, coverage export
+    /// auto-fills from this — measured beats forgotten.</summary>
+    public Func<(string Product, double Amount, string Unit)?>? MeasuredAppliedProvider { get; set; }
+
     /// <summary>Set/update the active job's product + rate and persist to job.json.</summary>
     public void SetActiveJobProduct(string product, double rate, string rateUnit)
     {
@@ -70,6 +76,18 @@ public partial class MainViewModel
             var cells = _coverageMapService.GetPaintedDisplayCells();
             if (cells.Count == 0)
             { if (!quiet) StatusMessage = "No coverage to export yet"; return; }
+
+            // Measured flow beats a forgotten manual entry: when the operator
+            // hasn't recorded an applied amount, pull the rate-control service's
+            // flowmeter total for this job (and adopt its product name if the
+            // job has none). A manual entry always wins.
+            if (job.AppliedAmount <= 0 && MeasuredAppliedProvider?.Invoke() is { } measured)
+            {
+                job.AppliedAmount = measured.Amount;
+                job.AppliedUnit = measured.Unit;
+                if (string.IsNullOrWhiteSpace(job.Product)) job.Product = measured.Product;
+                _jobService.SaveActiveJob();
+            }
 
             var json = CoverageExportService.BuildGeoJson(
                 cells, dims.Value.CellSize, bounds.Value.MinE, bounds.Value.MinN,

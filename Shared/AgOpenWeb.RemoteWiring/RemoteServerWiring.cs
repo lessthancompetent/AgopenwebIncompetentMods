@@ -160,6 +160,30 @@ public static partial class RemoteServerWiring
                                             .ResetQuantity(rq);
                                     return;
                                 }
+                                case "rate.calStart": // arg = productIdx — begin catch test at Manual PWM
+                                {
+                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var rcs))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .CalibrationStart(rcs);
+                                    return;
+                                }
+                                case "rate.calStop": // arg = productIdx — end catch test, freeze indicated
+                                {
+                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var rcp))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .CalibrationStop(rcp);
+                                    return;
+                                }
+                                case "rate.calApply": // arg = "productIdx,actualUnits"
+                                {
+                                    var ca = arg.Split(',');
+                                    if (ca.Length >= 2
+                                        && int.TryParse(ca[0], System.Globalization.NumberStyles.Integer, inv, out var cai)
+                                        && double.TryParse(ca[1], num, inv, out var cav))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .CalibrationApply(cai, cav);
+                                    return;
+                                }
                                 case "rate.resetArea": // arg = productIdx
                                 {
                                     if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var rar))
@@ -873,6 +897,11 @@ public static partial class RemoteServerWiring
                     var rateSvc = services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>();
                     rateSvc.Start();
                     server.RateControlJsonProvider = () => rateSvc.BuildStatusJson();
+                    // Flowmeter totals → job records: baseline the counters when a
+                    // job opens; coverage export auto-fills measured applied.
+                    services.GetRequiredService<AgOpenWeb.Services.Interfaces.IJobService>()
+                        .ActiveJobChanged += (_, job) => { if (job != null) rateSvc.MarkJobStart(); };
+                    vm.MeasuredAppliedProvider = () => rateSvc.GetMeasuredJobApplied();
 
                     server.BoundaryProvider = () =>
                     {

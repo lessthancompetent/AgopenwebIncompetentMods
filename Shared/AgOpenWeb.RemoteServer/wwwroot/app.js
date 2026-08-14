@@ -2140,13 +2140,18 @@ function rtRender() {
   const ct = document.getElementById('rt-ctype'); if (document.activeElement !== ct) ct.value = String(p.controlType);
   document.getElementById('rt-pwm').textContent = p.manualPwm;
   set('rt-tanksize', p.tankSize); set('rt-tank', p.tank);
-  const unitTxt = ['/Ac', '/Ha', '/min', '/hr'][p.coverageUnits] || '';
+  set('rt-units-txt', p.units || 'L');
   const tankPct = p.tankSize > 0 ? Math.round(p.tank / p.tankSize * 100) : 0;
   document.getElementById('rt-live').textContent = (rtPlane ? '' : 'PLANE OFFLINE · ')
     + (p.connected ? 'module OK' : 'module —')
-    + ` · flow ${p.upm} u/min · PWM ${p.pwm} · ${p.hz} Hz`
+    + ` · flow ${p.upm} ${p.units || 'u'}/min · PWM ${p.pwm} · ${p.hz} Hz`
     + ` · qty ${p.qty} · area ${p.area} ha · tank ${tankPct}%`
     + (p.binEmpty ? ' · BIN EMPTY' : '');
+  // calibration state
+  document.getElementById('rt-calstart').classList.toggle('on', !!p.calActive);
+  document.getElementById('rt-calrow').style.display = (p.calActive || p.calStopped) ? '' : 'none';
+  document.getElementById('rt-calind').textContent =
+    'Indicated: ' + (p.calIndicated || 0) + ' ' + (p.units || '') + (p.calActive ? ' (running…)' : '');
 }
 document.getElementById('rt-back').addEventListener('pointerdown', e => { e.stopPropagation(); lnOpen('fieldtools', 'ln-fieldtools'); });
 document.getElementById('rt-name').addEventListener('change', () => rtSend('name', document.getElementById('rt-name').value.replace(/[|,]/g, ' ')));
@@ -2165,6 +2170,14 @@ for (const b of document.querySelectorAll('#ratecontrol .rp-sb'))
   });
 document.getElementById('rt-resetqty').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('rate.resetQty|' + rtSel); setTimeout(rtRefresh, 250); });
 document.getElementById('rt-resetarea').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('rate.resetArea|' + rtSel); setTimeout(rtRefresh, 250); });
+document.getElementById('rt-units-txt').addEventListener('change', () => rtSend('units', document.getElementById('rt-units-txt').value.replace(/[|,]/g, ' ').trim()));
+document.getElementById('rt-calstart').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('rate.calStart|' + rtSel); setTimeout(rtRefresh, 250); });
+document.getElementById('rt-calstop').addEventListener('pointerdown', e => { e.stopPropagation(); transport.send('rate.calStop|' + rtSel); setTimeout(rtRefresh, 250); });
+document.getElementById('rt-calapply').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const v = parseFloat(document.getElementById('rt-calactual').value);
+  if (Number.isFinite(v) && v > 0) { transport.send('rate.calApply|' + rtSel + ',' + v); document.getElementById('rt-calactual').value = ''; setTimeout(rtRefresh, 300); }
+});
 document.getElementById('ft-obstacles').addEventListener('pointerdown', e => { e.stopPropagation(); openObstacles(); });
 document.getElementById('bm-back').addEventListener('pointerdown', e => { e.stopPropagation(); lnOpen('fieldtools', 'ln-fieldtools'); });
 
