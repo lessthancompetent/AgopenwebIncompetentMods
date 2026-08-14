@@ -77,11 +77,20 @@ autologin-user-timeout=0
 EOF
 rm -f /etc/xdg/autostart/light-locker.desktop
 mkdir -p "$AGHOME/.config/autostart"
+# .desktop Exec lines do NOT understand shell single-quote syntax — an inline
+# `sh -c '…'` gets word-split into garbage and dies silently (found on the
+# agproxy dress rehearsal). A real launcher script sidesteps quoting entirely.
+cat > /usr/local/bin/agopenweb-kiosk << 'EOF'
+#!/bin/sh
+sleep 6
+exec chromium --kiosk --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required http://localhost:5174
+EOF
+chmod +x /usr/local/bin/agopenweb-kiosk
 cat > "$AGHOME/.config/autostart/agopenweb-kiosk.desktop" << EOF
 [Desktop Entry]
 Type=Application
 Name=AgOpenWeb Kiosk
-Exec=sh -c 'sleep 6; chromium --kiosk --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required http://localhost:5174'
+Exec=/usr/local/bin/agopenweb-kiosk
 X-GNOME-Autostart-enabled=true
 EOF
 chown -R "$AGUSER:$AGUSER" "$AGHOME/.config"
