@@ -3,3 +3,10 @@
 # checkout regardless of platform/core.autocrlf.
 *.cmd text eol=crlf
 *.bat text eol=crlf
+
+# Conversely, the Linux deploy scripts are curl'd straight onto a box and run.
+# A CR at the end of the shebang makes the kernel look for an interpreter named
+# "python3\r" and the whole thing dies with a bare "not found".
+deploy/server/* text eol=lf
+deploy/linux/* text eol=lf
+*.sh text eol=lf
