@@ -116,17 +116,18 @@ sleep 6
 exec chromium --app=http://localhost:5174 --start-maximized --force-device-scale-factor=1.5 --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required
 EOF
 
-# Bezel buttons A1/A2 -> short-press and long-press actions.
+# Bezel buttons -> short-press and long-press actions.
 #
-# Probed on the real tablet 2026-08-15; both buttons need explaining:
-#   A1 fires AT scancode 0x65 *together with* Left Meta — it carries its
-#      Windows "Tablet PC Settings -> Buttons" assignment in firmware, so Linux
-#      sees Super+<key>. A desktop shortcut bound to the bare key NEVER fires;
-#      that cost an afternoon. The daemon reads evdev directly instead, which
-#      also survives a fullscreen browser holding keyboard focus.
-#   A2 produces no input event at all — panasonic-laptop only logs
-#      "Unknown hotkey event: 0x0054" (press) / 0x0055 (release), so the daemon
-#      follows /dev/kmsg and times the gap.
+# Probed on the real tablet 2026-08-15 by pressing each button while watching
+# all 16 input devices, the kernel log and the ACPI event layer:
+#   ROTATION is the ONLY bezel button that reaches Linux. It fires AT scancode
+#      0x65 *together with* Left Meta — it carries its Windows "Tablet PC
+#      Settings -> Buttons" assignment in firmware, so Linux sees Super+<key>
+#      and a desktop shortcut bound to the bare key NEVER fires. It also emits
+#      ACPI hotkeys 0x54/0x55 alongside. The daemon reads evdev directly, which
+#      survives a fullscreen browser holding keyboard focus.
+#   A1 and A2 emit NOTHING on any channel — in Windows they were serviced by a
+#      Panasonic driver that has no Debian equivalent. Nothing to bind.
 # Actions live in /etc/fzg1-buttons.conf and are re-read on every press.
 cat > /etc/udev/hwdb.d/90-fzg1-buttons.hwdb << 'EOF'
 evdev:atkbd:dmi:bvn*:bvr*:bd*:svnPanasonic*:pnFZG1*:*
@@ -158,25 +159,36 @@ chmod +x /usr/local/bin/fzg1-buttonsd /usr/local/bin/ag-rotate
 if [ ! -f /etc/fzg1-buttons.conf ]; then   # never clobber the operator's edits
 cat > /etc/fzg1-buttons.conf << 'EOF'
 # FZ-G1 bezel button actions.
-# Edit a command below and it takes effect on the next press - no restart.
-# Anything runnable works, e.g.:
+# Edit a command and it takes effect on the next press - no restart needed.
+#
+# HARDWARE REALITY (probed 2026-08-15 across all 16 input devices, the kernel
+# log and the ACPI event layer): the ROTATION button is the ONLY bezel button
+# that reaches Linux. A1 and A2 emit nothing whatsoever - in Windows they were
+# serviced by a Panasonic driver with no Debian equivalent, so there is nothing
+# to bind. Do not spend time on them without new evidence.
+#
+# Available commands:
 #   /usr/local/bin/ag-osk            toggle the on-screen keyboard
-#   /usr/local/bin/ag-rotate         rotate screen a step (touch follows)
+#   /usr/local/bin/ag-rotate         rotate the screen a step (touch follows)
+#   /usr/local/bin/ag-rotate normal  put rotation back to landscape
 #   /usr/local/bin/ag-split full     guidance back to full screen
 #   /usr/local/bin/ag-split youtube  half guidance / half YouTube
 #   /usr/local/bin/ag-split spotify  half guidance / half Spotify
 
-# Hold this many milliseconds or more to count as a long press:
-LONG_MS=600
+# Hold this many milliseconds or more to count as a long press.
+# A normal press on this tablet measures ~200-650ms, so keep this well above:
+# 600 was too low and turned every ordinary press into a long one.
+LONG_MS=1500
 
-A1_SHORT="/usr/local/bin/ag-osk"
-A1_LONG="/usr/local/bin/ag-split full"
-A2_SHORT="/usr/local/bin/ag-rotate"
-A2_LONG="/usr/local/bin/ag-rotate normal"
+ROTATION_SHORT="/usr/local/bin/ag-osk"
+ROTATION_LONG="/usr/local/bin/ag-rotate"
 
-# Kernel hotkey codes A2 reports (panasonic-laptop cannot map these to keys).
-A2_PRESS_HOTKEY="0x0054"
-A2_RELEASE_HOTKEY="0x0055"
+# A second button, only if one is ever identified (its codes show up in
+# journalctl -u fzg1-buttons-daemon).
+BTN2_SHORT=""
+BTN2_LONG=""
+BTN2_PRESS_HOTKEY=""
+BTN2_RELEASE_HOTKEY=""
 EOF
 fi
 cat > /etc/systemd/system/fzg1-buttons-daemon.service << 'EOF'
