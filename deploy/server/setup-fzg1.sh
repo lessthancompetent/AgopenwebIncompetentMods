@@ -316,9 +316,16 @@ case "$1" in
   full|*)
     # close entertainment windows, guidance back to full screen
     for w in $(wmctrl -l | grep -iE "youtube|spotify" | cut -d" " -f1); do wmctrl -i -c "$w"; done
-    # maximize, don't fullscreen — keeps the panel touch-reachable (no keyboard in cab)
-    [ -n "$AG" ] && { wmctrl -i -r "$AG" -b remove,fullscreen
-                      wmctrl -i -r "$AG" -b add,maximized_vert,maximized_horz; }
+    if [ -n "$AG" ]; then
+      # maximize, don't fullscreen — keeps the panel touch-reachable (no keyboard in cab)
+      wmctrl -i -a "$AG"
+      wmctrl -i -r "$AG" -b remove,fullscreen
+      wmctrl -i -r "$AG" -b add,maximized_vert,maximized_horz
+    else
+      # Guidance window is gone (operator closed it, or it crashed) and there is
+      # otherwise NO way back to it from the tablet — relaunch the kiosk.
+      nohup /usr/local/bin/agopenweb-kiosk >/dev/null 2>&1 &
+    fi
     ;;
 esac
 EOF
