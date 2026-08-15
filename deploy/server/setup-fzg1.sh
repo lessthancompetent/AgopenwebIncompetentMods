@@ -87,7 +87,27 @@ sleep 6
 # (no keyboard in the cab). Maximized keeps the XFCE panel reachable so the
 # operator can tap the desktop launchers (Split YouTube / Split Spotify /
 # Guidance Full) without any keyboard.
-exec chromium --app=http://localhost:5174 --start-maximized --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required
+exec chromium --app=http://localhost:5174 --start-maximized --force-device-scale-factor=1.5 --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required
+EOF
+
+# HiDPI: the FZ-G1 is 1920x1200 at 10" (~220 DPI) — stock XFCE renders tiny.
+# xfconf needs the user's session bus, so apply at login via autostart
+# (idempotent). Chromium/Spotify get their own scale flags where launched.
+cat > /usr/local/bin/ag-hidpi << 'EOF'
+#!/bin/sh
+xfconf-query -c xsettings -p /Xft/DPI -n -t int -s 168
+xfconf-query -c xsettings -p /Gtk/CursorThemeSize -n -t int -s 48
+xfconf-query -c xfwm4 -p /general/theme -n -t string -s Default-xhdpi
+xfconf-query -c xfce4-panel -p /panels/panel-1/size -n -t int -s 52 2>/dev/null
+xfconf-query -c xfce4-desktop -p /desktop-icons/icon-size -n -t uint -s 64 2>/dev/null
+EOF
+chmod +x /usr/local/bin/ag-hidpi
+cat > "$AGHOME/.config/autostart/ag-hidpi.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=Tablet display scaling
+Exec=/usr/local/bin/ag-hidpi
+X-GNOME-Autostart-enabled=true
 EOF
 chmod +x /usr/local/bin/agopenweb-kiosk
 cat > "$AGHOME/.config/autostart/agopenweb-kiosk.desktop" << EOF
@@ -118,7 +138,7 @@ case "$1" in
   youtube)
     [ -n "$AG" ] && { wmctrl -i -r "$AG" -b remove,fullscreen,maximized_vert,maximized_horz
                       wmctrl -i -r "$AG" -e "0,0,0,$HALF,$H"; }
-    chromium --new-window --app=https://www.youtube.com &
+    chromium --new-window --force-device-scale-factor=1.5 --app=https://www.youtube.com &
     sleep 3
     YT=$(wmctrl -l | grep -iE "youtube" | head -1 | cut -d" " -f1)
     [ -n "$YT" ] && { wmctrl -i -r "$YT" -b remove,maximized_vert,maximized_horz
@@ -127,7 +147,7 @@ case "$1" in
   spotify)
     [ -n "$AG" ] && { wmctrl -i -r "$AG" -b remove,fullscreen,maximized_vert,maximized_horz
                       wmctrl -i -r "$AG" -e "0,0,0,$HALF,$H"; }
-    pgrep -x spotify >/dev/null || spotify &
+    pgrep -x spotify >/dev/null || spotify --force-device-scale-factor=1.5 &
     sleep 4
     SP=$(wmctrl -l | grep -i "spotify" | head -1 | cut -d" " -f1)
     [ -n "$SP" ] && { wmctrl -i -r "$SP" -b remove,maximized_vert,maximized_horz
