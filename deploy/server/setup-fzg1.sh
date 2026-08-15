@@ -101,10 +101,28 @@ systemd-hwdb update
 udevadm trigger --sysname-match="event*" || true
 cat > /usr/local/bin/ag-osk << 'EOF'
 #!/bin/sh
-# Toggle the on-screen keyboard (FZ-G1 A1 button)
-if pgrep -x onboard >/dev/null; then pkill -x onboard; else onboard & fi
+# FZ-G1 A1 button: toggle on-screen keyboard visibility.
+# onboard stays running (autostart, hidden); we only flip visibility over
+# D-Bus — kill/restart toggling raced the bezel button's key-repeat and
+# left onboard dead. Debounce absorbs the repeat events of one long press.
+now=$(date +%s%N); last=$(cat /tmp/.ag-osk-stamp 2>/dev/null || echo 0)
+[ $(( (now - last) / 1000000 )) -lt 700 ] && exit 0
+echo "$now" > /tmp/.ag-osk-stamp
+if pgrep -x onboard >/dev/null; then
+  dbus-send --type=method_call --dest=org.onboard.Onboard \
+    /org/onboard/Onboard/Keyboard org.onboard.Onboard.Keyboard.ToggleVisible
+else
+  onboard &
+fi
 EOF
 chmod +x /usr/local/bin/ag-osk
+cat > "$AGHOME/.config/autostart/ag-osk-daemon.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=Onboard OSK daemon
+Exec=onboard
+X-GNOME-Autostart-enabled=true
+EOF
 
 # HiDPI: the FZ-G1 is 1920x1200 at 10" (~220 DPI) — stock XFCE renders tiny.
 # xfconf needs the user's session bus, so apply at login via autostart
@@ -123,6 +141,9 @@ xset -dpms
 xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -n -t bool -s false
 # bezel button A1 (mapped to XF86Launch1 by the hwdb rule) toggles the OSK
 xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/XF86Launch1 -n -t string -s /usr/local/bin/ag-osk
+# onboard daemon starts hidden; docked to screen bottom for cab use
+gsettings set org.onboard start-minimized true 2>/dev/null
+gsettings set org.onboard.window docking-enabled true 2>/dev/null
 for ch in blank-on-ac blank-on-battery dpms-on-ac-sleep dpms-on-ac-off dpms-on-battery-sleep dpms-on-battery-off; do
   xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/$ch -n -t int -s 0
 done
