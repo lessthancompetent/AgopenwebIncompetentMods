@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""FZ-G1 bezel buttons: short-press / long-press dispatch.
+
+The two programmable bezel buttons reach Linux by completely different routes,
+which is why neither works with a plain desktop keyboard shortcut:
+
+  A1  fires AT scancode 0x65 *together with* Left Meta - it carries its Windows
+      "Tablet PC Settings -> Buttons" assignment in firmware, so the kernel
+      reports KEY_PROG1 with a modifier held. Anything bound to the bare key
+      never matches. We read the evdev node directly instead, which also means
+      the buttons keep working under a fullscreen browser that holds focus.
+
+  A2  produces no input event at all. The panasonic-laptop driver does not know
+      the code and only logs "Unknown hotkey event: 0x0054" on press and 0x0055
+      on release. We follow /dev/kmsg and use the kernel's own timestamps to
+      measure how long it was held.
+
+Actions live in /etc/fzg1-buttons.conf and are re-read on every press, so
+edits take effect without restarting the service.
+"""
+import glob
+import os
+import struct
+import subprocess
+import threading
+import time
+
+EVENT_FMT = "llHHi"  # struct input_event on 64-bit
+EVENT_SIZE = struct.calcsize(EVENT_FMT)
+EV_KEY = 0x01
+KEY_PROG1 = 148
+CONF = "/etc/fzg1-buttons.conf"
+DEFAULTS = {
+    "LONG_MS": "600",
+    "A1_SHORT": "",
+    "A1_LONG": "",
+    "A2_SHORT": "",
+    "A2_LONG": "",
+    "A2_PRESS_HOTKEY": "0x0054",
+    "A2_RELEASE_HOTKEY": "0x0055",
+}
+
+
+def load_conf():
+    cfg = dict(DEFAULTS)
+    try:
+        with open(CONF) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                cfg[key.strip()] = value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return cfg
+
+
+def long_ms(cfg):
+    try:
+        return int(cfg.get("LONG_MS", 600))
+    except ValueError:
+        return 600
+
+
+def desktop_user():
+    try:
+        who = subprocess.run(["who"], capture_output=True, text=True).stdout
+        for line in who.splitlines():
+            if ":0" in line or "tty" in line:
+                return line.split()[0]
+    except Exception:
+        pass
+    return os.environ.get("AGUSER", "agopenweb")
+
+
+def run_action(cmd):
+    """Run an action inside the logged-in desktop session (we are root)."""
+    if not cmd:
+        return
+    user = desktop_user()
+    try:
+        uid = subprocess.run(["id", "-u", user], capture_output=True,
+                             text=True).stdout.strip() or "1000"
+    except Exception:
+        uid = "1000"
+    env = ("DISPLAY=:0 XAUTHORITY=/home/%s/.Xauthority "
+           "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus" % (user, uid))
+    subprocess.Popen(["su", user, "-c", "%s %s" % (env, cmd)],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def dispatch(button, held_ms):
+    cfg = load_conf()
+    suffix = "_LONG" if held_ms >= long_ms(cfg) else "_SHORT"
+    run_action(cfg.get(button + suffix, ""))
+
+
+def find_keyboard():
+    for path in sorted(glob.glob("/dev/input/event*")):
+        name_file = "/sys/class/input/%s/device/name" % os.path.basename(path)
+        try:
+            with open(name_file) as fh:
+                if "AT Translated Set 2 keyboard" in fh.read():
+                    return path
+        except OSError:
+            continue
+    return None
+
+
+def watch_a1():
+    """Read KEY_PROG1 press/release straight off the keyboard device."""
+    while True:
+        dev = find_keyboard()
+        if not dev:
+            time.sleep(5)
+            continue
+        pressed_at = None
+        try:
+            with open(dev, "rb") as fh:
+                while True:
+                    data = fh.read(EVENT_SIZE)
+                    if not data:
+                        break
+                    _s, _us, etype, code, value = struct.unpack(EVENT_FMT, data)
+                    if etype != EV_KEY or code != KEY_PROG1:
+                        continue
+                    if value == 1:
+                        pressed_at = time.monotonic()
+                    elif value == 0 and pressed_at is not None:
+                        held = (time.monotonic() - pressed_at) * 1000
+                        pressed_at = None
+                        dispatch("A1", held)
+        except OSError:
+            time.sleep(5)
+
+
+def watch_a2():
+    """Follow /dev/kmsg for the hotkey codes the panasonic driver cannot map.
+
+    Each record looks like:  6,123,7048402458,-;panasonic-laptop: ...
+    where the third field is a monotonic timestamp in microseconds - which is
+    exactly the press duration source we need.
+    """
+    while True:
+        try:
+            with open("/dev/kmsg", "rb") as fh:
+                fh.seek(0, os.SEEK_END)  # skip the backlog
+                pressed_us = None
+                while True:
+                    line = fh.readline()
+                    if not line:
+                        time.sleep(0.2)
+                        continue
+                    try:
+                        head, msg = line.decode("utf-8", "replace").split(";", 1)
+                        stamp_us = int(head.split(",")[2])
+                    except (ValueError, IndexError):
+                        continue
+                    if "hotkey event" not in msg:
+                        continue
+                    cfg = load_conf()
+                    press = cfg["A2_PRESS_HOTKEY"].lower()
+                    release = cfg["A2_RELEASE_HOTKEY"].lower()
+                    low = msg.lower()
+                    if press in low:
+                        pressed_us = stamp_us
+                    elif release in low and pressed_us is not None:
+                        held = (stamp_us - pressed_us) / 1000.0
+                        pressed_us = None
+                        dispatch("A2", held)
+        except OSError:
+            time.sleep(5)
+
+
+def main():
+    threading.Thread(target=watch_a2, daemon=True).start()
+    watch_a1()
+
+
+if __name__ == "__main__":
+    main()

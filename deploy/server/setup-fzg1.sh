@@ -116,15 +116,84 @@ sleep 6
 exec chromium --app=http://localhost:5174 --start-maximized --force-device-scale-factor=1.5 --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required
 EOF
 
-# Bezel button A1 -> on-screen keyboard toggle. A1 arrives as AT scancode 0x65,
-# unknown to the kernel by default; map it to PROG1 (XF86Launch1) and bind that
-# to an onboard toggle. (A2 etc. can be added here the same way once probed.)
+# Bezel buttons A1/A2 -> short-press and long-press actions.
+#
+# Probed on the real tablet 2026-08-15; both buttons need explaining:
+#   A1 fires AT scancode 0x65 *together with* Left Meta — it carries its
+#      Windows "Tablet PC Settings -> Buttons" assignment in firmware, so Linux
+#      sees Super+<key>. A desktop shortcut bound to the bare key NEVER fires;
+#      that cost an afternoon. The daemon reads evdev directly instead, which
+#      also survives a fullscreen browser holding keyboard focus.
+#   A2 produces no input event at all — panasonic-laptop only logs
+#      "Unknown hotkey event: 0x0054" (press) / 0x0055 (release), so the daemon
+#      follows /dev/kmsg and times the gap.
+# Actions live in /etc/fzg1-buttons.conf and are re-read on every press.
 cat > /etc/udev/hwdb.d/90-fzg1-buttons.hwdb << 'EOF'
 evdev:atkbd:dmi:bvn*:bvr*:bd*:svnPanasonic*:pnFZG1*:*
  KEYBOARD_KEY_65=prog1
 EOF
 systemd-hwdb update
 udevadm trigger --sysname-match="event*" || true
+# belt-and-braces: pin the scancode in the kernel table too, so the mapping
+# does not depend on udev re-probing the AT keyboard
+cat > /etc/systemd/system/fzg1-buttons.service << 'EOF'
+[Unit]
+Description=FZ-G1 bezel button scancode mapping
+After=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/setkeycodes 65 148
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl enable --now fzg1-buttons >/dev/null 2>&1 || true
+
+apt-get install -y -qq xinput x11-xserver-utils >/dev/null 2>&1 || true
+curl -fsSL "$RAW/fzg1-buttonsd" -o /usr/local/bin/fzg1-buttonsd
+curl -fsSL "$RAW/ag-rotate"    -o /usr/local/bin/ag-rotate
+chmod +x /usr/local/bin/fzg1-buttonsd /usr/local/bin/ag-rotate
+if [ ! -f /etc/fzg1-buttons.conf ]; then   # never clobber the operator's edits
+cat > /etc/fzg1-buttons.conf << 'EOF'
+# FZ-G1 bezel button actions.
+# Edit a command below and it takes effect on the next press - no restart.
+# Anything runnable works, e.g.:
+#   /usr/local/bin/ag-osk            toggle the on-screen keyboard
+#   /usr/local/bin/ag-rotate         rotate screen a step (touch follows)
+#   /usr/local/bin/ag-split full     guidance back to full screen
+#   /usr/local/bin/ag-split youtube  half guidance / half YouTube
+#   /usr/local/bin/ag-split spotify  half guidance / half Spotify
+
+# Hold this many milliseconds or more to count as a long press:
+LONG_MS=600
+
+A1_SHORT="/usr/local/bin/ag-osk"
+A1_LONG="/usr/local/bin/ag-split full"
+A2_SHORT="/usr/local/bin/ag-rotate"
+A2_LONG="/usr/local/bin/ag-rotate normal"
+
+# Kernel hotkey codes A2 reports (panasonic-laptop cannot map these to keys).
+A2_PRESS_HOTKEY="0x0054"
+A2_RELEASE_HOTKEY="0x0055"
+EOF
+fi
+cat > /etc/systemd/system/fzg1-buttons-daemon.service << 'EOF'
+[Unit]
+Description=FZ-G1 bezel button short/long press dispatch
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/local/bin/fzg1-buttonsd
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now fzg1-buttons-daemon >/dev/null 2>&1 || true
 cat > /usr/local/bin/ag-osk << 'EOF'
 #!/bin/sh
 # FZ-G1 A1 button: toggle on-screen keyboard visibility.
@@ -165,8 +234,9 @@ xset s off
 xset s noblank
 xset -dpms
 xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -n -t bool -s false
-# bezel button A1 (mapped to XF86Launch1 by the hwdb rule) toggles the OSK
-xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/XF86Launch1 -n -t string -s /usr/local/bin/ag-osk
+# NOTE: no XF86Launch1 desktop shortcut here on purpose — fzg1-buttons-daemon
+# owns the bezel buttons. A second binding would fire the SHORT action on every
+# press, including long ones.
 # onboard daemon starts hidden; docked to screen bottom for cab use
 gsettings set org.onboard start-minimized true 2>/dev/null
 gsettings set org.onboard.window docking-enabled true 2>/dev/null

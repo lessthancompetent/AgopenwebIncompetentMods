@@ -1,0 +1,43 @@
+#!/bin/sh
+# Rotate the FZ-G1 screen one step: normal -> right -> inverted -> left.
+#
+# Rotating the display alone is not enough on a tablet: the touchscreen and pen
+# keep reporting in panel coordinates, so taps land in the wrong place until the
+# same rotation is applied to each input device as a transformation matrix.
+#
+# Usage: ag-rotate [normal|right|inverted|left]   (no argument = next step)
+STATE="${XDG_CACHE_HOME:-$HOME/.cache}/ag-rotate.state"
+OUT=$(xrandr --query | awk '/ connected/{print $1; exit}')
+[ -z "$OUT" ] && exit 1
+
+CUR=$(cat "$STATE" 2>/dev/null)
+case "$CUR" in normal|right|inverted|left) ;; *) CUR=normal ;; esac
+
+if [ -n "$1" ]; then
+  NEXT="$1"
+else
+  case "$CUR" in
+    normal)   NEXT=right ;;
+    right)    NEXT=inverted ;;
+    inverted) NEXT=left ;;
+    *)        NEXT=normal ;;
+  esac
+fi
+
+case "$NEXT" in
+  normal)   MATRIX="1 0 0 0 1 0 0 0 1" ;;
+  right)    MATRIX="0 1 0 -1 0 1 0 0 1" ;;
+  inverted) MATRIX="-1 0 1 0 -1 1 0 0 1" ;;
+  left)     MATRIX="0 -1 1 1 0 0 0 0 1" ;;
+  *) exit 1 ;;
+esac
+
+xrandr --output "$OUT" --rotate "$NEXT" || exit 1
+
+# Re-map every touch/pen device so input follows the screen.
+xinput --list --name-only 2>/dev/null | grep -iE "egalax|wacom|touch" | while read -r dev; do
+  xinput set-prop "$dev" "Coordinate Transformation Matrix" $MATRIX 2>/dev/null
+done
+
+mkdir -p "$(dirname "$STATE")"
+echo "$NEXT" > "$STATE"
