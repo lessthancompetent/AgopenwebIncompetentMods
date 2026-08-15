@@ -1,0 +1,126 @@
+# FZ-G1 bezel buttons A1/A2 - patch for the panasonic-hbtn out-of-tree driver
+#
+# Upstream: https://github.com/nagyrobi/panasonic-hbtn (Toughbook CF-18/19)
+#
+# WHY THIS EXISTS
+# On the FZ-G1, A1 and A2 produce no input event and no kernel message at all -
+# nothing in evdev, ACPI netlink (acpi_listen), or dmesg. Reading the firmware
+# tables (acpidump -b && iasl -d dsdt.dat) shows why: the embedded controller
+# queues a code into a 32-byte ring on the \_SB.TBTN device and raises
+# Notify(TBTN, 0x80):
+#
+#     Method (_Q9B) { TBTN.HIND (0x38); Notify (TBTN, 0x80) }   press
+#     Method (_Q9C) { TBTN.HIND (0x39); Notify (TBTN, 0x80) }   release
+#     Method (_QA7) { TBTN.HIND (0x42); Notify (TBTN, 0x80) }   press
+#     Method (_QA8) { TBTN.HIND (0x43); Notify (TBTN, 0x80) }   release
+#
+# Those codes are only retrievable by calling the HINF method, and TBTN's
+# hardware ID is MAT002A - which the in-tree panasonic-laptop driver does NOT
+# claim (it takes MAT0012/0013/0018/0019 only). So the ring fills and nothing
+# ever reads it. panasonic-hbtn already speaks exactly this protocol (HINF +
+# Notify 0x80, bit 0 = release flag) for the CF-18/19, so it only needs the
+# extra ID plus a wider scancode mask.
+#
+# The rotation button is a separate path (_Q97/_Q98 -> HKNF 0x54/0x55 on HKEY)
+# and already works without this driver - see deploy/server/fzg1-buttonsd.
+#
+# CHANGES
+#   1. bind MAT002A as well as the CF-18/19 IDs
+#   2. mask scancodes with 0xfe not 0xe - 0xe truncates 0x38/0x42 into the
+#      CF-18 range (0x38 & 0xe = 0x8 = KEY_ENTER). All original entries are
+#      below 0x10 and even, so 0xfe leaves them unchanged.
+#   3. map 0x38 -> KEY_PROG2 and 0x42 -> KEY_PROG3
+#   4. build fixes for kernel 6.x: sparse_keymap_free() no longer exists (the
+#      keymap is freed with the input device) and acpi_driver .remove now
+#      returns void.
+#
+# BUILD + LOAD
+#   sudo apt install build-essential linux-headers-$(uname -r) git
+#   git clone https://github.com/nagyrobi/panasonic-hbtn && cd panasonic-hbtn
+#   patch -p1 < panasonic-hbtn-fzg1.patch
+#   make && sudo insmod ./panasonic-hbtn.ko
+#
+# SECURE BOOT: this tablet ships with Secure Boot enabled and kernel
+# lockdown=integrity, which refuses unsigned modules ("Key was rejected by
+# service"). Either sign the module with an enrolled MOK key (preferred - keeps
+# Secure Boot on) or disable Secure Boot in the BIOS. Once loaded, point
+# fzg1-buttonsd at the new "Panasonic Tablet Button Support" input device and
+# give the buttons short/long actions in /etc/fzg1-buttons.conf.
+
+diff --git a/panasonic-hbtn.c b/panasonic-hbtn.c
+index d47b7a0..f135631 100644
+--- a/panasonic-hbtn.c
++++ b/panasonic-hbtn.c
+@@ -49,12 +49,13 @@ MODULE_LICENSE("GPL");
+ #define ACPI_PCC_INPUT_PHYS    "panasonic/hbtn0"
+
+ static int acpi_pcc_hbtn_add(struct acpi_device *device);
+-static int acpi_pcc_hbtn_remove(struct acpi_device *device);
++static void acpi_pcc_hbtn_remove(struct acpi_device *device);
+ static void acpi_pcc_hbtn_notify(struct acpi_device *device, u32 event);
+
+ static const struct acpi_device_id pcc_device_ids[] = {
+     { "MAT001F", 0},
+     { "MAT0020", 0},
++    { "MAT002A", 0},	/* FZ-G1 tablet buttons (\_SB.TBTN) */
+     { "", 0},
+ };
+ MODULE_DEVICE_TABLE(acpi, pcc_device_ids);
+@@ -76,6 +77,8 @@ static const struct key_entry panasonic_keymap[] = {
+     { KE_KEY, 0x6, { KEY_DIRECTION } }, /* Screen rotate */
+     { KE_KEY, 0x8, { KEY_ENTER } }, /* Enter */
+     { KE_KEY, 0xA, { KEY_MENU } }, /* XF86MenuKB */
++    { KE_KEY, 0x38, { KEY_PROG2 } },	/* FZ-G1 bezel button */
++    { KE_KEY, 0x42, { KEY_PROG3 } },	/* FZ-G1 bezel button */
+     { KE_END, 0 }
+ };
+
+@@ -105,7 +108,7 @@ static void acpi_pcc_generate_keyinput(struct pcc_acpi *pcc)
+     acpi_bus_generate_netlink_event(pcc->device->pnp.device_class,
+ 				dev_name(&pcc->device->dev), HBTN_NOTIFY, result);
+
+-    ke = sparse_keymap_entry_from_scancode(hotk_input_dev, result & 0xe);
++    ke = sparse_keymap_entry_from_scancode(hotk_input_dev, result & 0xfe);
+     if (!ke) {
+         ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
+                   "Unknown hbtn event: %d\n", result));
+@@ -167,7 +170,6 @@ static int acpi_pcc_init_input(struct pcc_acpi *pcc)
+     return 0;
+
+  err_free_keymap:
+-    sparse_keymap_free(input_dev);
+  err_free_dev:
+     input_free_device(input_dev);
+     return error;
+@@ -175,7 +177,8 @@ static int acpi_pcc_init_input(struct pcc_acpi *pcc)
+
+ static void acpi_pcc_destroy_input(struct pcc_acpi *pcc)
+ {
+-    sparse_keymap_free(pcc->input_dev);
++    /* sparse_keymap_free() is gone in modern kernels - the keymap is
++     * released along with the input device. */
+     input_unregister_device(pcc->input_dev);
+     /*
+      * No need to input_free_device() since core input API refcounts
+@@ -238,18 +241,17 @@ static int __init acpi_pcc_init(void)
+     return 0;
+ }
+
+-static int acpi_pcc_hbtn_remove(struct acpi_device *device)
++/* .remove is void (*)(struct acpi_device *) in modern kernels */
++static void acpi_pcc_hbtn_remove(struct acpi_device *device)
+ {
+     struct pcc_acpi *pcc = acpi_driver_data(device);
+
+     if (!device || !pcc)
+-        return -EINVAL;
++        return;
+
+     acpi_pcc_destroy_input(pcc);
+
+     kfree(pcc);
+-
+-    return 0;
+ }
+
+ static void __exit acpi_pcc_exit(void)
