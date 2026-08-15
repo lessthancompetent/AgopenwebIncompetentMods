@@ -83,7 +83,11 @@ mkdir -p "$AGHOME/.config/autostart"
 cat > /usr/local/bin/agopenweb-kiosk << 'EOF'
 #!/bin/sh
 sleep 6
-exec chromium --kiosk --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required http://localhost:5174
+# App-mode maximized window, NOT --kiosk: a hard kiosk is a touch-only jail
+# (no keyboard in the cab). Maximized keeps the XFCE panel reachable so the
+# operator can tap the desktop launchers (Split YouTube / Split Spotify /
+# Guidance Full) without any keyboard.
+exec chromium --app=http://localhost:5174 --start-maximized --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required
 EOF
 chmod +x /usr/local/bin/agopenweb-kiosk
 cat > "$AGHOME/.config/autostart/agopenweb-kiosk.desktop" << EOF
@@ -132,7 +136,9 @@ case "$1" in
   full|*)
     # close entertainment windows, guidance back to full screen
     for w in $(wmctrl -l | grep -iE "youtube|spotify" | cut -d" " -f1); do wmctrl -i -c "$w"; done
-    [ -n "$AG" ] && wmctrl -i -r "$AG" -b add,fullscreen
+    # maximize, don't fullscreen — keeps the panel touch-reachable (no keyboard in cab)
+    [ -n "$AG" ] && { wmctrl -i -r "$AG" -b remove,fullscreen
+                      wmctrl -i -r "$AG" -b add,maximized_vert,maximized_horz; }
     ;;
 esac
 EOF
