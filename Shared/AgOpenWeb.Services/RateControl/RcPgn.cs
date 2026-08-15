@@ -113,10 +113,13 @@ public sealed class RcModuleConfig
     public byte OnboardRelayType { get; set; }
     /// <summary>Same encoding as <see cref="OnboardRelayType"/>.</summary>
     public byte RemoteRelayType { get; set; }
-    /// <summary>Flow/dir/PWM pins for sensor 0 and sensor 1 (6 bytes, in that order).</summary>
-    public byte[] SensorPins { get; set; } = new byte[6];
+    // int[] rather than byte[] purely so these persist as readable JSON arrays -
+    // System.Text.Json writes byte[] as base64, which would make the saved setup
+    // (the master record of an implement) opaque and un-editable by hand.
+    /// <summary>Flow/dir/PWM pins for sensor 0 and sensor 1 (6 values, in that order).</summary>
+    public int[] SensorPins { get; set; } = new int[6];
     /// <summary>Relay output pins 0-15.</summary>
-    public byte[] RelayPins { get; set; } = new byte[16];
+    public int[] RelayPins { get; set; } = new int[16];
     public byte WorkPin { get; set; }
     public byte PressurePin { get; set; }
 }
@@ -297,10 +300,10 @@ public static class RcPgn
         d[4] = cmd;
         d[5] = c.OnboardRelayType;
         d[6] = c.RemoteRelayType;
-        var sp = c.SensorPins ?? Array.Empty<byte>();
-        for (int i = 0; i < 6 && i < sp.Length; i++) d[7 + i] = sp[i];
-        var rp = c.RelayPins ?? Array.Empty<byte>();
-        for (int i = 0; i < 16 && i < rp.Length; i++) d[13 + i] = rp[i];
+        var sp = c.SensorPins ?? Array.Empty<int>();
+        for (int i = 0; i < 6 && i < sp.Length; i++) d[7 + i] = (byte)sp[i];
+        var rp = c.RelayPins ?? Array.Empty<int>();
+        for (int i = 0; i < 16 && i < rp.Length; i++) d[13 + i] = (byte)rp[i];
         d[29] = c.WorkPin;
         d[30] = c.PressurePin;
         d[31] = 0;     // spare

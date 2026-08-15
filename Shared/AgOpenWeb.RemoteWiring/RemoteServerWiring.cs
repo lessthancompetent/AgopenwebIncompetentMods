@@ -153,6 +153,42 @@ public static partial class RemoteServerWiring
                                             .SetProductValue(ri, ra[1], ra[2]);
                                     return;
                                 }
+                                case "rate.modSet": // "moduleId,sensorId,key,value" — module setup field
+                                {
+                                    var ms = arg.Split(',', 4);
+                                    if (ms.Length >= 4
+                                        && int.TryParse(ms[0], System.Globalization.NumberStyles.Integer, inv, out var mm)
+                                        && int.TryParse(ms[1], System.Globalization.NumberStyles.Integer, inv, out var msn))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .SetModuleSetupValue(mm, msn, ms[2], ms[3]);
+                                    return;
+                                }
+                                case "rate.modPush": // "moduleId,sensorId,what" — what = ctl|pins|cfg|all
+                                {
+                                    var mp = arg.Split(',', 3);
+                                    if (mp.Length >= 3
+                                        && int.TryParse(mp[0], System.Globalization.NumberStyles.Integer, inv, out var pm)
+                                        && int.TryParse(mp[1], System.Globalization.NumberStyles.Integer, inv, out var ps))
+                                    {
+                                        var rc = services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>();
+                                        switch (mp[2])
+                                        {
+                                            case "ctl": rc.PushControlSettings(pm, ps); break;
+                                            case "pins": rc.PushSensorPins(pm, ps); break;
+                                            case "cfg": rc.PushModuleConfig(pm); break;
+                                            case "all": rc.PushAll(pm); break;
+                                        }
+                                    }
+                                    return;
+                                }
+                                case "rate.modAssignId": // arg = moduleId — commissioning: EVERY
+                                {                        // listening module adopts this id, so the
+                                                         // client must confirm one board is connected.
+                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var ai))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .PushModuleConfig(ai, assignId: true);
+                                    return;
+                                }
                                 case "rate.resetQty": // arg = productIdx
                                 {
                                     if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var rq))
@@ -897,6 +933,7 @@ public static partial class RemoteServerWiring
                     var rateSvc = services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>();
                     rateSvc.Start();
                     server.RateControlJsonProvider = () => rateSvc.BuildStatusJson();
+                    server.ModuleSetupJsonProvider = () => rateSvc.BuildModuleSetupJson();
                     // Flowmeter totals → job records: baseline the counters when a
                     // job opens; coverage export auto-fills measured applied.
                     services.GetRequiredService<AgOpenWeb.Services.Interfaces.IJobService>()

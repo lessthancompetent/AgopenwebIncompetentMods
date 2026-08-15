@@ -12,9 +12,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using AgOpenWeb.Models.Configuration;
@@ -43,6 +45,17 @@ public interface IRateControlService
     /// meaningful flowed. Feeds the job record's applied amount.</summary>
     (string Product, double Amount, string Unit)? GetMeasuredJobApplied();
     string BuildStatusJson();
+
+    // Module setup — settings the module keeps in EEPROM (PGN 32700/32507/32502).
+    // Sent only on demand: they make the module save, and pin changes restart it.
+    string BuildModuleSetupJson();
+    void SetModuleSetupValue(int moduleId, int sensorId, string key, string value);
+    void PushControlSettings(int moduleId, int sensorId);
+    void PushSensorPins(int moduleId, int sensorId);
+    /// <summary>assignId is commissioning only — EVERY listening module adopts the
+    /// id, so the caller must have confirmed a single connected board.</summary>
+    void PushModuleConfig(int moduleId, bool assignId = false);
+    void PushAll(int moduleId);
 }
 
 public sealed class RateControlService : IRateControlService, IDisposable
@@ -91,6 +104,22 @@ public sealed class RateControlService : IRateControlService, IDisposable
             string root = Path.GetDirectoryName(_settings.Settings.FieldsDirectory)
                 ?? _settings.Settings.FieldsDirectory;
             return Path.Combine(root, "RateController", "products.json");
+        }
+    }
+
+    /// <summary>Module setup is scoped to the TOOL: the module is bolted to that
+    /// implement, and its calibration must never leak to another one. Falls back
+    /// to a shared file when no tool profile is active.</summary>
+    private string ModuleSetupFile
+    {
+        get
+        {
+            string root = Path.GetDirectoryName(_settings.Settings.FieldsDirectory)
+                ?? _settings.Settings.FieldsDirectory;
+            string tool = _configStore.ActiveToolProfileName;
+            if (string.IsNullOrWhiteSpace(tool)) tool = "default";
+            foreach (char c in Path.GetInvalidFileNameChars()) tool = tool.Replace(c, '_');
+            return Path.Combine(root, "RateController", $"modules-{tool}.json");
         }
     }
 
@@ -490,6 +519,252 @@ public sealed class RateControlService : IRateControlService, IDisposable
     }
 
     // ---- persistence ----
+
+    // ── Module setup (PGN 32700 / 32507 / 32502) ────────────────────────────
+    // Settings the module keeps in EEPROM. Sent only when asked: they make the
+    // module save and, for pin changes, restart — never on the periodic tick.
+
+    private readonly List<RcModuleSetup> _moduleSetups = new();
+    private string _moduleSetupsToolKey = string.Empty;
+
+    /// <summary>Module setups for the ACTIVE tool, reloading if the tool changed.</summary>
+    public IReadOnlyList<RcModuleSetup> ModuleSetups
+    {
+        get { EnsureModuleSetupsLoaded(); return _moduleSetups; }
+    }
+
+    private void EnsureModuleSetupsLoaded()
+    {
+        string key = ModuleSetupFile;
+        if (key == _moduleSetupsToolKey && _moduleSetups.Count > 0) return;
+        _moduleSetupsToolKey = key;
+        _moduleSetups.Clear();
+        try
+        {
+            if (File.Exists(key))
+            {
+                var loaded = JsonSerializer.Deserialize<List<RcModuleSetup>>(File.ReadAllText(key));
+                if (loaded != null) _moduleSetups.AddRange(loaded);
+            }
+        }
+        catch { }
+        if (_moduleSetups.Count == 0)
+            _moduleSetups.Add(new RcModuleSetup { ModuleId = 0, Sensors = { new RcSensorSetup { SensorId = 0 } } });
+    }
+
+    private void SaveModuleSetups()
+    {
+        try
+        {
+            string path = ModuleSetupFile;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            List<RcModuleSetup> copy;
+            lock (_ioLock) copy = new List<RcModuleSetup>(_moduleSetups);
+            File.WriteAllText(path, JsonSerializer.Serialize(copy,
+                new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Rate] module setup save failed: {ex.Message}");
+        }
+    }
+
+    public RcModuleSetup GetOrAddModuleSetup(int moduleId)
+    {
+        EnsureModuleSetupsLoaded();
+        foreach (var m in _moduleSetups)
+            if (m.ModuleId == moduleId) return m;
+        var added = new RcModuleSetup { ModuleId = moduleId, Sensors = { new RcSensorSetup { SensorId = 0 } } };
+        _moduleSetups.Add(added);
+        SaveModuleSetups();
+        return added;
+    }
+
+    /// <summary>Send one frame to a module: per-NIC directed broadcast plus a
+    /// direct unicast once the module's address is known (some builds run the
+    /// W5500 with broadcast blocking).</summary>
+    private void SendToModule(int moduleId, byte[] frame)
+    {
+        if (_socket == null) return;
+        foreach (var ep in BroadcastEndpoints())
+            try { _socket.SendTo(frame, ep); } catch { }
+        IPAddress? addr;
+        lock (_ioLock) _moduleAddresses.TryGetValue(moduleId, out addr);
+        if (addr != null)
+            try { _socket.SendTo(frame, new IPEndPoint(addr, RcPgn.ModuleListenPort)); } catch { }
+    }
+
+    /// <summary>Push valve/PID tuning for one sensor (32502).</summary>
+    public void PushControlSettings(int moduleId, int sensorId)
+    {
+        var s = GetOrAddModuleSetup(moduleId).GetOrAddSensor(sensorId);
+        SendToModule(moduleId, RcPgn.BuildControlSettings(moduleId, sensorId, s.Control));
+    }
+
+    /// <summary>Push pin assignments for one sensor (32507). The module saves and
+    /// restarts when a pin actually changes.</summary>
+    public void PushSensorPins(int moduleId, int sensorId)
+    {
+        var s = GetOrAddModuleSetup(moduleId).GetOrAddSensor(sensorId);
+        SendToModule(moduleId, RcPgn.BuildSensorPins(moduleId, sensorId, s.Pins));
+    }
+
+    /// <summary>Push module-wide config (32700).
+    ///
+    /// <paramref name="assignId"/> is commissioning only: EVERY module listening
+    /// adopts the id, so the caller must have confirmed a single connected board.
+    /// It is never persisted — a saved "assign" flag would silently re-brand
+    /// modules on later pushes.</summary>
+    public void PushModuleConfig(int moduleId, bool assignId = false)
+    {
+        var m = GetOrAddModuleSetup(moduleId);
+        var cfg = m.Config;
+        cfg.ModuleId = (byte)moduleId;
+        bool prior = cfg.AssignModuleId;
+        cfg.AssignModuleId = assignId;
+        try { SendToModule(moduleId, RcPgn.BuildModuleConfig(cfg)); }
+        finally { cfg.AssignModuleId = prior; }
+    }
+
+    /// <summary>Push everything for a module: config, then each sensor's pins and
+    /// tuning. Used to recommission a replaced or reset board from the tool's
+    /// saved record.</summary>
+    public void PushAll(int moduleId)
+    {
+        var m = GetOrAddModuleSetup(moduleId);
+        PushModuleConfig(moduleId);
+        foreach (var s in m.Sensors)
+        {
+            PushSensorPins(moduleId, s.SensorId);
+            PushControlSettings(moduleId, s.SensorId);
+        }
+    }
+
+    /// <summary>Edit one module-setup field. Keys are "cfg.*" for module-wide
+    /// values, "pins.*" and "ctl.*" for the addressed sensor.</summary>
+    public void SetModuleSetupValue(int moduleId, int sensorId, string key, string value)
+    {
+        var m = GetOrAddModuleSetup(moduleId);
+        var sen = m.GetOrAddSensor(sensorId);
+        byte B() => byte.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var b) ? b : (byte)0;
+        ushort U() => ushort.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var u) ? u : (ushort)0;
+        bool Bo() => value == "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+
+        switch (key)
+        {
+            // module-wide (32700)
+            case "cfg.sensorCount": m.Config.SensorCount = B(); break;
+            case "cfg.invertRelay": m.Config.InvertRelayControl = Bo(); break;
+            case "cfg.invertFlow": m.Config.InvertFlowControl = Bo(); break;
+            case "cfg.workMomentary": m.Config.WorkPinMomentary = Bo(); break;
+            case "cfg.is3Wire": m.Config.Is3WireValve = Bo(); break;
+            case "cfg.ads1115": m.Config.Ads1115Enabled = Bo(); break;
+            case "cfg.onboardRelayType": m.Config.OnboardRelayType = B(); break;
+            case "cfg.remoteRelayType": m.Config.RemoteRelayType = B(); break;
+            case "cfg.workPin": m.Config.WorkPin = B(); break;
+            case "cfg.pressurePin": m.Config.PressurePin = B(); break;
+            // per-sensor pins (32507)
+            case "pins.flow": sen.Pins.FlowPin = B(); break;
+            case "pins.dir": sen.Pins.DirPin = B(); break;
+            case "pins.pwm": sen.Pins.PwmPin = B(); break;
+            case "pins.bin": sen.Pins.BinPin = B(); break;
+            case "pins.invertBin": sen.Pins.InvertBinSensor = Bo(); break;
+            // per-sensor valve/PID tuning (32502)
+            case "ctl.maxPwm": sen.Control.MaxPwm = B(); break;
+            case "ctl.minPwm": sen.Control.MinPwm = B(); break;
+            case "ctl.kp": sen.Control.Kp = B(); break;
+            case "ctl.ki": sen.Control.Ki = B(); break;
+            case "ctl.deadband": sen.Control.Deadband = B(); break;
+            case "ctl.brakePoint": sen.Control.BrakePoint = B(); break;
+            case "ctl.slowAdjust": sen.Control.PidSlowAdjust = B(); break;
+            case "ctl.slewRate": sen.Control.SlewRate = B(); break;
+            case "ctl.maxIntegral": sen.Control.MaxIntegral = B(); break;
+            case "ctl.pidTime": sen.Control.PidTime = B(); break;
+            case "ctl.timedMinStart": sen.Control.TimedMinStart = B(); break;
+            case "ctl.timedAdjust": sen.Control.TimedAdjust = U(); break;
+            case "ctl.timedPause": sen.Control.TimedPause = U(); break;
+            case "ctl.pulseMinHz": sen.Control.PulseMinHz = B(); break;
+            case "ctl.pulseMaxHz": sen.Control.PulseMaxHz = U(); break;
+            case "ctl.sampleWindow": sen.Control.PulseSampleSize = B(); break;
+            default: return;
+        }
+        // Mirror the sensor pins into the module-wide packet, which carries its
+        // own copy for sensors 0-1; leaving them stale would undo a pin change
+        // the next time the config is pushed.
+        for (int i = 0; i < 2; i++)
+        {
+            var s = m.Sensors.Find(x => x.SensorId == i);
+            if (s == null) continue;
+            m.Config.SensorPins[i * 3 + 0] = s.Pins.FlowPin;
+            m.Config.SensorPins[i * 3 + 1] = s.Pins.DirPin;
+            m.Config.SensorPins[i * 3 + 2] = s.Pins.PwmPin;
+        }
+        SaveModuleSetups();
+    }
+
+    /// <summary>Module setup for the web client, plus which modules are actually
+    /// answering right now (so the UI can gate ID assignment on a single board).</summary>
+    public string BuildModuleSetupJson()
+    {
+        EnsureModuleSetupsLoaded();
+        var sb = new StringBuilder();
+        sb.Append("{\"tool\":").Append(JsonSerializer.Serialize(_configStore.ActiveToolProfileName ?? ""));
+        sb.Append(",\"useRateControl\":").Append(_configStore.Tool.UseRateControl ? "true" : "false");
+        List<int> heard;
+        lock (_ioLock) heard = new List<int>(_moduleAddresses.Keys);
+        heard.Sort();
+        sb.Append(",\"modulesHeard\":[").Append(string.Join(",", heard)).Append(']');
+        sb.Append(",\"modules\":[");
+        for (int i = 0; i < _moduleSetups.Count; i++)
+        {
+            var m = _moduleSetups[i];
+            if (i > 0) sb.Append(',');
+            var c = m.Config;
+            sb.Append("{\"moduleId\":").Append(m.ModuleId)
+              .Append(",\"cfg\":{\"sensorCount\":").Append(c.SensorCount)
+              .Append(",\"invertRelay\":").Append(c.InvertRelayControl ? "true" : "false")
+              .Append(",\"invertFlow\":").Append(c.InvertFlowControl ? "true" : "false")
+              .Append(",\"workMomentary\":").Append(c.WorkPinMomentary ? "true" : "false")
+              .Append(",\"is3Wire\":").Append(c.Is3WireValve ? "true" : "false")
+              .Append(",\"ads1115\":").Append(c.Ads1115Enabled ? "true" : "false")
+              .Append(",\"onboardRelayType\":").Append(c.OnboardRelayType)
+              .Append(",\"remoteRelayType\":").Append(c.RemoteRelayType)
+              .Append(",\"workPin\":").Append(c.WorkPin)
+              .Append(",\"pressurePin\":").Append(c.PressurePin)
+              .Append("},\"sensors\":[");
+            for (int j = 0; j < m.Sensors.Count; j++)
+            {
+                var s = m.Sensors[j];
+                if (j > 0) sb.Append(',');
+                sb.Append("{\"sensorId\":").Append(s.SensorId)
+                  .Append(",\"pins\":{\"flow\":").Append(s.Pins.FlowPin)
+                  .Append(",\"dir\":").Append(s.Pins.DirPin)
+                  .Append(",\"pwm\":").Append(s.Pins.PwmPin)
+                  .Append(",\"bin\":").Append(s.Pins.BinPin)
+                  .Append(",\"invertBin\":").Append(s.Pins.InvertBinSensor ? "true" : "false")
+                  .Append("},\"ctl\":{\"maxPwm\":").Append(s.Control.MaxPwm)
+                  .Append(",\"minPwm\":").Append(s.Control.MinPwm)
+                  .Append(",\"kp\":").Append(s.Control.Kp)
+                  .Append(",\"ki\":").Append(s.Control.Ki)
+                  .Append(",\"deadband\":").Append(s.Control.Deadband)
+                  .Append(",\"brakePoint\":").Append(s.Control.BrakePoint)
+                  .Append(",\"slowAdjust\":").Append(s.Control.PidSlowAdjust)
+                  .Append(",\"slewRate\":").Append(s.Control.SlewRate)
+                  .Append(",\"maxIntegral\":").Append(s.Control.MaxIntegral)
+                  .Append(",\"pidTime\":").Append(s.Control.PidTime)
+                  .Append(",\"timedMinStart\":").Append(s.Control.TimedMinStart)
+                  .Append(",\"timedAdjust\":").Append(s.Control.TimedAdjust)
+                  .Append(",\"timedPause\":").Append(s.Control.TimedPause)
+                  .Append(",\"pulseMinHz\":").Append(s.Control.PulseMinHz)
+                  .Append(",\"pulseMaxHz\":").Append(s.Control.PulseMaxHz)
+                  .Append(",\"sampleWindow\":").Append(s.Control.PulseSampleSize)
+                  .Append("}}");
+            }
+            sb.Append("]}");
+        }
+        sb.Append("]}");
+        return sb.ToString();
+    }
 
     private void LoadProducts()
     {

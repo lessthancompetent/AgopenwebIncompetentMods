@@ -105,6 +105,10 @@ public sealed class RemoteServerHost
     /// Served at GET /api/ratecontrol.</summary>
     public Func<string>? RateControlJsonProvider { get; set; }
 
+    /// <summary>Module setup (pins, module flags, valve tuning) for the active tool.
+    /// Served at GET /api/ratemodules.</summary>
+    public Func<string>? ModuleSetupJsonProvider { get; set; }
+
     /// <summary>Host-supplied persisted web-camera view (pitch radians, zoom px/m).
     /// Read once per connection and sent in the seed so the client restores its last
     /// tilt+zoom (issue #35). Set after <see cref="StartAsync"/>.</summary>
@@ -238,6 +242,8 @@ public sealed class RemoteServerHost
         // Rate control: products + live module state for the Rate panel.
         server.MapGet("/api/ratecontrol", () => SimpleWebServer.Response.Text(
             RateControlJsonProvider?.Invoke() ?? "{\"plane\":false,\"products\":[]}", "application/json", noStore));
+        server.MapGet("/api/ratemodules", () => SimpleWebServer.Response.Text(
+            ModuleSetupJsonProvider?.Invoke() ?? "{\"modules\":[],\"modulesHeard\":[]}", "application/json", noStore));
 
         // CanvasKit (WASM Skia) — bundled locally for offline in-cab use. The wasm is
         // served as application/wasm so the browser can streaming-compile it.

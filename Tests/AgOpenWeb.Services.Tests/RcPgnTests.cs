@@ -225,8 +225,8 @@ public class RcPgnTests
             ModuleId = 5, SensorCount = 2,
             InvertRelayControl = true, Is3WireValve = true, Ads1115Enabled = true,
             OnboardRelayType = 1, RemoteRelayType = 0,
-            SensorPins = new byte[] { 34, 26, 27, 35, 32, 33 },
-            RelayPins = new byte[] { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 2, 3 },
+            SensorPins = new[] { 34, 26, 27, 35, 32, 33 },
+            RelayPins = new[] { 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 2, 3 },
             WorkPin = 39, PressurePin = 36,
         };
         var d = RcPgn.BuildModuleConfig(c);
@@ -271,8 +271,8 @@ public class RcPgnTests
         var d = RcPgn.BuildModuleConfig(new RcModuleConfig
         {
             ModuleId = 1,
-            SensorPins = new byte[] { 34, 26 },
-            RelayPins = new byte[] { 4 },
+            SensorPins = new[] { 34, 26 },
+            RelayPins = new[] { 4 },
         });
         Assert.That(d.Length, Is.EqualTo(33));
         Assert.That(d[7], Is.EqualTo(34));

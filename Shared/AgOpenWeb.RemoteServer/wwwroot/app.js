@@ -1963,7 +1963,7 @@ document.getElementById('dlg-tracks-close').addEventListener('pointerdown', e =>
 // to ConfigurationStore). Grows one entry per sub-phase.
 // Navigation: top-level buttons open a panel; sub-panels (vehicle/tool config) are
 // reached from the hub and carry a Back button. One panel open at a time.
-const LN_NAV_PANELS = ['routeplan', 'ratecontrol', 'obstacles', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
+const LN_NAV_PANELS = ['routeplan', 'ratecontrol', 'modulesetup', 'obstacles', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
 // Watch-the-tractor panels opt OUT of the light-dismiss scrim — the map must stay
 // interactive (pan/zoom to follow the tractor while capturing). They close only via
 // the header (Back / ✕).
@@ -2185,6 +2185,125 @@ document.getElementById('ft-ratecontrol').addEventListener('pointerdown', e => {
 // Products A-E on RC hardware modules. Status polls /api/ratecontrol at 1 Hz
 // while the panel is open; edits go out as rate.set|idx,key,value (Tier-2).
 let rtProducts = [], rtSel = 0, rtPlane = false, rtPoll = null;
+// ── Module setup ────────────────────────────────────────────────────────────
+// Pins, module flags and valve tuning: the settings the module keeps in EEPROM,
+// which nothing else can write (its own web page is only WiFi + a master
+// button). Saved against the tool, so a replaced module can be recommissioned
+// here rather than from a Windows machine that no longer exists in the cab.
+let msData = null, msMod = 0, msSen = 0;
+function msOpen() {
+  lnOpen('modulesetup', 'ln-fieldtools', null);
+  msRefresh();
+}
+function msRefresh() {
+  fetch('/api/ratemodules').then(r => r.json()).then(d => { msData = d; msRender(); }).catch(() => {});
+}
+function msCurrent() {
+  if (!msData || !msData.modules) return null;
+  const m = msData.modules.find(x => x.moduleId === msMod) || msData.modules[0];
+  if (!m) return null;
+  const s = (m.sensors || []).find(x => x.sensorId === msSen) || (m.sensors || [])[0];
+  return { m, s };
+}
+function msRender() {
+  if (!msData) return;
+  document.getElementById('ms-tool').textContent = msData.tool || '(none)';
+  const heard = msData.modulesHeard || [];
+  document.getElementById('ms-heard').textContent =
+    heard.length ? 'heard: ' + heard.join(', ') : 'no modules heard';
+  // module / sensor selectors
+  const modSel = document.getElementById('ms-mod');
+  if (modSel.dataset.n !== String((msData.modules || []).length)) {
+    modSel.innerHTML = '';
+    for (const m of (msData.modules || [])) {
+      const o = document.createElement('option');
+      o.value = m.moduleId; o.textContent = m.moduleId; modSel.appendChild(o);
+    }
+    modSel.dataset.n = String((msData.modules || []).length);
+  }
+  modSel.value = String(msMod);
+  const cur = msCurrent();
+  if (!cur) return;
+  msMod = cur.m.moduleId;
+  const senSel = document.getElementById('ms-sen');
+  const sensors = cur.m.sensors || [];
+  if (senSel.dataset.n !== String(sensors.length)) {
+    senSel.innerHTML = '';
+    for (const s of sensors) {
+      const o = document.createElement('option');
+      o.value = s.sensorId; o.textContent = s.sensorId; senSel.appendChild(o);
+    }
+    senSel.dataset.n = String(sensors.length);
+  }
+  if (cur.s) { msSen = cur.s.sensorId; senSel.value = String(msSen); }
+  const val = k => {
+    const [grp, name] = k.split('.');
+    if (grp === 'cfg') return cur.m.cfg ? cur.m.cfg[name] : undefined;
+    if (!cur.s) return undefined;
+    return grp === 'pins' ? cur.s.pins[name] : cur.s.ctl[name];
+  };
+  for (const inp of document.querySelectorAll('#modulesetup .ms-num')) {
+    const v = val(inp.dataset.k);
+    if (v != null && document.activeElement !== inp) inp.value = v;
+  }
+  for (const b of document.querySelectorAll('#modulesetup .ms-tgl')) {
+    const on = !!val(b.dataset.k);
+    b.classList.toggle('active', on);
+    b.textContent = on ? 'On' : 'Off';
+  }
+}
+function msSend(key, value) {
+  transport.send('rate.modSet|' + msMod + ',' + msSen + ',' + key + ',' + value);
+  setTimeout(msRefresh, 150);
+}
+function msStatus(t) {
+  const el = document.getElementById('ms-status');
+  el.textContent = t;
+  setTimeout(() => { if (el.textContent === t) el.textContent = ''; }, 4000);
+}
+document.getElementById('rt-modsetup').addEventListener('pointerdown', e => { e.stopPropagation(); msOpen(); });
+document.getElementById('ms-back').addEventListener('pointerdown', e => { e.stopPropagation(); rtOpen(); });
+document.getElementById('ms-mod').addEventListener('change', e => { msMod = parseInt(e.target.value) || 0; msRender(); });
+document.getElementById('ms-sen').addEventListener('change', e => { msSen = parseInt(e.target.value) || 0; msRender(); });
+for (const inp of document.querySelectorAll('#modulesetup .ms-num'))
+  inp.addEventListener('change', () => {
+    const v = parseInt(inp.value);
+    if (Number.isFinite(v)) msSend(inp.dataset.k, v);
+  });
+for (const b of document.querySelectorAll('#modulesetup .ms-tgl'))
+  b.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    msSend(b.dataset.k, b.classList.contains('active') ? '0' : '1');
+  });
+document.getElementById('ms-pushcfg').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('rate.modPush|' + msMod + ',' + msSen + ',cfg'); msStatus('Module config sent.');
+});
+document.getElementById('ms-pushpins').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('rate.modPush|' + msMod + ',' + msSen + ',pins');
+  msStatus('Pins sent — the module restarts if any changed.');
+});
+document.getElementById('ms-pushctl').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('rate.modPush|' + msMod + ',' + msSen + ',ctl'); msStatus('Valve tuning sent.');
+});
+document.getElementById('ms-pushall').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('rate.modPush|' + msMod + ',' + msSen + ',all');
+  msStatus('Full setup sent to module ' + msMod + '.');
+});
+// ID assignment is unconditional at the module end: every board listening adopts
+// it. Guarded here because getting it wrong gives two modules the same id and
+// neither works.
+document.getElementById('ms-assignid').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const heard = (msData && msData.modulesHeard) || [];
+  if (heard.length > 1) {
+    msStatus('Refused: ' + heard.length + ' modules are answering. Disconnect all but one.');
+    return;
+  }
+  showConfirm('Assign module ID',
+    'EVERY rate module connected right now will take ID ' + msMod +
+    '. Only do this with a single board connected.',
+    () => { transport.send('rate.modAssignId|' + msMod); msStatus('ID ' + msMod + ' assigned.'); });
+});
 function rtOpen() {
   lnOpen('ratecontrol', 'ln-fieldtools', rtRender);
   rtRefresh();
