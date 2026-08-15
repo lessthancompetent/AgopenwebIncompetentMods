@@ -18,8 +18,8 @@ id "$AGUSER" >/dev/null
 
 echo "== packages =="
 apt-get update -qq
-apt-get install -y -qq curl syncthing chromium openssh-server >/dev/null 2>&1 || \
-  apt-get install -y -qq curl syncthing chromium-browser openssh-server >/dev/null
+apt-get install -y -qq curl syncthing chromium openssh-server onboard >/dev/null 2>&1 || \
+  apt-get install -y -qq curl syncthing chromium-browser openssh-server onboard >/dev/null
 
 echo "== remote access =="
 mkdir -p "$AGHOME/.ssh"
@@ -90,6 +90,22 @@ sleep 6
 exec chromium --app=http://localhost:5174 --start-maximized --force-device-scale-factor=1.5 --noerrdialogs --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required
 EOF
 
+# Bezel button A1 -> on-screen keyboard toggle. A1 arrives as AT scancode 0x65,
+# unknown to the kernel by default; map it to PROG1 (XF86Launch1) and bind that
+# to an onboard toggle. (A2 etc. can be added here the same way once probed.)
+cat > /etc/udev/hwdb.d/90-fzg1-buttons.hwdb << 'EOF'
+evdev:atkbd:dmi:bvn*:bvr*:bd*:svnPanasonic*:pnFZG1*:*
+ KEYBOARD_KEY_65=prog1
+EOF
+systemd-hwdb update
+udevadm trigger --sysname-match="event*" || true
+cat > /usr/local/bin/ag-osk << 'EOF'
+#!/bin/sh
+# Toggle the on-screen keyboard (FZ-G1 A1 button)
+if pgrep -x onboard >/dev/null; then pkill -x onboard; else onboard & fi
+EOF
+chmod +x /usr/local/bin/ag-osk
+
 # HiDPI: the FZ-G1 is 1920x1200 at 10" (~220 DPI) — stock XFCE renders tiny.
 # xfconf needs the user's session bus, so apply at login via autostart
 # (idempotent). Chromium/Spotify get their own scale flags where launched.
@@ -105,6 +121,8 @@ xset s off
 xset s noblank
 xset -dpms
 xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -n -t bool -s false
+# bezel button A1 (mapped to XF86Launch1 by the hwdb rule) toggles the OSK
+xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/XF86Launch1 -n -t string -s /usr/local/bin/ag-osk
 for ch in blank-on-ac blank-on-battery dpms-on-ac-sleep dpms-on-ac-off dpms-on-battery-sleep dpms-on-battery-off; do
   xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/$ch -n -t int -s 0
 done
