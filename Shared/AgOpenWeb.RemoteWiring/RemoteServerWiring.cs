@@ -153,6 +153,30 @@ public static partial class RemoteServerWiring
                                             .SetProductValue(ri, ra[1], ra[2]);
                                     return;
                                 }
+                                case "rate.catAdd": // "name,units,defaultRate" — catalogue entry
+                                {
+                                    var ca2 = arg.Split(',', 3);
+                                    if (ca2.Length >= 1 && !string.IsNullOrWhiteSpace(ca2[0]))
+                                    {
+                                        double.TryParse(ca2.Length >= 3 ? ca2[2] : "0", num, inv, out var cdr);
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .CatalogAddOrUpdate(ca2[0], ca2.Length >= 2 ? ca2[1] : "", cdr);
+                                    }
+                                    return;
+                                }
+                                case "rate.catRemove": // arg = product name
+                                    services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                        .CatalogRemove(arg);
+                                    return;
+                                case "rate.assign": // "channelIdx,productName" — load a catalogue product
+                                {
+                                    var aa = arg.Split(',', 2);
+                                    if (aa.Length >= 2
+                                        && int.TryParse(aa[0], System.Globalization.NumberStyles.Integer, inv, out var ain))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .AssignProduct(ain, aa[1]);
+                                    return;
+                                }
                                 case "rate.modSet": // "moduleId,sensorId,key,value" — module setup field
                                 {
                                     var ms = arg.Split(',', 4);

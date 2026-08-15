@@ -2184,7 +2184,7 @@ document.getElementById('ft-ratecontrol').addEventListener('pointerdown', e => {
 // ---- Rate Control (native AOG_RC port) -------------------------------------
 // Products A-E on RC hardware modules. Status polls /api/ratecontrol at 1 Hz
 // while the panel is open; edits go out as rate.set|idx,key,value (Tier-2).
-let rtProducts = [], rtSel = 0, rtPlane = false, rtPoll = null;
+let rtProducts = [], rtSel = 0, rtPlane = false, rtPoll = null, rtCatalog = [], rtTool = '';
 // ── Module setup ────────────────────────────────────────────────────────────
 // Pins, module flags and valve tuning: the settings the module keeps in EEPROM,
 // which nothing else can write (its own web page is only WiFi + a master
@@ -2317,11 +2317,53 @@ function rtRefresh() {
   fetch('/api/ratecontrol').then(r => r.json()).then(d => {
     rtProducts = (d && d.products) || [];
     rtPlane = !!(d && d.plane);
+    rtCatalog = (d && d.catalog) || [];
+    rtTool = (d && d.tool) || '';
     rtRender();
   }).catch(() => {});
 }
 function rtSend(key, value) { transport.send('rate.set|' + rtSel + ',' + key + ',' + value); setTimeout(rtRefresh, 250); }
+document.getElementById('rt-catsel').addEventListener('change', e => {
+  const name = e.target.value;
+  if (!name) return;
+  // Loads identity + usual rate only; the channel's meter cal and module/sensor
+  // stay put, because those describe this implement, not the product.
+  transport.send('rate.assign|' + rtSel + ',' + name);
+  setTimeout(rtRefresh, 250);
+});
+document.getElementById('rt-catadd').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const p = rtProducts[rtSel];
+  if (!p || !p.name) return;
+  transport.send('rate.catAdd|' + String(p.name).replace(/[|,]/g, ' ').trim() + ',' +
+                 String(p.units || '').replace(/[|,]/g, ' ').trim() + ',' + (p.targetRate || 0));
+  setTimeout(rtRefresh, 250);
+});
+// Products live in a shared catalogue (a product is used by more than one tool:
+// DAP goes through the spreader and the drill); the channel holds this tool's
+// hardware settings, so meter calibration never follows a product to another
+// machine.
+function rtRenderCatalog() {
+  const sel = document.getElementById('rt-catsel');
+  if (!sel) return;
+  const items = rtCatalog || [];
+  const cur = (rtProducts[rtSel] || {}).name || '';
+  sel.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = ''; none.textContent = items.length ? '— pick —' : '(catalogue empty)';
+  sel.appendChild(none);
+  for (const it of items) {
+    const o = document.createElement('option');
+    o.value = it.name;
+    o.textContent = it.name + ' (' + it.units + ')';
+    sel.appendChild(o);
+  }
+  sel.value = items.some(i => i.name === cur) ? cur : '';
+  const tool = document.getElementById('rt-tool');
+  if (tool) tool.textContent = rtTool || '(none)';
+}
 function rtRender() {
+  rtRenderCatalog();
   const tabs = document.getElementById('rt-tabs');
   tabs.innerHTML = '';
   for (let i = 0; i < 5; i++) {

@@ -46,6 +46,12 @@ public interface IRateControlService
     (string Product, double Amount, string Unit)? GetMeasuredJobApplied();
     string BuildStatusJson();
 
+    // Product catalogue: what products exist, shared across tools and jobs. The
+    // channel keeps the machine's own settings (meter cal above all).
+    void CatalogAddOrUpdate(string name, string units, double defaultRate);
+    void CatalogRemove(string name);
+    void AssignProduct(int index, string name);
+
     // Module setup — settings the module keeps in EEPROM (PGN 32700/32507/32502).
     // Sent only on demand: they make the module save, and pin changes restart it.
     string BuildModuleSetupJson();
@@ -93,17 +99,48 @@ public sealed class RateControlService : IRateControlService, IDisposable
         _settings = settings;
     }
 
-    public IReadOnlyList<RateProduct> Products => _products;
+    /// <summary>Channels for the ACTIVE tool (reloads when the tool changes).</summary>
+    public IReadOnlyList<RateProduct> Products { get { EnsureToolChannels(); return _products; } }
 
     public bool PlaneActive { get; private set; }
 
-    private string ProductsFile
+    private string RateDir
     {
         get
         {
             string root = Path.GetDirectoryName(_settings.Settings.FieldsDirectory)
                 ?? _settings.Settings.FieldsDirectory;
-            return Path.Combine(root, "RateController", "products.json");
+            return Path.Combine(root, "RateController");
+        }
+    }
+
+    /// <summary>Pre-split single global product list. Kept only to migrate from.</summary>
+    private string LegacyProductsFile => Path.Combine(RateDir, "products.json");
+
+    /// <summary>The product catalogue — what products exist, shared by all tools.</summary>
+    private string CatalogFile => Path.Combine(RateDir, "products-catalog.json");
+
+    /// <summary>Channels belong to the TOOL: the meter calibration is a property of
+    /// that implement's flow meter, and must not follow a product to another
+    /// machine. A drill and a spreader both running DAP keep separate cals.
+    ///
+    /// Keyed on the tool the IN-MEMORY channels belong to, NOT the active one:
+    /// on a tool switch the config store flips first, so keying this on the live
+    /// tool wrote the outgoing implement's channels into the incoming
+    /// implement's file and destroyed its calibration.</summary>
+    private string ProductsFile => ProductsFileFor(
+        string.IsNullOrEmpty(_productsToolKey) ? ToolKey : _productsToolKey);
+
+    private string ProductsFileFor(string toolKey) => Path.Combine(RateDir, $"channels-{toolKey}.json");
+
+    private string ToolKey
+    {
+        get
+        {
+            string tool = _configStore.ActiveToolProfileName;
+            if (string.IsNullOrWhiteSpace(tool)) tool = "default";
+            foreach (char c in Path.GetInvalidFileNameChars()) tool = tool.Replace(c, '_');
+            return tool;
         }
     }
 
@@ -219,6 +256,10 @@ public sealed class RateControlService : IRateControlService, IDisposable
         if (!_running || _socket == null) return;
         try
         {
+            // Notice a tool change here too: otherwise, after hitching a different
+            // implement, we would keep pushing the previous one's calibration and
+            // targets to the module until something touched the UI.
+            EnsureToolChannels();
             var (activeHaPerMin, totalHaPerMin) = HectaresPerMinute();
 
             // Area accrues with worked ground regardless of module presence
@@ -348,6 +389,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     public void SetProductValue(int index, string key, string value)
     {
+        EnsureToolChannels();
         if (index < 0 || index >= _products.Count) return;
         var p = _products[index];
         var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -381,6 +423,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     public void ResetQuantity(int index)
     {
+        EnsureToolChannels();
         if (index < 0 || index >= _products.Count) return;
         lock (_ioLock)
         {
@@ -392,6 +435,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     public void ResetArea(int index)
     {
+        EnsureToolChannels();
         if (index < 0 || index >= _products.Count) return;
         lock (_ioLock) { _products[index].AreaApplied = 0; _dirty = true; }
     }
@@ -400,12 +444,14 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     public void MarkJobStart()
     {
+        EnsureToolChannels();
         lock (_ioLock)
             foreach (var p in _products) p.JobStartQuantity = p.QuantityApplied;
     }
 
     public (string Product, double Amount, string Unit)? GetMeasuredJobApplied()
     {
+        EnsureToolChannels();
         lock (_ioLock)
         {
             RateProduct? best = null;
@@ -429,6 +475,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     public void CalibrationStart(int index)
     {
+        EnsureToolChannels();
         if (index < 0 || index >= _products.Count) return;
         var p = _products[index];
         lock (_ioLock)
@@ -443,6 +490,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     public void CalibrationStop(int index)
     {
+        EnsureToolChannels();
         if (index < 0 || index >= _products.Count) return;
         var p = _products[index];
         lock (_ioLock)
@@ -456,6 +504,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     public void CalibrationApply(int index, double actualUnits)
     {
+        EnsureToolChannels();
         if (index < 0 || index >= _products.Count) return;
         var p = _products[index];
         lock (_ioLock)
@@ -480,7 +529,22 @@ public sealed class RateControlService : IRateControlService, IDisposable
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         var sb = new System.Text.StringBuilder(1024);
-        sb.Append("{\"plane\":").Append(PlaneActive ? "true" : "false").Append(",\"products\":[");
+        EnsureToolChannels();
+        sb.Append("{\"plane\":").Append(PlaneActive ? "true" : "false");
+        sb.Append(",\"tool\":").Append(JsonSerializer.Serialize(_configStore.ActiveToolProfileName ?? ""));
+        sb.Append(",\"useRateControl\":").Append(_configStore.Tool.UseRateControl ? "true" : "false");
+        sb.Append(",\"catalog\":[");
+        for (int i = 0; i < _catalog.Items.Count; i++)
+        {
+            var it = _catalog.Items[i];
+            if (i > 0) sb.Append(',');
+            sb.Append("{\"name\":").Append(JsonSerializer.Serialize(it.Name))
+              .Append(",\"units\":").Append(JsonSerializer.Serialize(it.Units))
+              .Append(",\"defaultRate\":").Append(it.DefaultRate.ToString(CultureInfo.InvariantCulture))
+              .Append('}');
+        }
+        sb.Append(']');
+        sb.Append(",\"products\":[");
         lock (_ioLock)
         {
             for (int i = 0; i < _products.Count; i++)
@@ -769,11 +833,19 @@ public sealed class RateControlService : IRateControlService, IDisposable
     private void LoadProducts()
     {
         _products.Clear();
+        _productsToolKey = ToolKey;
         try
         {
-            if (File.Exists(ProductsFile))
+            string path = ProductsFile;
+            // First run after the per-tool split: adopt the old shared list for
+            // this tool rather than starting the operator from scratch. The file
+            // is left in place — other tools migrate from it the same way, each
+            // then diverging (which is the point: separate calibrations).
+            if (!File.Exists(path) && File.Exists(LegacyProductsFile))
+                path = LegacyProductsFile;
+            if (File.Exists(path))
             {
-                var loaded = JsonSerializer.Deserialize<List<RateProduct>>(File.ReadAllText(ProductsFile));
+                var loaded = JsonSerializer.Deserialize<List<RateProduct>>(File.ReadAllText(path));
                 if (loaded != null) _products.AddRange(loaded);
             }
         }
@@ -781,6 +853,102 @@ public sealed class RateControlService : IRateControlService, IDisposable
         while (_products.Count < ProductCount)
             _products.Add(new RateProduct { Name = $"Product {(char)('A' + _products.Count)}" });
         if (_products.Count > ProductCount) _products.RemoveRange(ProductCount, _products.Count - ProductCount);
+        LoadCatalog();
+        SeedCatalogFromChannels();
+    }
+
+    // ── Product catalogue (global) ──────────────────────────────────────────
+
+    private readonly RateCatalog _catalog = new();
+    private string _productsToolKey = string.Empty;
+
+    public RateCatalog Catalog { get { EnsureToolChannels(); return _catalog; } }
+
+    /// <summary>Reload this tool's channels when the active tool profile changes,
+    /// so switching implements switches calibrations with it.</summary>
+    private void EnsureToolChannels()
+    {
+        if (ToolKey == _productsToolKey) return;
+        // Order matters: SaveProducts() resolves its path from _productsToolKey,
+        // so it must run BEFORE LoadProducts() moves that key to the new tool.
+        SaveProducts();          // outgoing implement's channels, to its own file
+        LoadProducts();          // incoming implement's channels + its calibration
+    }
+
+    private void LoadCatalog()
+    {
+        _catalog.Items.Clear();
+        try
+        {
+            if (File.Exists(CatalogFile))
+            {
+                var loaded = JsonSerializer.Deserialize<RateCatalog>(File.ReadAllText(CatalogFile));
+                if (loaded?.Items != null) _catalog.Items.AddRange(loaded.Items);
+            }
+        }
+        catch { }
+    }
+
+    private void SaveCatalog()
+    {
+        try
+        {
+            Directory.CreateDirectory(RateDir);
+            File.WriteAllText(CatalogFile, JsonSerializer.Serialize(_catalog,
+                new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Rate] catalog save failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Bootstrap the catalogue from whatever the channels already carry,
+    /// so an operator upgrading does not find an empty product list. Placeholder
+    /// "Product B" style names are skipped.</summary>
+    private void SeedCatalogFromChannels()
+    {
+        bool added = false;
+        foreach (var p in _products)
+        {
+            if (string.IsNullOrWhiteSpace(p.Name)) continue;
+            if (p.Name.StartsWith("Product ", StringComparison.OrdinalIgnoreCase) && p.Name.Length <= 10) continue;
+            if (_catalog.Find(p.Name) != null) continue;
+            _catalog.AddOrUpdate(p.Name, p.Units, p.TargetRate);
+            added = true;
+        }
+        if (added) SaveCatalog();
+    }
+
+    public void CatalogAddOrUpdate(string name, string units, double defaultRate)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return;
+        EnsureToolChannels();
+        _catalog.AddOrUpdate(name, units, defaultRate);
+        SaveCatalog();
+    }
+
+    public void CatalogRemove(string name)
+    {
+        EnsureToolChannels();
+        if (_catalog.Remove(name)) SaveCatalog();
+    }
+
+    /// <summary>Load a catalogue product into a channel. Identity (name, units)
+    /// and the usual rate come from the catalogue; the channel keeps its own
+    /// hardware settings — module, sensor and above all the meter calibration.</summary>
+    public void AssignProduct(int index, string name)
+    {
+        EnsureToolChannels();
+        if (index < 0 || index >= _products.Count) return;
+        var item = _catalog.Find(name);
+        if (item == null) return;
+        var p = _products[index];
+        p.Name = item.Name;
+        p.Units = item.Units;
+        if (item.DefaultRate > 0) p.TargetRate = item.DefaultRate;
+        _dirty = true;
+        SaveProducts();
     }
 
     private void SaveProducts()

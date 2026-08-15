@@ -2235,6 +2235,12 @@
   <div id="ratecontrol" class="ln-panel rp-panel">
     <div class="ln-hdr"><button class="ln-x" id="rt-back" title="Back">←</button><span class="ln-hdr-title">Rate Control</span><button class="ln-x ln-closex" title="Close">✕</button></div>
     <div class="rp-pats" id="rt-tabs" style="grid-template-columns:repeat(5,1fr)"></div>
+    <div class="rp-row"><span class="cfg-label">Tool</span><span class="cfg-label" id="rt-tool" style="opacity:.8">—</span></div>
+    <!-- Products come from the shared catalogue; the channel keeps this tool's own
+         hardware settings (module/sensor and above all the meter calibration). -->
+    <div class="rp-row"><span class="cfg-label">Product</span>
+      <select class="cfg-sel" id="rt-catsel" style="width:150px" title="Load a product from the catalogue into this channel"></select>
+      <button class="cfg-act" id="rt-catadd" title="Save this channel's name, units and rate to the shared catalogue">+ Catalogue</button></div>
     <div class="rp-row"><span class="cfg-label">Product name</span><input id="rt-name" class="of-input" type="text" style="width:130px"></div>
     <div class="rp-pats" style="grid-template-columns:1fr 1fr">
       <button class="rp-pat" id="rt-enabled">Enabled</button>
