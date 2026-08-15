@@ -283,9 +283,46 @@ echo "== entertainment split (autosteer passenger mode) =="
 apt-get install -y -qq wmctrl xdotool x11-utils >/dev/null
 # Spotify web player needs Widevine DRM that Debian chromium lacks — use the
 # official Linux client instead.
-curl -fsSL https://download.spotify.com/debian/pubkey_C85668DF69375001.gpg | gpg --dearmor -o /usr/share/keyrings/spotify.gpg 2>/dev/null || true
-echo "deb [signed-by=/usr/share/keyrings/spotify.gpg] http://repository.spotify.com stable non-free" > /etc/apt/sources.list.d/spotify.list
-apt-get update -qq && apt-get install -y -qq spotify-client >/dev/null 2>&1 || echo "(spotify install failed - retry later)"
+#
+# Spotify rotates the repo signing key and does NOT always publish the current
+# one at a stable URL: in Aug 2026 the repo was signed with a key absent from
+# every download.spotify.com/debian/pubkey_*.gpg. So try the published keys,
+# then fall back to fetching whatever key id apt says is missing from a
+# keyserver. Failure here is reported LOUDLY — the old version hid it, and the
+# tablet shipped with a Spotify desktop button wired to a program that was
+# never installed.
+install_spotify() {
+  for k in pubkey_6224F9941A8AA6D1 pubkey_5E3C45D7B312C643 pubkey_C85668DF69375001; do
+    curl -fsSL "https://download.spotify.com/debian/$k.gpg" \
+      | gpg --dearmor > /usr/share/keyrings/spotify.gpg 2>/dev/null && break
+  done
+  echo "deb [signed-by=/usr/share/keyrings/spotify.gpg] http://repository.spotify.com stable non-free" \
+    > /etc/apt/sources.list.d/spotify.list
+  if ! apt-get update -qq 2>/tmp/spotify-apt.err; then
+    # "Missing key <FPR>, which is needed to verify signature"
+    local fpr
+    fpr=$(grep -oE 'Missing key [0-9A-F]{40}' /tmp/spotify-apt.err | head -1 | awk '{print $3}') || true
+    if [ -n "$fpr" ] \
+       && gpg --no-default-keyring --keyring /tmp/spotify-ks.gpg \
+              --keyserver hkps://keyserver.ubuntu.com --recv-keys "$fpr" >/dev/null 2>&1; then
+      gpg --no-default-keyring --keyring /tmp/spotify-ks.gpg --export "$fpr" \
+        > /usr/share/keyrings/spotify.gpg
+      apt-get update -qq >/dev/null 2>&1 || true
+    fi
+  fi
+  apt-get install -y -qq spotify-client >/dev/null 2>&1
+}
+if install_spotify && command -v spotify >/dev/null; then
+  echo "  spotify installed"
+else
+  # Leave no dead launcher behind: drop the repo and say so plainly.
+  rm -f /etc/apt/sources.list.d/spotify.list
+  apt-get update -qq >/dev/null 2>&1 || true
+  SPOTIFY_MISSING=1
+  echo "  !! SPOTIFY NOT INSTALLED — its repo key could not be resolved."
+  echo "     The 'Split Spotify' desktop button is NOT being created."
+  echo "     Retry later:  sudo bash $0  (or install spotify by hand)"
+fi
 
 cat > /usr/local/bin/ag-split << 'EOF'
 #!/bin/bash
@@ -341,7 +378,9 @@ Terminal=false
 EOF
 chmod +x "$AGHOME/Desktop/$1.desktop"; }
 mkdesk "Split YouTube" youtube youtube
-mkdesk "Split Spotify" spotify spotify-client
+# Only if it actually installed — a launcher for a missing program looks like a
+# broken tablet, not a missing package.
+[ "${SPOTIFY_MISSING:-0}" = "1" ] || mkdesk "Split Spotify" spotify spotify-client
 mkdesk "Guidance Full" full view-fullscreen
 chown -R "$AGUSER:$AGUSER" "$AGHOME/Desktop"
 
