@@ -37,6 +37,27 @@ if ! command -v tailscale >/dev/null; then
 fi
 tailscale up || true    # prints an auth URL on first run
 
+echo "== wifi profiles (ethernet + wifi run together) =="
+# The cab tablet keeps BOTH links up: ethernet talks to the AIO/rate modules,
+# wifi carries internet. Wired keeps the lower route metric so module traffic
+# never leaves via wifi, even when both sit on the same subnet.
+# One radio = one association at a time, so these are two saved profiles that
+# auto-connect by availability; the house wifi outranks rtkwifi when both are
+# in range. Passphrases are NOT stored here — enter them once on the tablet
+# (network tray icon) or with: nmcli --ask connection up "<name>"
+WIFI_DEV=$(nmcli -t -f DEVICE,TYPE device status | awk -F: '$2=="wifi"{print $1; exit}')
+if [ -n "$WIFI_DEV" ]; then
+  addwifi() { # name, priority
+    nmcli connection show "$1" >/dev/null 2>&1 || \
+      nmcli connection add type wifi con-name "$1" ifname "$WIFI_DEV" ssid "$1" \
+        wifi-sec.key-mgmt wpa-psk connection.autoconnect yes \
+        connection.autoconnect-priority "$2" ipv4.route-metric 600 ipv6.route-metric 600 >/dev/null
+  }
+  addwifi "HOUSE_SSID" 10
+  addwifi "rtkwifi" 5
+  nmcli connection modify "Wired connection 1" ipv4.route-metric 100 2>/dev/null || true
+fi
+
 echo "== fields dir + syncthing =="
 FIELDS="$AGHOME/Documents/AgOpenWeb/Fields"
 mkdir -p "$FIELDS"; chown -R "$AGUSER:$AGUSER" "$AGHOME/Documents"
