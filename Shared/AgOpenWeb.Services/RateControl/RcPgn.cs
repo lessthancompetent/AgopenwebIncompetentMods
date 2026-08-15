@@ -41,6 +41,86 @@ public readonly struct RcModuleStatusFrame
     public bool GoodPinConfig { get; init; }
 }
 
+/// <summary>PGN 32502 payload — one sensor's valve/PID tuning, held in module EEPROM.
+///
+/// Fields are the ON-WIRE values, exactly as AOG_RC stores and displays them, so
+/// numbers from its docs/forum threads transfer unchanged and there is no second
+/// scaling layer to disagree with the firmware. What the module does with each is
+/// noted per field. Defaults match AOG_RC's Props defaults.</summary>
+public sealed class RcControlSettings
+{
+    /// <summary>Percent; module scales to 255 * v / 100.</summary>
+    public byte MaxPwm { get; set; } = 100;
+    /// <summary>Percent; module scales to 255 * v / 100.</summary>
+    public byte MinPwm { get; set; } = 5;
+    /// <summary>0-100; module divides by 100 (dimensionless, normalized PID).</summary>
+    public byte Kp { get; set; } = 40;
+    /// <summary>0-100; module divides by 100.</summary>
+    public byte Ki { get; set; } = 60;
+    /// <summary>Module divides by 1000 (i.e. percent x 10 on the wire).</summary>
+    public byte Deadband { get; set; } = 20;
+    /// <summary>Percent.</summary>
+    public byte BrakePoint { get; set; } = 35;
+    /// <summary>Percent.</summary>
+    public byte PidSlowAdjust { get; set; } = 60;
+    public byte SlewRate { get; set; } = 25;
+    /// <summary>Module divides by 10.</summary>
+    public byte MaxIntegral { get; set; } = 250;
+    /// <summary>Module divides by 100.</summary>
+    public byte TimedMinStart { get; set; } = 50;
+    public ushort TimedAdjust { get; set; } = 80;
+    public ushort TimedPause { get; set; } = 400;
+    public byte PidTime { get; set; } = 150;
+    /// <summary>Hz x 10. Module derives the longest accepted pulse: 10_000_000 / v microseconds.</summary>
+    public byte PulseMinHz { get; set; } = 10;
+    /// <summary>Hz. Module derives the shortest accepted pulse: 1_000_000 / v microseconds.</summary>
+    public ushort PulseMaxHz { get; set; } = 1500;
+    /// <summary>Flow averaging window in centiseconds; module clamps to 5-200 (50-2000 ms).</summary>
+    public byte PulseSampleSize { get; set; } = 40;
+}
+
+/// <summary>PGN 32507 payload — which pins one sensor uses. Changing any of these
+/// makes the module save and restart, so send the full set for a sensor at once.</summary>
+public sealed class RcSensorPins
+{
+    public byte FlowPin { get; set; }
+    /// <summary>Direction pin (IN1 on the driver).</summary>
+    public byte DirPin { get; set; }
+    /// <summary>PWM pin (IN2 on the driver).</summary>
+    public byte PwmPin { get; set; }
+    /// <summary>255 = no bin level sensor / no bin alarm.</summary>
+    public byte BinPin { get; set; } = 255;
+    public bool InvertBinSensor { get; set; }
+}
+
+/// <summary>PGN 32700 payload — module-wide config, including the only way to
+/// assign a module its ID.</summary>
+public sealed class RcModuleConfig
+{
+    public byte ModuleId { get; set; }
+    public byte SensorCount { get; set; } = 1;
+    public bool InvertRelayControl { get; set; }
+    public bool InvertFlowControl { get; set; }
+    public bool WorkPinMomentary { get; set; }
+    public bool Is3WireValve { get; set; }
+    public bool Ads1115Enabled { get; set; }
+    /// <summary>Commissioning only: the module adopts <see cref="ModuleId"/> as its
+    /// new ID regardless of what it currently is. Requires exactly ONE board on the
+    /// network — every module listening will take the ID. Leave false for normal
+    /// updates, where the ID acts as a filter instead.</summary>
+    public bool AssignModuleId { get; set; }
+    /// <summary>0 none, 1 GPIO, 2 PCA9555 x8, 3 PCA9555 x16, 4 MCP23017, 5 PCA9685, 6 PCF8574.</summary>
+    public byte OnboardRelayType { get; set; }
+    /// <summary>Same encoding as <see cref="OnboardRelayType"/>.</summary>
+    public byte RemoteRelayType { get; set; }
+    /// <summary>Flow/dir/PWM pins for sensor 0 and sensor 1 (6 bytes, in that order).</summary>
+    public byte[] SensorPins { get; set; } = new byte[6];
+    /// <summary>Relay output pins 0-15.</summary>
+    public byte[] RelayPins { get; set; } = new byte[16];
+    public byte WorkPin { get; set; }
+    public byte PressurePin { get; set; }
+}
+
 /// <summary>Control-valve kind, mirrors AOG_RC's ControlTypeEnum ordering.</summary>
 public enum RcControlType
 {
@@ -61,6 +141,13 @@ public static class RcPgn
     public const ushort PGN_SENSOR = 32400;        // 0x90 0x7E module → host
     public const ushort PGN_MODULE_STATUS = 32401; // 0x91 0x7E module → host
     public const ushort PGN_RATE_SETTINGS = 32500; // 0xF4 0x7E host → module
+    // Module SETUP packets. These carry settings the module keeps in EEPROM and
+    // that nothing else can write: its own web page is only WiFi + a master
+    // button. Without them a module cannot be commissioned or a valve retuned
+    // away from a Windows machine running the RateController app.
+    public const ushort PGN_CONTROL_SETTINGS = 32502; // 0xF6 0x7E valve/PID tuning
+    public const ushort PGN_SENSOR_PINS = 32507;      // 0xFB 0x7E per-sensor pins
+    public const ushort PGN_MODULE_CONFIG = 32700;    // 0xBC 0x7F module-wide config
 
     /// <summary>Additive CRC over bytes 0..length-1 (RC plane sums from byte 0,
     /// unlike the AOG plane which sums from byte 2).</summary>
@@ -132,6 +219,95 @@ public static class RcPgn
     /// all; it also drives the module's physical relay outputs per section.
     /// <paramref name="masterValveIndex"/> 255 = no flow master valve.
     /// </summary>
+    /// <summary>Build PGN 32502 (control settings) for one sensor. 24 bytes.
+    /// The module stores these in EEPROM and runs the loop from them with the
+    /// tablet off, so this is a push, not a live control message.</summary>
+    public static byte[] BuildControlSettings(int moduleId, int sensorId, RcControlSettings s)
+    {
+        ArgumentNullException.ThrowIfNull(s);
+        var d = new byte[24];
+        d[0] = 0xF6;   // 246
+        d[1] = 0x7E;   // 126
+        d[2] = BuildModSenId(moduleId, sensorId);
+        d[3] = s.MaxPwm;
+        d[4] = s.MinPwm;
+        d[5] = s.Kp;
+        d[6] = s.Ki;
+        d[7] = s.Deadband;
+        d[8] = s.BrakePoint;
+        d[9] = s.PidSlowAdjust;
+        d[10] = s.SlewRate;
+        d[11] = s.MaxIntegral;
+        d[12] = 0;     // spare
+        d[13] = s.TimedMinStart;
+        d[14] = (byte)s.TimedAdjust;
+        d[15] = (byte)(s.TimedAdjust >> 8);
+        d[16] = (byte)s.TimedPause;
+        d[17] = (byte)(s.TimedPause >> 8);
+        d[18] = s.PidTime;
+        d[19] = s.PulseMinHz;
+        d[20] = (byte)s.PulseMaxHz;
+        d[21] = (byte)(s.PulseMaxHz >> 8);
+        d[22] = s.PulseSampleSize;
+        d[23] = Crc(d, 23);
+        return d;
+    }
+
+    /// <summary>Build PGN 32507 (sensor pins), one packet per sensor. 11 bytes.
+    /// The module saves and schedules a restart when any pin actually changes.</summary>
+    public static byte[] BuildSensorPins(int moduleId, int sensorId, RcSensorPins p)
+    {
+        ArgumentNullException.ThrowIfNull(p);
+        var d = new byte[11];
+        d[0] = 0xFB;   // 251
+        d[1] = 0x7E;   // 126
+        d[2] = BuildModSenId(moduleId, sensorId);
+        d[3] = p.FlowPin;
+        d[4] = p.DirPin;
+        d[5] = p.PwmPin;
+        d[6] = p.BinPin;
+        d[7] = (byte)(p.InvertBinSensor ? 1 : 0);
+        d[8] = 0;      // spare
+        d[9] = 0;      // spare
+        d[10] = Crc(d, 10);
+        return d;
+    }
+
+    /// <summary>Build PGN 32700 (module config). 33 bytes.
+    ///
+    /// With <see cref="RcModuleConfig.AssignModuleId"/> set the module adopts the
+    /// ID unconditionally — the only way to commission a board — so exactly one
+    /// board may be connected. Cleared, the ID is a filter and the packet is
+    /// ignored by every other module.</summary>
+    public static byte[] BuildModuleConfig(RcModuleConfig c)
+    {
+        ArgumentNullException.ThrowIfNull(c);
+        var d = new byte[33];
+        d[0] = 0xBC;   // 188
+        d[1] = 0x7F;   // 127
+        d[2] = c.ModuleId;
+        d[3] = c.SensorCount;
+        byte cmd = 0;
+        if (c.InvertRelayControl) cmd |= 1;
+        if (c.InvertFlowControl) cmd |= 2;
+        if (c.WorkPinMomentary) cmd |= 8;
+        if (c.Is3WireValve) cmd |= 16;
+        if (c.Ads1115Enabled) cmd |= 32;
+        if (c.AssignModuleId) cmd |= 64;
+        d[4] = cmd;
+        d[5] = c.OnboardRelayType;
+        d[6] = c.RemoteRelayType;
+        var sp = c.SensorPins ?? Array.Empty<byte>();
+        for (int i = 0; i < 6 && i < sp.Length; i++) d[7 + i] = sp[i];
+        var rp = c.RelayPins ?? Array.Empty<byte>();
+        for (int i = 0; i < 16 && i < rp.Length; i++) d[13 + i] = rp[i];
+        d[29] = c.WorkPin;
+        d[30] = c.PressurePin;
+        d[31] = 0;     // spare
+        d[32] = Crc(d, 32);
+        return d;
+    }
+
     public static byte[] BuildRelaySettings(int moduleId, byte relayLo, byte relayHi,
         byte powerRelayLo = 0, byte powerRelayHi = 0, byte invertedLo = 0, byte invertedHi = 0,
         byte masterValveIndex = 255)
