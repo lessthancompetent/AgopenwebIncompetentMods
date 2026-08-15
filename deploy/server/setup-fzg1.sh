@@ -100,7 +100,16 @@ xfconf-query -c xsettings -p /Gtk/CursorThemeSize -n -t int -s 48
 xfconf-query -c xfwm4 -p /general/theme -n -t string -s Default-xhdpi
 xfconf-query -c xfce4-panel -p /panels/panel-1/size -n -t int -s 52 2>/dev/null
 xfconf-query -c xfce4-desktop -p /desktop-icons/icon-size -n -t uint -s 64 2>/dev/null
+# cab screen: never blank or power down
+xset s off
+xset s noblank
+xset -dpms
+xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -n -t bool -s false
+for ch in blank-on-ac blank-on-battery dpms-on-ac-sleep dpms-on-ac-off dpms-on-battery-sleep dpms-on-battery-off; do
+  xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/$ch -n -t int -s 0
+done
 EOF
+rm -f /etc/xdg/autostart/xfce4-screensaver.desktop
 chmod +x /usr/local/bin/ag-hidpi
 cat > "$AGHOME/.config/autostart/ag-hidpi.desktop" << EOF
 [Desktop Entry]
