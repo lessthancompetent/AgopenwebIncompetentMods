@@ -1019,21 +1019,101 @@ function rpFillSpeeds() {
     if (typeof v === 'number') el.value = Math.round(v * 10) / 10;
   }
 }
+// ── Touch keypad ────────────────────────────────────────────────────────────
+// Numeric entry for a cab tablet with no keyboard. prompt() was unusable there:
+// it is modal, needs a hardware keyboard, and blocks every other control until
+// dismissed — so one stray tap could strand the whole UI.
+// askKeypad({...}, cb) calls cb({value, unit, text}) on OK, or cb(null) on cancel.
+let _kpCb = null, _kpDigits = '', _kpUnit = '';
+function _kpPaint() {
+  document.getElementById('kp-value').textContent = _kpDigits === '' ? '0' : _kpDigits;
+  document.getElementById('kp-unitlbl').textContent = _kpUnit || '';
+}
+function askKeypad(opts, cb) {
+  opts = opts || {};
+  _kpCb = cb || null;
+  _kpDigits = (opts.value != null && opts.value !== 0) ? String(opts.value) : '';
+  _kpUnit = opts.unit || (opts.units && opts.units[0]) || '';
+  document.getElementById('kp-title').textContent = opts.title || 'Enter value';
+  document.getElementById('kp-numlabel').textContent = opts.numLabel || 'Amount';
+  const trow = document.getElementById('kp-textrow'), tinput = document.getElementById('kp-text');
+  if (opts.textLabel) {
+    trow.classList.add('on');
+    document.getElementById('kp-textlabel').textContent = opts.textLabel;
+    tinput.value = opts.text || '';
+  } else {
+    trow.classList.remove('on');
+    tinput.value = '';
+  }
+  const uwrap = document.getElementById('kp-units');
+  uwrap.innerHTML = '';
+  for (const u of (opts.units || [])) {
+    const b = document.createElement('button');
+    b.className = 'kp-unit' + (u === _kpUnit ? ' sel' : '');
+    b.textContent = u;
+    b.addEventListener('pointerdown', ev => {
+      ev.stopPropagation();
+      _kpUnit = u;
+      for (const s of uwrap.children) s.classList.toggle('sel', s === b);
+      _kpPaint();
+    });
+    uwrap.appendChild(b);
+  }
+  _kpPaint();
+  openDialog('dlg-keypad');
+}
+for (const k of document.querySelectorAll('#dlg-keypad .kp-key')) {
+  k.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    const v = k.dataset.k;
+    if (v === 'clear') _kpDigits = '';
+    else if (v === 'back') _kpDigits = _kpDigits.slice(0, -1);
+    else if (v === '.') { if (!_kpDigits.includes('.')) _kpDigits = (_kpDigits || '0') + '.'; }
+    else if (_kpDigits.length < 12) _kpDigits += v;
+    _kpPaint();
+  });
+}
+document.getElementById('kp-cancel').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const cb = _kpCb; _kpCb = null; closeDialog();
+  if (cb) cb(null);
+});
+document.getElementById('kp-ok').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const cb = _kpCb; _kpCb = null;
+  const out = {
+    value: parseFloat(_kpDigits) || 0,
+    unit: _kpUnit || '',
+    text: document.getElementById('kp-text').value || ''
+  };
+  closeDialog();
+  if (cb) cb(out);
+});
 // Application records: set the active job's product/rate; export coverage.geojson.
+const _sanitise = s => String(s || '').replace(/[|,]/g, ' ').trim();
 document.getElementById('ft-setproduct').addEventListener('pointerdown', e => {
   e.stopPropagation();
-  const p = prompt('Product name (e.g. Urea 46)?'); if (p == null) return;
-  const r = parseFloat(prompt('Rate per ha (number, 0 if n/a)?') || '0') || 0;
-  const u = r > 0 ? (prompt('Rate unit (kg/ha, L/ha, seeds/ha...)?') || '') : '';
-  transport.send('job.setProduct|' + p.replace(/[|,]/g, ' ').trim() + ',' + r + ',' + u.replace(/[|,]/g, ' ').trim());
+  askKeypad({
+    title: 'Job Product',
+    textLabel: 'Product name',
+    numLabel: 'Rate per hectare (0 if n/a)',
+    units: ['kg/ha', 'L/ha', 'seeds/ha', 't/ha']
+  }, r => {
+    if (!r) return;
+    transport.send('job.setProduct|' + _sanitise(r.text) + ',' + r.value +
+                   ',' + (r.value > 0 ? _sanitise(r.unit) : ''));
+  });
 });
 document.getElementById('ft-setapplied').addEventListener('pointerdown', e => {
   e.stopPropagation();
-  const a = prompt('Total product applied this job (number, from loader scale / tank / drill counter; 0 to clear)?');
-  if (a == null) return;
-  const amt = parseFloat(a) || 0;
-  const u = amt > 0 ? (prompt('Unit (kg, L, t...)?') || 'kg') : '';
-  transport.send('job.setApplied|' + amt + ',' + u.replace(/[|,]/g, ' ').trim());
+  askKeypad({
+    title: 'Applied Total',
+    numLabel: 'Total applied this job (0 to clear)',
+    units: ['kg', 'L', 't']
+  }, r => {
+    if (!r) return;
+    transport.send('job.setApplied|' + r.value + ',' + (r.value > 0 ? _sanitise(r.unit) : ''));
+  });
 });
 document.getElementById('ft-exportcov').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('job.exportCoverage');
@@ -1157,7 +1237,9 @@ function openDialog(cardId) {
 }
 function closeDialog() {
   hideKeyboard();
-  dialogHost.classList.remove('open'); _confirmCb = null;
+  // _kpCb too: a backdrop light-dismiss must drop the keypad callback, or a
+  // later OK could fire the previous caller's handler.
+  dialogHost.classList.remove('open'); _confirmCb = null; _kpCb = null;
 }
 // Lower the Android soft keyboard via the native bridge (window.agnative, wired by the Android
 // head to InputMethodManager). No-op on iOS/desktop, where blur() already dismisses.

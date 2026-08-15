@@ -836,6 +836,27 @@
     .dlg-mode img { width: 40px; height: 40px; object-fit: contain; }
     .dlg-mode .dlg-bigtxt { font: 800 24px system-ui, sans-serif; color: var(--text); }
     .dlg-mode.disabled { opacity: 0.4; pointer-events: none; }
+    /* Touch keypad — replaces browser prompt() for numeric entry. A prompt() is
+       modal, needs a hardware keyboard, and blocks the whole UI until dismissed,
+       which strands a touch-only cab tablet. Keys are sized for a gloved
+       fingertip (~11mm at this panel's DPI). */
+    .kp-display { height: 56px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg-input); color: var(--text); font: 700 26px ui-monospace, monospace;
+      display: flex; align-items: center; justify-content: flex-end; padding: 0 14px; margin-bottom: 10px; }
+    .kp-display .kp-unit-txt { color: var(--text-muted); font-size: 16px; margin-left: 8px; }
+    .kp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .kp-key { min-height: 56px; border-radius: 8px; border: 1px solid var(--border);
+      background: rgba(var(--ov),0.08); color: var(--text); font: 700 22px system-ui, sans-serif;
+      cursor: pointer; touch-action: manipulation; }
+    .kp-key:active { background: rgba(74,144,217,0.45); }
+    .kp-key.kp-fn { font-size: 18px; color: var(--text-2); }
+    .kp-units { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .kp-unit { flex: 1 1 0; min-width: 64px; min-height: 44px; border-radius: 8px;
+      border: 1px solid var(--border); background: rgba(var(--ov),0.06); color: var(--text-2);
+      font: 700 14px system-ui, sans-serif; cursor: pointer; touch-action: manipulation; }
+    .kp-unit.sel { background: #1f6fb2; color: #fff; border-color: #1f6fb2; }
+    .kp-textrow { display: none; flex-direction: column; margin-bottom: 10px; }
+    .kp-textrow.on { display: flex; }
     /* Tracks manager — toolbar + list. */
     .trk-toolbar { display: flex; gap: 6px; align-items: center; background: rgba(var(--ov),0.05);
       border-radius: 8px; padding: 5px; margin-bottom: 12px; }
@@ -2722,6 +2743,37 @@
     </div>
     <!-- Unsaved-coverage guard (server-driven via Status.unsavedCoveragePrompt): coverage
          painted with no open job. Three outcomes — Save to a job, Discard, or Cancel the close. -->
+    <!-- Touch keypad for numeric entry (Applied Total / Job Product). Replaces
+         prompt(), which needs a hardware keyboard the cab does not have. -->
+    <div id="dlg-keypad" class="dlg-card">
+      <div class="dlg-title" id="kp-title">Enter value</div>
+      <div class="kp-textrow" id="kp-textrow">
+        <div class="dlg-label" id="kp-textlabel">Product</div>
+        <input id="kp-text" class="dlg-input" type="text" autocomplete="off">
+      </div>
+      <div class="dlg-label" id="kp-numlabel">Amount</div>
+      <div class="kp-display"><span id="kp-value">0</span><span class="kp-unit-txt" id="kp-unitlbl"></span></div>
+      <div class="kp-grid">
+        <button class="kp-key" data-k="7">7</button>
+        <button class="kp-key" data-k="8">8</button>
+        <button class="kp-key" data-k="9">9</button>
+        <button class="kp-key" data-k="4">4</button>
+        <button class="kp-key" data-k="5">5</button>
+        <button class="kp-key" data-k="6">6</button>
+        <button class="kp-key" data-k="1">1</button>
+        <button class="kp-key" data-k="2">2</button>
+        <button class="kp-key" data-k="3">3</button>
+        <button class="kp-key kp-fn" data-k="clear">C</button>
+        <button class="kp-key" data-k="0">0</button>
+        <button class="kp-key kp-fn" data-k="back">⌫</button>
+        <button class="kp-key kp-fn" data-k=".">.</button>
+      </div>
+      <div class="kp-units" id="kp-units"></div>
+      <div class="dlg-buttons">
+        <button id="kp-cancel" class="dlg-btn dlg-cancel">Cancel</button>
+        <button id="kp-ok" class="dlg-btn dlg-ok">OK</button>
+      </div>
+    </div>
     <div id="dlg-unsavedcov" class="dlg-card">
       <div class="dlg-title">Unsaved Coverage</div>
       <div class="dlg-msg">You've worked this field without an open job, so the coverage won't be saved. Save it to a job, or it will be lost.</div>
