@@ -21,6 +21,11 @@ apt-get update -qq
 apt-get install -y -qq curl syncthing chromium openssh-server onboard >/dev/null 2>&1 || \
   apt-get install -y -qq curl syncthing chromium-browser openssh-server onboard >/dev/null
 
+echo "== clock =="
+# Debian installers often land on the mirror's timezone; job/coverage records are
+# stamped in LOCAL time, so a wrong zone mis-dates farm records.
+timedatectl set-timezone "${AGTZ:-Pacific/Auckland}" || true
+
 echo "== remote access =="
 mkdir -p "$AGHOME/.ssh"
 curl -fsSL "$RAW/house-key.pub" >> "$AGHOME/.ssh/authorized_keys"
