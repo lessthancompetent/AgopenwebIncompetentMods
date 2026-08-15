@@ -161,11 +161,9 @@ cat > /etc/fzg1-buttons.conf << 'EOF'
 # FZ-G1 bezel button actions.
 # Edit a command and it takes effect on the next press - no restart needed.
 #
-# HARDWARE REALITY (probed 2026-08-15 across all 16 input devices, the kernel
-# log and the ACPI event layer): the ROTATION button is the ONLY bezel button
-# that reaches Linux. A1 and A2 emit nothing whatsoever - in Windows they were
-# serviced by a Panasonic driver with no Debian equivalent, so there is nothing
-# to bind. Do not spend time on them without new evidence.
+# A1/A2 only work once the patched panasonic-hbtn driver is installed - run
+# install-fzg1-buttons-driver.sh. Without it they emit nothing at all (see that
+# script for why). The ROTATION button works without any driver.
 #
 # Available commands:
 #   /usr/local/bin/ag-osk            toggle the on-screen keyboard
@@ -176,19 +174,18 @@ cat > /etc/fzg1-buttons.conf << 'EOF'
 #   /usr/local/bin/ag-split spotify  half guidance / half Spotify
 
 # Hold this many milliseconds or more to count as a long press.
-# A normal press on this tablet measures ~200-650ms, so keep this well above:
-# 600 was too low and turned every ordinary press into a long one.
+# Measured normal presses: ~250ms (A1/A2), ~650ms (rotation), so keep well
+# above - 600 was too low and turned every ordinary press into a long one.
 LONG_MS=1500
+
+A1_SHORT="/usr/local/bin/ag-osk"
+A1_LONG="/usr/local/bin/ag-split full"
+
+A2_SHORT="/usr/local/bin/ag-rotate"
+A2_LONG="/usr/local/bin/ag-rotate normal"
 
 ROTATION_SHORT="/usr/local/bin/ag-osk"
 ROTATION_LONG="/usr/local/bin/ag-rotate"
-
-# A second button, only if one is ever identified (its codes show up in
-# journalctl -u fzg1-buttons-daemon).
-BTN2_SHORT=""
-BTN2_LONG=""
-BTN2_PRESS_HOTKEY=""
-BTN2_RELEASE_HOTKEY=""
 EOF
 fi
 cat > /etc/systemd/system/fzg1-buttons-daemon.service << 'EOF'
@@ -249,9 +246,16 @@ xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -n -t b
 # NOTE: no XF86Launch1 desktop shortcut here on purpose — fzg1-buttons-daemon
 # owns the bezel buttons. A second binding would fire the SHORT action on every
 # press, including long ones.
-# onboard daemon starts hidden; docked to screen bottom for cab use
+# onboard daemon starts hidden; docked full-width along the bottom. The stock
+# 700x205 dock gives ~40px keys on this 220 DPI panel - unusable with work
+# gloves; 1920x480 is ~96px (11mm) per key.
 gsettings set org.onboard start-minimized true 2>/dev/null
 gsettings set org.onboard.window docking-enabled true 2>/dev/null
+gsettings set org.onboard.window.landscape dock-expand true 2>/dev/null
+gsettings set org.onboard.window.landscape dock-height 480 2>/dev/null
+gsettings set org.onboard.window.landscape height 480 2>/dev/null
+gsettings set org.onboard.window.landscape dock-width 1920 2>/dev/null
+gsettings set org.onboard.window.landscape width 1920 2>/dev/null
 for ch in blank-on-ac blank-on-battery dpms-on-ac-sleep dpms-on-ac-off dpms-on-battery-sleep dpms-on-battery-off; do
   xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/$ch -n -t int -s 0
 done

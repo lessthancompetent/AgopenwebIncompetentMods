@@ -1,57 +1,62 @@
 #!/usr/bin/env python3
 """FZ-G1 bezel buttons: short-press / long-press dispatch.
 
-Which bezel buttons actually reach Linux on this tablet (probed 2026-08-15 by
-pressing each one and watching all 16 input devices plus the kernel log):
+Three buttons, reaching Linux by two different routes (probed 2026-08-15):
 
-  ROTATION  the only one that reports. It fires AT scancode 0x65 *together
-            with* Left Meta - it carries its Windows "Tablet PC Settings ->
-            Buttons" assignment in firmware, so the kernel reports KEY_PROG1
-            with a modifier held, and anything bound to the bare key never
-            matches. It also emits ACPI hotkeys 0x54/0x55 alongside. We read
-            the evdev node directly, which keeps it working under a fullscreen
-            browser holding keyboard focus.
+  ROTATION  fires AT scancode 0x65 *together with* Left Meta, because it
+            carries its Windows "Tablet PC Settings -> Buttons" assignment in
+            firmware. A desktop shortcut bound to the bare key never matches,
+            so we read the keyboard's evdev node directly. Needs the hwdb rule
+            + setkeycodes (see setup-fzg1.sh) for the key to exist at all.
 
-  A1 / A2   emit NOTHING - no input event, no kernel hotkey, on any device.
-            Their Windows assignments were handled by a Panasonic driver that
-            does not exist here. Do not spend time binding them without new
-            evidence; see BTN2_* below if a second button is ever identified.
+  A1 / A2   emit nothing on a stock system: the embedded controller queues a
+            code into a ring buffer on the \\_SB.TBTN ACPI device (hardware id
+            MAT002A) which only its HINF method drains, and no in-tree driver
+            claims MAT002A. Fixed by the patched panasonic-hbtn module
+            (deploy/server/panasonic-hbtn-fzg1.patch), which turns them into
+            KEY_PROG2 / KEY_PROG3 on its own input device.
+
+Reading evdev directly - rather than binding desktop shortcuts - also keeps
+the buttons working while a fullscreen browser holds keyboard focus, which is
+the normal state in the cab.
 
 Actions live in /etc/fzg1-buttons.conf and are re-read on every press, so
-edits take effect without restarting the service.
+edits apply without restarting the service.
 """
 import glob
 import os
 import struct
 import subprocess
-import sys
 import threading
 import time
+
+EVENT_FMT = "llHHi"  # struct input_event on 64-bit
+EVENT_SIZE = struct.calcsize(EVENT_FMT)
+EV_KEY = 0x01
+CONF = "/etc/fzg1-buttons.conf"
+
+# device name -> {evdev key code: button name used in the config file}
+WATCHES = [
+    ("AT Translated Set 2 keyboard", {148: "ROTATION"}),          # KEY_PROG1
+    ("Panasonic Tablet Button Support", {149: "A1", 202: "A2"}),  # PROG2/PROG3
+]
+
+DEFAULTS = {
+    "LONG_MS": "1500",
+    "A1_SHORT": "", "A1_LONG": "",
+    "A2_SHORT": "", "A2_LONG": "",
+    "ROTATION_SHORT": "", "ROTATION_LONG": "",
+}
 
 
 def log(msg):
     """Everything lands in journalctl -u fzg1-buttons-daemon.
 
-    Kept deliberately chatty: these buttons reach Linux by two odd routes and
-    the only way to tell "press never arrived" from "action failed" is a trace
-    of the raw events.
+    Deliberately chatty: it is the only way to tell "press never arrived" from
+    "action failed", and a wrong long-press threshold looks exactly like a dead
+    button (a 600ms threshold once turned every ordinary press into a long one).
     """
     print(msg, flush=True)
-
-EVENT_FMT = "llHHi"  # struct input_event on 64-bit
-EVENT_SIZE = struct.calcsize(EVENT_FMT)
-EV_KEY = 0x01
-KEY_PROG1 = 148
-CONF = "/etc/fzg1-buttons.conf"
-DEFAULTS = {
-    "LONG_MS": "600",
-    "ROTATION_SHORT": "",
-    "ROTATION_LONG": "",
-    "BTN2_SHORT": "",
-    "BTN2_LONG": "",
-    "BTN2_PRESS_HOTKEY": "",
-    "BTN2_RELEASE_HOTKEY": "",
-}
 
 
 def load_conf():
@@ -67,13 +72,6 @@ def load_conf():
     except OSError:
         pass
     return cfg
-
-
-def long_ms(cfg):
-    try:
-        return int(cfg.get("LONG_MS", 600))
-    except ValueError:
-        return 600
 
 
 def desktop_user():
@@ -106,7 +104,10 @@ def run_action(cmd):
 
 def dispatch(button, held_ms):
     cfg = load_conf()
-    threshold = long_ms(cfg)
+    try:
+        threshold = int(cfg.get("LONG_MS", 1500))
+    except ValueError:
+        threshold = 1500
     suffix = "_LONG" if held_ms >= threshold else "_SHORT"
     action = cfg.get(button + suffix, "")
     log("%s held %dms (threshold %dms) -> %s%s = %r"
@@ -116,27 +117,28 @@ def dispatch(button, held_ms):
     run_action(action)
 
 
-def find_keyboard():
+def find_device(name):
     for path in sorted(glob.glob("/dev/input/event*")):
         name_file = "/sys/class/input/%s/device/name" % os.path.basename(path)
         try:
             with open(name_file) as fh:
-                if "AT Translated Set 2 keyboard" in fh.read():
+                if name in fh.read():
                     return path
         except OSError:
             continue
     return None
 
 
-def watch_rotation():
-    """Read KEY_PROG1 press/release straight off the keyboard device."""
+def watch(dev_name, keymap):
+    """Time press->release on one device and dispatch the matching action."""
     while True:
-        dev = find_keyboard()
+        dev = find_device(dev_name)
         if not dev:
             time.sleep(5)
             continue
-        log("watching %s for the rotation button (KEY_PROG1)" % dev)
-        pressed_at = None
+        log("watching %s (%s) for %s"
+            % (dev, dev_name, ", ".join(sorted(keymap.values()))))
+        pressed_at = {}
         try:
             with open(dev, "rb") as fh:
                 while True:
@@ -144,84 +146,27 @@ def watch_rotation():
                     if not data:
                         break
                     _s, _us, etype, code, value = struct.unpack(EVENT_FMT, data)
-                    if etype != EV_KEY:
+                    if etype != EV_KEY or code not in keymap:
                         continue
-                    log("key event: code=%d value=%d" % (code, value))
-                    if code != KEY_PROG1:
-                        continue
+                    button = keymap[code]
                     if value == 1:
-                        pressed_at = time.monotonic()
+                        pressed_at[code] = time.monotonic()
                     elif value == 0:
-                        if pressed_at is None:
-                            # A release with no press means the button only
-                            # reports one edge - treat it as a short tap so it
-                            # still does something.
-                            log("ROTATION release with no matching press")
-                            dispatch("ROTATION", 0)
-                        else:
-                            held = (time.monotonic() - pressed_at) * 1000
-                            pressed_at = None
-                            dispatch("ROTATION", held)
+                        start = pressed_at.pop(code, None)
+                        # A release with no press means the button reports only
+                        # one edge; treat it as a tap so it still does something.
+                        held = (time.monotonic() - start) * 1000 if start else 0
+                        dispatch(button, held)
         except OSError as exc:
-            log("rotation-button watcher error: %s" % exc)
+            log("%s watcher error: %s" % (dev_name, exc))
             time.sleep(5)
 
 
-def watch_btn2():
-    """Follow the kernel log for hotkeys the panasonic driver cannot map.
-
-    Reading /dev/kmsg through Python's buffered file object silently reads
-    nothing (each record needs its own read() call), so shell out to
-    `dmesg --follow` instead. Lines look like:
-
-        [ 7048.402458] Unknown hotkey event: 0x0054
-
-    The bracketed monotonic seconds give microsecond-accurate press timing.
-    """
-    while True:
-        proc = None
-        try:
-            # --follow-new skips the existing ring buffer; plain --follow would
-            # replay history on every restart and re-fire actions from it.
-            try:
-                proc = subprocess.Popen(["dmesg", "--follow-new"], stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL, text=True, bufsize=1)
-            except OSError:
-                proc = subprocess.Popen(["dmesg", "--follow"], stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL, text=True, bufsize=1)
-            pressed_at = None
-            for line in proc.stdout:
-                if "hotkey" not in line.lower():
-                    continue
-                stamp = None
-                if "[" in line and "]" in line:
-                    try:
-                        stamp = float(line.split("[", 1)[1].split("]", 1)[0])
-                    except ValueError:
-                        stamp = None
-                log("kernel hotkey: %s" % line.strip())
-                cfg = load_conf()
-                press = cfg.get("BTN2_PRESS_HOTKEY", "").lower()
-                release = cfg.get("BTN2_RELEASE_HOTKEY", "").lower()
-                if not press or not release:
-                    continue  # A2 unidentified: log only, never act
-                low = line.lower()
-                if press in low:
-                    pressed_at = stamp
-                elif release in low and pressed_at is not None and stamp is not None:
-                    dispatch("BTN2", (stamp - pressed_at) * 1000.0)
-                    pressed_at = None
-        except Exception as exc:
-            log("A2 watcher error: %s" % exc)
-        finally:
-            if proc:
-                proc.terminate()
-        time.sleep(5)
-
-
 def main():
-    threading.Thread(target=watch_btn2, daemon=True).start()
-    watch_rotation()
+    for dev_name, keymap in WATCHES[1:]:
+        threading.Thread(target=watch, args=(dev_name, keymap),
+                         daemon=True).start()
+    watch(*WATCHES[0])
 
 
 if __name__ == "__main__":
