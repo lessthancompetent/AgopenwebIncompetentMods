@@ -16,7 +16,12 @@ let vw = innerWidth, vh = innerHeight, dpr = 1;
 let CK = null, skSurface = null, skTri = null, SKP = null;
 let grCtx = null; // WebGL GrDirectContext — hoisted so the coverage render target shares it
 function resize() {
-  dpr = Math.min(window.devicePixelRatio || 1, 2); // cap: 3× phones don't need 9× fill
+  // Render the map surface at CSS resolution by default: it's lines and fills,
+  // and supersampling it 1.5-3x melts weak iGPUs (FZ-G1's HD 5500 dropped to a
+  // jerky crawl at DPR 1.5 = 2.25x the pixels). DOM text/UI keeps full-DPR
+  // crispness regardless — this only softens the map slightly on HiDPI.
+  // Override per device via localStorage.mapDpr (e.g. "1.5") if wanted.
+  dpr = Math.min(window.devicePixelRatio || 1, parseFloat(localStorage.mapDpr || '1') || 1);
   vw = innerWidth; vh = innerHeight;
   ckcv.width = Math.round(vw * dpr);
   ckcv.height = Math.round(vh * dpr);
