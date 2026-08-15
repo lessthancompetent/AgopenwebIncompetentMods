@@ -83,6 +83,8 @@ public sealed class RateControlService : IRateControlService, IDisposable
     private DateTime _lastTickUtc = DateTime.UtcNow;
     private DateTime _lastSaveUtc = DateTime.UtcNow;
     private bool _dirty;
+    private double _lastActiveHaPerMin;
+    private double _lastTotalHaPerMin;
     private List<IPEndPoint> _broadcastEndpoints = new();
     private DateTime _lastEndpointRefresh = DateTime.MinValue;
     /// <summary>Learned module addresses (moduleId → last frame source). Some RC
@@ -261,6 +263,10 @@ public sealed class RateControlService : IRateControlService, IDisposable
             // targets to the module until something touched the UI.
             EnsureToolChannels();
             var (activeHaPerMin, totalHaPerMin) = HectaresPerMinute();
+            // Kept for the status JSON: the readout needs the same coverage rate
+            // the targets were computed from, not one sampled at request time.
+            _lastActiveHaPerMin = activeHaPerMin;
+            _lastTotalHaPerMin = totalHaPerMin;
 
             // Area accrues with worked ground regardless of module presence
             // (like AOG_RC, coverage is app-side; quantity is module-measured).
@@ -564,6 +570,9 @@ public sealed class RateControlService : IRateControlService, IDisposable
                   .Append(",\"manualPwm\":").Append(p.ManualPwm)
                   .Append(",\"connected\":").Append(p.ModuleConnected ? "true" : "false")
                   .Append(",\"upm\":").Append(p.MeasuredUpm.ToString("0.##", inv))
+                  // Measured flow expressed in the target's own units, so the
+                  // on-map readout can put actual beside target directly.
+                  .Append(",\"actualRate\":").Append(p.ActualRate(_lastActiveHaPerMin, _lastTotalHaPerMin).ToString("0.##", inv))
                   .Append(",\"pwm\":").Append(p.ModulePwm)
                   .Append(",\"hz\":").Append(p.Hz.ToString("0.#", inv))
                   .Append(",\"binEmpty\":").Append(p.BinEmpty ? "true" : "false")

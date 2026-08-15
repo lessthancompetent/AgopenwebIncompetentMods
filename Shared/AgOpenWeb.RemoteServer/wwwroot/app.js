@@ -2185,6 +2185,80 @@ document.getElementById('ft-ratecontrol').addEventListener('pointerdown', e => {
 // Products A-E on RC hardware modules. Status polls /api/ratecontrol at 1 Hz
 // while the panel is open; edits go out as rate.set|idx,key,value (Tier-2).
 let rtProducts = [], rtSel = 0, rtPlane = false, rtPoll = null, rtCatalog = [], rtTool = '';
+// ── Rate readout (on-map) ───────────────────────────────────────────────────
+// The small always-there panel the separate RateController app used to give
+// you: what is going on now, against what was asked for. Polls on its own (the
+// Rate Control panel is usually closed while driving) and only when the hitched
+// tool actually meters product, so it never clutters the map behind harrows.
+// Mode: 0 off, 1 current, 2 target, 3 both — kept client-side in localStorage
+// because it is a per-operator display preference, not machine configuration.
+let rhMode = parseInt(localStorage.rateHud != null ? localStorage.rateHud : '3');
+if (!Number.isFinite(rhMode)) rhMode = 3;
+let rhPoll = null;
+function rhSetMode(m) {
+  rhMode = m;
+  localStorage.rateHud = String(m);
+  rhTick();
+}
+function rhRender(d) {
+  const hud = document.getElementById('rate-hud');
+  if (!hud) return;
+  const enabled = ((d && d.products) || []).filter(p => p.enabled);
+  // Hidden unless this tool meters product AND there is a channel to show.
+  if (!rhMode || !d || !d.useRateControl || !enabled.length) { hud.classList.remove('on'); return; }
+  hud.classList.add('on');
+  hud.innerHTML = '';
+  for (const p of enabled) {
+    const row = document.createElement('div');
+    row.className = 'rh-row';
+    const name = document.createElement('span');
+    name.className = 'rh-name';
+    name.textContent = p.name || '';
+    const vals = document.createElement('span');
+    const actual = Number(p.actualRate || 0), target = Number(p.targetRate || 0);
+    if (rhMode === 1 || rhMode === 3) {
+      const v = document.createElement('span');
+      v.className = 'rh-val';
+      v.textContent = actual.toFixed(actual < 10 ? 1 : 0);
+      vals.appendChild(v);
+    }
+    if (rhMode === 3) vals.appendChild(document.createTextNode(' '));
+    if (rhMode === 2 || rhMode === 3) {
+      const t = document.createElement('span');
+      t.className = rhMode === 2 ? 'rh-val' : 'rh-tgt';
+      t.textContent = (rhMode === 3 ? '/ ' : '') + target.toFixed(target < 10 ? 1 : 0);
+      vals.appendChild(t);
+    }
+    const u = document.createElement('span');
+    u.className = 'rh-units';
+    u.textContent = ' ' + (p.units || '');
+    vals.appendChild(u);
+    // Flag a rate that is off target while actually flowing — the number being
+    // there is not the same as it being right.
+    if (rhMode !== 2 && target > 0 && actual > 0 && Math.abs(actual - target) / target > 0.10)
+      row.classList.add('rh-off');
+    row.appendChild(name);
+    row.appendChild(vals);
+    hud.appendChild(row);
+    if (p.binEmpty) {
+      const b = document.createElement('div');
+      b.className = 'rh-bin';
+      b.textContent = 'BIN EMPTY';
+      hud.appendChild(b);
+    }
+  }
+}
+function rhTick() {
+  if (!rhMode) { const h = document.getElementById('rate-hud'); if (h) h.classList.remove('on'); return; }
+  fetch('/api/ratecontrol').then(r => r.json()).then(rhRender).catch(() => {});
+}
+{
+  const hud = document.getElementById('rate-hud');
+  if (hud) hud.addEventListener('pointerdown', e => { e.stopPropagation(); rtOpen(); });
+  rhPoll = setInterval(rhTick, 1000);
+  rhTick();
+}
+
 // ── Module setup ────────────────────────────────────────────────────────────
 // Pins, module flags and valve tuning: the settings the module keeps in EEPROM,
 // which nothing else can write (its own web page is only WiFi + a master
@@ -2323,6 +2397,9 @@ function rtRefresh() {
   }).catch(() => {});
 }
 function rtSend(key, value) { transport.send('rate.set|' + rtSel + ',' + key + ',' + value); setTimeout(rtRefresh, 250); }
+document.getElementById('rt-hudmode').addEventListener('change', e => {
+  rhSetMode(parseInt(e.target.value) || 0);
+});
 document.getElementById('rt-catsel').addEventListener('change', e => {
   const name = e.target.value;
   if (!name) return;
@@ -2361,6 +2438,8 @@ function rtRenderCatalog() {
   sel.value = items.some(i => i.name === cur) ? cur : '';
   const tool = document.getElementById('rt-tool');
   if (tool) tool.textContent = rtTool || '(none)';
+  const hudSel = document.getElementById('rt-hudmode');
+  if (hudSel) hudSel.value = String(rhMode);
 }
 function rtRender() {
   rtRenderCatalog();

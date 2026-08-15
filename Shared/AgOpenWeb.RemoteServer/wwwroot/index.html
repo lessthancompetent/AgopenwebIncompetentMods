@@ -836,6 +836,23 @@
     .dlg-mode img { width: 40px; height: 40px; object-fit: contain; }
     .dlg-mode .dlg-bigtxt { font: 800 24px system-ui, sans-serif; color: var(--text); }
     .dlg-mode.disabled { opacity: 0.4; pointer-events: none; }
+    /* Rate readout — the small always-visible panel the separate RateController
+       app used to give you. Only appears when the hitched tool actually meters
+       product, so it costs nothing on a set of harrows. Tap to open Rate Control. */
+    #rate-hud { position: fixed; top: 88px; right: 12px; z-index: 30; display: none;
+      flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px;
+      background: rgba(20,22,26,0.82); border: 1px solid var(--border);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.45); cursor: pointer; min-width: 132px; }
+    #rate-hud.on { display: flex; }
+    .rh-row { display: flex; align-items: baseline; gap: 8px; justify-content: space-between; }
+    .rh-name { color: var(--text-2); font: 700 12px system-ui, sans-serif;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 108px; }
+    .rh-val { color: var(--text); font: 800 24px ui-monospace, monospace; }
+    .rh-tgt { color: var(--text-muted); font: 700 13px ui-monospace, monospace; }
+    .rh-units { color: var(--text-muted); font: 600 11px system-ui, sans-serif; }
+    /* Off-rate warning: actual more than 10% from target while actually working. */
+    .rh-off .rh-val { color: #e8b339; }
+    .rh-bin { color: #e74c3c; font: 700 11px system-ui, sans-serif; }
     /* Touch keypad — replaces browser prompt() for numeric entry. A prompt() is
        modal, needs a hardware keyboard, and blocks the whole UI until dismissed,
        which strands a touch-only cab tablet. Keys are sized for a gloved
@@ -2236,6 +2253,13 @@
     <div class="ln-hdr"><button class="ln-x" id="rt-back" title="Back">←</button><span class="ln-hdr-title">Rate Control</span><button class="ln-x ln-closex" title="Close">✕</button></div>
     <div class="rp-pats" id="rt-tabs" style="grid-template-columns:repeat(5,1fr)"></div>
     <div class="rp-row"><span class="cfg-label">Tool</span><span class="cfg-label" id="rt-tool" style="opacity:.8">—</span></div>
+    <div class="rp-row"><span class="cfg-label">On-map readout</span>
+      <select class="cfg-sel" id="rt-hudmode" style="width:120px" title="Small always-visible rate panel on the map">
+        <option value="0">Off</option>
+        <option value="1">Current</option>
+        <option value="2">Target</option>
+        <option value="3">Both</option>
+      </select></div>
     <!-- Products come from the shared catalogue; the channel keeps this tool's own
          hardware settings (module/sensor and above all the meter calibration). -->
     <div class="rp-row"><span class="cfg-label">Product</span>
@@ -2790,6 +2814,9 @@
   <!-- Dialog host (Phase 6): the web mirror of DialogOverlayHost — one modal at a
        time over a dimming backdrop. SimCoords is the first dialog; later phases add
        more cards into this same host. -->
+  <!-- Rate readout: actual vs target while working, like the old standalone
+       RateController window. Populated by rhTick(); tap opens Rate Control. -->
+  <div id="rate-hud" title="Rate control — tap to open"></div>
   <div id="dialoghost">
     <div class="dlg-backdrop"></div>
     <div id="dlg-simcoords" class="dlg-card">

@@ -137,6 +137,38 @@ public class RcPgnTests
     }
 
     [Test]
+    public void ActualRate_InvertsTargetUpm_ForTheReadout()
+    {
+        // The on-map readout puts actual beside target, so the two must be in the
+        // same units: feeding the target flow back in has to read as the target.
+        var p = new RateProduct { Enabled = true, TargetRate = 100, CoverageUnits = 1 };
+        double haMin = 15.0 * 10.0 / 600.0;            // 15 m at 10 km/h
+        p.MeasuredUpm = p.TargetUpm(haMin, haMin);
+        Assert.That(p.ActualRate(haMin, haMin), Is.EqualTo(100).Within(1e-9));
+
+        // Acres and per-minute modes round-trip too.
+        p.CoverageUnits = 0;
+        p.MeasuredUpm = p.TargetUpm(haMin, haMin);
+        Assert.That(p.ActualRate(haMin, haMin), Is.EqualTo(100).Within(1e-6));
+        p.CoverageUnits = 2;
+        p.MeasuredUpm = p.TargetUpm(haMin, haMin);
+        Assert.That(p.ActualRate(haMin, haMin), Is.EqualTo(100).Within(1e-9));
+    }
+
+    [Test]
+    public void ActualRate_IsZeroWhenNotCovering()
+    {
+        // Stopped, or every section shut: units-per-hectare is meaningless and a
+        // divide by ~0 would show the operator a wild number.
+        var p = new RateProduct { Enabled = true, TargetRate = 100, CoverageUnits = 1, MeasuredUpm = 25 };
+        Assert.That(p.ActualRate(0, 0), Is.Zero);
+        p.ConstantUpm = true;
+        Assert.That(p.ActualRate(0, 0.25), Is.Zero, "all-off zeroes even in constant-UPM");
+        p.Enabled = false;
+        Assert.That(p.ActualRate(0.25, 0.25), Is.Zero, "disabled channel shows nothing");
+    }
+
+    [Test]
     public void ApplySensorFrame_AccumulatesByDelta_GuardsReset()
     {
         var p = new RateProduct { Enabled = true };

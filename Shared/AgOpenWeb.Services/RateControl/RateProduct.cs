@@ -90,6 +90,26 @@ public sealed class RateProduct
         };
     }
 
+    /// <summary>The inverse of <see cref="TargetUpm"/>: what the measured flow
+    /// works out to in the SAME units as <see cref="TargetRate"/>, so a readout
+    /// can show actual against target with nothing to convert. Zero while
+    /// stationary or all-off — units per area mean nothing with no ground
+    /// being covered, and a divide by ~0 would read as a wild rate.</summary>
+    public double ActualRate(double activeHaPerMin, double totalHaPerMin)
+    {
+        if (!Enabled) return 0;
+        double haPerMin = ConstantUpm
+            ? (activeHaPerMin < 0.0001 ? 0 : totalHaPerMin)
+            : activeHaPerMin;
+        return CoverageUnits switch
+        {
+            0 => haPerMin < 0.0001 ? 0 : MeasuredUpm / (haPerMin * 2.47105), // acres
+            1 => haPerMin < 0.0001 ? 0 : MeasuredUpm / haPerMin,             // hectares
+            2 => MeasuredUpm,                                                // units/min
+            _ => MeasuredUpm * 60.0,                                         // units/hour
+        };
+    }
+
     /// <summary>Fold a module sensor frame in: live values + measured-quantity
     /// accumulation by delta of the module's lifetime counter (reset/rollover
     /// guarded, mirroring AOG_RC's UpdateUnitsApplied).</summary>
