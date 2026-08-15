@@ -120,6 +120,7 @@ public static class ToolProfileJsonService
             {
                 Width = store.Tool.Width,
                 PhysicalWidth = store.Tool.PhysicalWidth,
+                UseRateControl = store.Tool.UseRateControl,
                 Overlap = store.Tool.Overlap,
                 Offset = store.Tool.Offset,
                 HitchLength = store.Tool.HitchLength,
@@ -171,6 +172,7 @@ public static class ToolProfileJsonService
         // behavior as an unmodified store.
         store.Tool.Width = dto.Tool?.Width ?? 6.0;
         store.Tool.PhysicalWidth = dto.Tool?.PhysicalWidth ?? 0;
+        store.Tool.UseRateControl = dto.Tool?.UseRateControl ?? false;
         store.Tool.Overlap = dto.Tool?.Overlap ?? 0.0;
         store.Tool.Offset = dto.Tool?.Offset ?? 0.0;
         store.Tool.HitchLength = dto.Tool?.HitchLength ?? 1.8;
@@ -258,6 +260,8 @@ public static class ToolProfileJsonService
     internal class ToolDto
     {
         public double? PhysicalWidth { get; set; }
+        /// Nullable so profiles written before rate control load unchanged (false).
+        public bool? UseRateControl { get; set; }
         public double Width { get; set; }
         public double Overlap { get; set; }
         public double Offset { get; set; }

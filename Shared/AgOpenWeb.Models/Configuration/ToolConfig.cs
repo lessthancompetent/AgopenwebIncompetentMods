@@ -129,6 +129,16 @@ public class ToolConfig : ObservableObject
         set => SetProperty(ref _hitchType, value);
     }
 
+    // Rate control belongs to the implement, not the vehicle: a spreader meters
+    // product, a set of harrows does not. Persisted in the tool profile so
+    // loading a tool brings its rate setup (and this toggle) with it.
+    private bool _useRateControl;
+    public bool UseRateControl
+    {
+        get => _useRateControl;
+        set => SetProperty(ref _useRateControl, value);
+    }
+
     // Tool type flags
     private bool _isToolTrailing;
     public bool IsToolTrailing
