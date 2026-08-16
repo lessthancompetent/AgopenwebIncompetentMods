@@ -2349,10 +2349,57 @@ function msRender() {
   if (bd && document.activeElement !== bd) bd.value = cur.m.board || 'esp32';
   const ph = document.getElementById('ms-pinhelp');
   if (ph) ph.textContent = MS_BOARD_PINS[cur.m.board] || MS_BOARD_PINS.esp32;
+  msRenderRelays(cur.m);
   for (const b of document.querySelectorAll('#modulesetup .ms-tgl')) {
     const on = !!val(b.dataset.k);
     b.classList.toggle('active', on);
     b.textContent = on ? 'On' : 'Off';
+  }
+}
+// Relay functions. The number box means different things per type — a section
+// for Section/Invert section, a switch for Switch, nothing for the rest — so it
+// is labelled and enabled from the type rather than always sitting there.
+const MS_RLY_SECTION = [0, 4];        // types that address a section
+const MS_RLY_SWITCH = 10;             // the type that addresses a switch
+function msRenderRelays(m) {
+  const relays = m.relays || [];
+  for (const sel of document.querySelectorAll('#modulesetup .rly-type')) {
+    const r = relays.find(x => x.id === parseInt(sel.dataset.r));
+    if (!r) continue;
+    if (document.activeElement !== sel) sel.value = String(r.type);
+    const num = document.querySelector('#modulesetup .rly-num[data-r="' + r.id + '"]');
+    if (!num) continue;
+    const wantsSection = MS_RLY_SECTION.includes(r.type);
+    const wantsSwitch = r.type === MS_RLY_SWITCH;
+    num.hidden = !(wantsSection || wantsSwitch);
+    num.title = wantsSwitch ? 'Switch number (0-15)' : 'Section number, or -1 for none';
+    if (document.activeElement !== num) num.value = wantsSwitch ? r.switch : r.section;
+  }
+  const fm = document.getElementById('ms-fmmode');
+  if (fm && document.activeElement !== fm) fm.value = String(m.flowMasterMode || 0);
+  const note = document.getElementById('ms-fmnote');
+  if (note) {
+    const n = relays.filter(r => r.type === 14).length;      // FlowMaster
+    note.textContent =
+      m.flowMasterMode === 1
+        ? (n === 1
+            ? 'The module will drive relay ' + (relays.find(r => r.type === 14).id + 1) +
+              ' as a pair. Needs a board with an H-bridge, such as the RC15.'
+            : n + ' relays are set to FlowMaster — this mode needs exactly one, so nothing is sent and the valve will not close.')
+      : m.flowMasterMode === 2
+        ? 'Set one relay to FlowMaster and another to Invert FlowMaster: one powers open, the other powers close. For boards without an H-bridge, such as the RC11-2.'
+      : 'One relay signals; the valve runs on its own supply and manages open/close itself. The usual choice.';
+    note.classList.toggle('rt-warn', m.flowMasterMode === 1 && n !== 1);
+  }
+  // Seeing the computed word is the only way to check a relay map short of
+  // watching the outputs click.
+  const live = document.getElementById('ms-rlylive');
+  if (live) {
+    const w = m.liveRelays || 0;
+    const on = [];
+    for (let i = 0; i < 16; i++) if (w & (1 << i)) on.push('R' + (i + 1));
+    live.textContent = 'On now: ' + (on.length ? on.join(' ') : 'none') +
+      (m.liveValveIndex !== 255 ? ' · 2-wire valve on R' + (m.liveValveIndex + 1) : '');
   }
 }
 // Factory pin maps, shown so the operator can see what the board should be
@@ -2378,6 +2425,31 @@ document.getElementById('ms-valvemode').addEventListener('change', e => {
 });
 for (const sel of document.querySelectorAll('#modulesetup .ms-sel'))
   sel.addEventListener('change', () => msSend(sel.dataset.k, sel.value));
+for (const sel of document.querySelectorAll('#modulesetup .rly-type'))
+  sel.addEventListener('change', () => msSend('rly' + sel.dataset.r + '.type', sel.value));
+for (const inp of document.querySelectorAll('#modulesetup .rly-num'))
+  inp.addEventListener('change', () => {
+    const sel = document.querySelector('#modulesetup .rly-type[data-r="' + inp.dataset.r + '"]');
+    const isSwitch = sel && parseInt(sel.value) === MS_RLY_SWITCH;
+    msSend('rly' + inp.dataset.r + (isSwitch ? '.switch' : '.section'), inp.value);
+  });
+document.getElementById('ms-fmmode').addEventListener('change', e => msSend('cfg.flowMasterMode', e.target.value));
+document.getElementById('ms-rlyrenum').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  showConfirm('Renumber sections',
+    'Give every section relay on module ' + msMod + ' a consecutive number, in relay order? ' +
+    'Relays past the last section are set to none. Other relay types are left alone.',
+    () => { transport.send('rate.relayRenumber|' + msMod + ',0');
+            setTimeout(msRefresh, 300); msStatus('Sections renumbered.'); });
+});
+document.getElementById('ms-rlyreset').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  showConfirm('Reset relays',
+    'Put all 16 relays on module ' + msMod + ' back to driving their own section? ' +
+    'Any master, bypass, tram or hydraulic assignments are lost.',
+    () => { transport.send('rate.relayReset|' + msMod);
+            setTimeout(msRefresh, 300); msStatus('Relays reset to sections.'); });
+});
 document.getElementById('ms-board').addEventListener('change', e => msSend('cfg.board', e.target.value));
 // Nothing selects a module id that has no saved entry yet, so a board cannot be
 // prepared before it is given that id without this.

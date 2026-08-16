@@ -785,6 +785,11 @@
     .ms-relays { display: grid; grid-template-columns: repeat(2, max-content auto); gap: 4px 6px; align-items: center; }
     .ms-relays label { color: var(--text-muted); font: 500 11px system-ui, sans-serif; white-space: nowrap; }
     .ms-relays input { width: 56px; }
+    /* Relay functions: 16 rows of label / type / number, one bank. */
+    .ms-rly { display: grid; grid-template-columns: max-content 1fr 62px; gap: 4px 6px; align-items: center; }
+    .ms-rly label { color: var(--text-muted); font: 500 11px system-ui, sans-serif; }
+    .ms-rly select { min-width: 0; }
+    .ms-rly input { width: 100%; box-sizing: border-box; }
     /* Alternate row tint so a long label/field grid stays readable across. */
     .cfg-grid.zebra > label:nth-of-type(even) { background: rgba(var(--ov),0.04); border-radius: 4px; padding-left: 4px; }
     /* A channel pointing at a sensor the module does not have connects to
@@ -2412,7 +2417,7 @@
     <div class="cfg-tabs cfg-subtabs">
       <button class="cfg-tab active" data-strip="ms-top" data-tab="mst-module">Module</button>
       <button class="cfg-tab" data-strip="ms-top" data-tab="mst-pins">Pins</button>
-      <button class="cfg-tab" data-strip="ms-top" data-tab="mst-relays">Relays</button>
+      <button class="cfg-tab" data-strip="ms-top" data-tab="mst-relays">Relay fn</button>
       <button class="cfg-tab" data-strip="ms-top" data-tab="mst-valve">Tuning</button>
       <button class="cfg-tab" data-strip="ms-top" data-tab="mst-net">Network</button>
       <button class="cfg-tab" data-strip="ms-top" data-tab="mst-comm">Commission</button>
@@ -2466,11 +2471,23 @@
             <label>Invert bin</label><button class="ms-tgl" data-k="pins.invertBin">Off</button>
           </div>
           <button class="cfg-act cfg-actwide" id="ms-pushpins">Send pins (module restarts)</button>
+          <div class="dlg-msg" style="text-align:left" id="ms-pinhelp">&#8212;</div>
+          <div class="dlg-msg" style="text-align:left">255 means not connected. Changing a pin makes the module save and restart.</div>
         </div>
         <div>
-          <div class="ms-sec id">Board defaults</div>
-          <div class="dlg-msg" style="text-align:left" id="ms-pinhelp">&#8212;</div>
-          <div class="dlg-msg" style="text-align:left">255 means not connected. Changing a pin makes the module save and restart. Load the board defaults on the Commission tab if these do not match your hardware.</div>
+          <div class="ms-sec pins">Relay output pins</div>
+          <div class="ms-relays">
+            <label>R1</label><input class="ms-num" data-k="cfg.relay0" type="number" min="0" max="255" step="1"><label>R9</label><input class="ms-num" data-k="cfg.relay8" type="number" min="0" max="255" step="1">
+            <label>R2</label><input class="ms-num" data-k="cfg.relay1" type="number" min="0" max="255" step="1"><label>R10</label><input class="ms-num" data-k="cfg.relay9" type="number" min="0" max="255" step="1">
+            <label>R3</label><input class="ms-num" data-k="cfg.relay2" type="number" min="0" max="255" step="1"><label>R11</label><input class="ms-num" data-k="cfg.relay10" type="number" min="0" max="255" step="1">
+            <label>R4</label><input class="ms-num" data-k="cfg.relay3" type="number" min="0" max="255" step="1"><label>R12</label><input class="ms-num" data-k="cfg.relay11" type="number" min="0" max="255" step="1">
+            <label>R5</label><input class="ms-num" data-k="cfg.relay4" type="number" min="0" max="255" step="1"><label>R13</label><input class="ms-num" data-k="cfg.relay12" type="number" min="0" max="255" step="1">
+            <label>R6</label><input class="ms-num" data-k="cfg.relay5" type="number" min="0" max="255" step="1"><label>R14</label><input class="ms-num" data-k="cfg.relay13" type="number" min="0" max="255" step="1">
+            <label>R7</label><input class="ms-num" data-k="cfg.relay6" type="number" min="0" max="255" step="1"><label>R15</label><input class="ms-num" data-k="cfg.relay14" type="number" min="0" max="255" step="1">
+            <label>R8</label><input class="ms-num" data-k="cfg.relay7" type="number" min="0" max="255" step="1"><label>R16</label><input class="ms-num" data-k="cfg.relay15" type="number" min="0" max="255" step="1">
+          </div>
+          <div class="dlg-msg" style="text-align:left">Only used when the relays hang straight off micro pins &#8212; a board driving them through a PCA9685 or MCP23017 addresses them by channel and leaves every pin here at 255.</div>
+          <button class="cfg-act cfg-actwide" id="ms-pushcfg2">Send module config</button>
         </div>
       </div>
     </div>
@@ -2478,26 +2495,47 @@
     <div id="mst-relays" class="cfg-body" data-strip="ms-top" hidden>
       <div class="cfg-cols2">
         <div>
-          <div class="ms-sec pins">Relay output pins</div>
-          <div class="ms-relays">
-            <label>Relay 1</label><input class="ms-num" data-k="cfg.relay0" type="number" min="0" max="255" step="1"><label>Relay 9</label><input class="ms-num" data-k="cfg.relay8" type="number" min="0" max="255" step="1">
-            <label>Relay 2</label><input class="ms-num" data-k="cfg.relay1" type="number" min="0" max="255" step="1"><label>Relay 10</label><input class="ms-num" data-k="cfg.relay9" type="number" min="0" max="255" step="1">
-            <label>Relay 3</label><input class="ms-num" data-k="cfg.relay2" type="number" min="0" max="255" step="1"><label>Relay 11</label><input class="ms-num" data-k="cfg.relay10" type="number" min="0" max="255" step="1">
-            <label>Relay 4</label><input class="ms-num" data-k="cfg.relay3" type="number" min="0" max="255" step="1"><label>Relay 12</label><input class="ms-num" data-k="cfg.relay11" type="number" min="0" max="255" step="1">
-            <label>Relay 5</label><input class="ms-num" data-k="cfg.relay4" type="number" min="0" max="255" step="1"><label>Relay 13</label><input class="ms-num" data-k="cfg.relay12" type="number" min="0" max="255" step="1">
-            <label>Relay 6</label><input class="ms-num" data-k="cfg.relay5" type="number" min="0" max="255" step="1"><label>Relay 14</label><input class="ms-num" data-k="cfg.relay13" type="number" min="0" max="255" step="1">
-            <label>Relay 7</label><input class="ms-num" data-k="cfg.relay6" type="number" min="0" max="255" step="1"><label>Relay 15</label><input class="ms-num" data-k="cfg.relay14" type="number" min="0" max="255" step="1">
-            <label>Relay 8</label><input class="ms-num" data-k="cfg.relay7" type="number" min="0" max="255" step="1"><label>Relay 16</label><input class="ms-num" data-k="cfg.relay15" type="number" min="0" max="255" step="1">
+          <div class="ms-sec act">What each relay does</div>
+          <div class="ms-rly">
+            <label>R1</label><select class="cfg-sel rly-type" data-r="0"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="0" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R2</label><select class="cfg-sel rly-type" data-r="1"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="1" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R3</label><select class="cfg-sel rly-type" data-r="2"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="2" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R4</label><select class="cfg-sel rly-type" data-r="3"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="3" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R5</label><select class="cfg-sel rly-type" data-r="4"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="4" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R6</label><select class="cfg-sel rly-type" data-r="5"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="5" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R7</label><select class="cfg-sel rly-type" data-r="6"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="6" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R8</label><select class="cfg-sel rly-type" data-r="7"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="7" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R9</label><select class="cfg-sel rly-type" data-r="8"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="8" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R10</label><select class="cfg-sel rly-type" data-r="9"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="9" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R11</label><select class="cfg-sel rly-type" data-r="10"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="10" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R12</label><select class="cfg-sel rly-type" data-r="11"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="11" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R13</label><select class="cfg-sel rly-type" data-r="12"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="12" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R14</label><select class="cfg-sel rly-type" data-r="13"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="13" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R15</label><select class="cfg-sel rly-type" data-r="14"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="14" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
+            <label>R16</label><select class="cfg-sel rly-type" data-r="15"><option value="11">— none —</option><option value="0">Section</option><option value="4">Invert section</option><option value="2">Master</option><option value="12">Invert master</option><option value="14">FlowMaster</option><option value="15">Invert FlowMaster</option><option value="13">Bypass</option><option value="1">Slave</option><option value="3">Power</option><option value="10">Switch</option><option value="5">Hyd up</option><option value="6">Hyd down</option><option value="8">Tram left</option><option value="7">Tram right</option><option value="9">Geo stop</option></select><input class="rly-num" data-r="15" type="number" min="-1" max="127" step="1" title="Section number for Section / Invert section; switch number for Switch">
           </div>
         </div>
         <div>
-          <div class="ms-sec id">About relay pins</div>
-          <div class="dlg-msg" style="text-align:left">These are the micro pins wired to each of the 16 relay outputs. 255 means unassigned. They only apply when the relays are driven straight off micro pins &#8212; a board using a PCA9685 or MCP23017 expander addresses its relays by channel, so it leaves every pin here unassigned.</div>
-          <button class="cfg-act cfg-actwide" id="ms-pushcfg2">Send module config</button>
+          <div class="ms-sec pins">Flow/master valve</div>
+          <div class="cfg-grid zebra">
+            <label>Driven as</label>
+            <select class="cfg-sel" id="ms-fmmode" title="How the FlowMaster relay drives the valve">
+              <option value="0">3-wire &#8212; relay signals, valve self-powered</option>
+              <option value="1">2-wire, 1 relay &#8212; module powers both ways</option>
+              <option value="2">2-wire, 2 relays &#8212; FlowMaster opens, Invert closes</option>
+            </select>
+          </div>
+          <div class="dlg-msg" style="text-align:left" id="ms-fmnote">&#8212;</div>
+          <div class="ms-sec id">Live</div>
+          <div class="dlg-msg" style="text-align:left" id="ms-rlylive">&#8212;</div>
+          <div class="rp-btns">
+            <button class="cfg-act" id="ms-rlyrenum" title="Give every section relay a consecutive number, in order">Renumber sections</button>
+            <button class="cfg-act" id="ms-rlyreset" title="Every relay back to driving its own section">Reset to sections</button>
+          </div>
+          <div class="dlg-msg" style="text-align:left">Product only goes out when the master is on, a section is enabled, and &#8212; in auto &#8212; the guidance allows it. A relay set to Power is on whenever the module is.</div>
         </div>
       </div>
     </div>
-
     <div id="mst-valve" class="cfg-body" data-strip="ms-top" hidden>
       <div class="cfg-cols2">
         <div>

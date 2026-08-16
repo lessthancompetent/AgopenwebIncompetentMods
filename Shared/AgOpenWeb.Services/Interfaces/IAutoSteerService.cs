@@ -226,6 +226,13 @@ public readonly struct VehicleStateSnapshot
 
     public byte TramState { get; init; }
 
+    /// <summary>Hydraulic lift command: 0 none, 1 raise, 2 lower. Alongside
+    /// TramState because rate-module relays can be assigned to drive these.</summary>
+    public byte HydLiftState { get; init; }
+
+    /// <summary>Geo-fence stop: 0 ok, 1 out of bounds.</summary>
+    public byte GeoStopState { get; init; }
+
     public double TotalLatencyMs { get; init; }
     public double ParseLatencyMs { get; init; }
     public double GuidanceLatencyMs { get; init; }

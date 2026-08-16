@@ -248,6 +248,22 @@ public static partial class RemoteServerWiring
                                             .LoadModuleDefaults(md, dp.Length > 1 ? dp[1] : "esp32");
                                     return;
                                 }
+                                case "rate.relayReset": // arg = moduleId — every relay back to its own section
+                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var rr))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .ResetRelays(rr);
+                                    return;
+                                case "rate.relayRenumber": // arg = moduleId[,startSection]
+                                {
+                                    var rn = arg.Split(',');
+                                    if (int.TryParse(rn[0], System.Globalization.NumberStyles.Integer, inv, out var rnm))
+                                    {
+                                        int start = rn.Length > 1 && int.TryParse(rn[1], System.Globalization.NumberStyles.Integer, inv, out var s0) ? s0 : 0;
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .RenumberRelays(rnm, start);
+                                    }
+                                    return;
+                                }
                                 case "rate.modAssignId": // arg = moduleId — commissioning: EVERY
                                 {                        // listening module adopts this id, so the
                                                          // client must confirm one board is connected.

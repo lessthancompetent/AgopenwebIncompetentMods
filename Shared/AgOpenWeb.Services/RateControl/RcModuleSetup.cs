@@ -42,6 +42,15 @@ public sealed class RcModuleSetup
     public RcModuleConfig Config { get; set; } = new();
     public List<RcSensorSetup> Sensors { get; set; } = new();
 
+    /// <summary>What each of the 16 relay outputs does. Empty on a setup saved
+    /// before relay functions existed — <see cref="EnsureRelays"/> fills it with
+    /// the relay-N-drives-section-N default those setups were assuming.</summary>
+    public List<RcRelay> Relays { get; set; } = new();
+
+    /// <summary>How the FlowMaster relay drives the valve. Separate from the
+    /// module's own <c>Is3WireValve</c>, which is about the product valve.</summary>
+    public RcFlowMasterMode FlowMasterMode { get; set; } = RcFlowMasterMode.ThreeWire;
+
     public RcSensorSetup GetOrAddSensor(int sensorId)
     {
         foreach (var s in Sensors)
@@ -49,6 +58,19 @@ public sealed class RcModuleSetup
         var added = new RcSensorSetup { SensorId = sensorId };
         Sensors.Add(added);
         return added;
+    }
+
+    /// <summary>Make sure all 16 relays exist, without disturbing any already
+    /// assigned. Safe to call on every read.</summary>
+    public List<RcRelay> EnsureRelays()
+    {
+        if (Relays.Count == 0) Relays = RcRelayMap.DefaultRelays(ModuleId);
+        else
+            for (int i = 0; i < RcRelayMap.RelayCount; i++)
+                if (!Relays.Exists(r => r.Id == i))
+                    Relays.Add(new RcRelay { Id = i, Type = RcRelayType.None, SectionId = -1 });
+        Relays.Sort((a, b) => a.Id.CompareTo(b.Id));
+        return Relays;
     }
 }
 
@@ -120,6 +142,8 @@ public static class RcBoardDefaults
         }
 
         m.Board = board;
+        m.Relays = RcRelayMap.DefaultRelays(m.ModuleId);
+        m.FlowMasterMode = RcFlowMasterMode.ThreeWire;
         m.Config.SensorCount = 1;
         m.Config.InvertRelayControl = true;
         m.Config.InvertFlowControl = true;

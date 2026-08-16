@@ -770,6 +770,8 @@ public class AutoSteerService : IAutoSteerService
             SectionStates = _state.SectionStates,
             MasterSectionOn = _state.MasterSectionOn,
             TramState = _state.TramState,
+            HydLiftState = _state.HydLiftState,
+            GeoStopState = _state.GeoStopState,
             TotalLatencyMs = _state.TotalLatencyMs,
             ParseLatencyMs = _state.ParseLatencyMs,
             GuidanceLatencyMs = _state.GuidanceLatencyMs,

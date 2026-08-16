@@ -67,6 +67,10 @@ public interface IRateControlService
     void LoadModuleDefaults(int moduleId, string board = "esp32");
     /// <summary>Create a setup entry for a module id that does not have one yet.</summary>
     void AddModule(int moduleId);
+    /// <summary>Put every relay back to driving its own section.</summary>
+    void ResetRelays(int moduleId);
+    /// <summary>Renumber the section-driving relays consecutively from a start.</summary>
+    void RenumberRelays(int moduleId, int startSection);
 
     // Virtual switchbox — stands in for the physical AOG_RC box (PGN 32618).
     bool MasterOn { get; }
@@ -83,6 +87,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
     private const int SendIntervalMs = 250;  // 4 Hz settings/target push (RC parity)
 
     private readonly ApplicationState _state;
+    private readonly IAutoSteerService? _autoSteer;
     private readonly ConfigurationStore _configStore;
     private readonly ISectionControlService _sections;
     private readonly ISettingsService _settings;
@@ -105,13 +110,18 @@ public sealed class RateControlService : IRateControlService, IDisposable
     /// heard we also unicast to it directly.</summary>
     private readonly Dictionary<int, IPAddress> _moduleAddresses = new();
 
+    /// <summary><paramref name="autoSteer"/> is optional so tests and headless
+    /// hosts can build the service without the steering stack; without it the
+    /// tram / lift / geo-stop relay types simply stay off.</summary>
     public RateControlService(ApplicationState state, ConfigurationStore configStore,
-        ISectionControlService sections, ISettingsService settings)
+        ISectionControlService sections, ISettingsService settings,
+        IAutoSteerService? autoSteer = null)
     {
         _state = state;
         _configStore = configStore;
         _sections = sections;
         _settings = settings;
+        _autoSteer = autoSteer;
     }
 
     /// <summary>Channels for the ACTIVE tool (reloads when the tool changes).</summary>
@@ -329,8 +339,12 @@ public sealed class RateControlService : IRateControlService, IDisposable
             foreach (var p in _products)
             {
                 if (!p.Enabled || !sentModules.Add(p.ModuleId)) continue;
+                var w = ComputeRelayWords(p.ModuleId, secBits);
                 var relayFrame = RcPgn.BuildRelaySettings(p.ModuleId,
-                    (byte)(secBits & 0xFF), (byte)(secBits >> 8));
+                    (byte)(w.Relays & 0xFF), (byte)(w.Relays >> 8),
+                    (byte)(w.Power & 0xFF), (byte)(w.Power >> 8),
+                    (byte)(w.Inverted & 0xFF), (byte)(w.Inverted >> 8),
+                    w.FlowMasterIndex);
                 foreach (var ep in BroadcastEndpoints())
                     try { _socket.SendTo(relayFrame, ep); } catch { }
                 IPAddress? ma;
@@ -381,6 +395,39 @@ public sealed class RateControlService : IRateControlService, IDisposable
         _broadcastEndpoints = eps;
         _lastEndpointRefresh = DateTime.UtcNow;
         return eps;
+    }
+
+    /// <summary>What this module's relay outputs should be doing right now.
+    ///
+    /// Relay N used to be assumed to be section N; that is still the default, so
+    /// a setup saved before relay functions existed behaves exactly as it did.
+    /// Anything else — a master shutoff, a bypass valve, tram markers — now comes
+    /// from the module's own relay assignments.</summary>
+    private RcRelayWords ComputeRelayWords(int moduleId, ushort sectionBits)
+    {
+        var m = GetOrAddModuleSetup(moduleId);
+        // Tram, lift and geo-stop are the steering side's view of the machine —
+        // the same values it puts in PGN 239 — so they come from its snapshot
+        // rather than being recomputed here.
+        var snap = _autoSteer?.LatestSnapshot;
+        byte tram = snap?.TramState ?? 0;
+        // The lift command is momentary in AOG (1 = raise, 2 = lower); the relay
+        // follows it and the machine module keeps its own raise/lower timing.
+        byte hyd = _configStore.Machine.HydraulicLiftEnabled ? (snap?.HydLiftState ?? 0) : (byte)0;
+        return RcRelayMap.Compute(m.EnsureRelays(), new RcRelayInputs
+        {
+            MasterOn = MasterOn,
+            AutoSectionOn = _state.Operation.IsSectionAutoMaster,
+            Moving = Math.Abs(_state.Vehicle.Speed) * 3.6 > 0.1,
+            Calibrating = _products.Exists(p => p.CalActive),
+            SectionBits = sectionBits,
+            SwitchBits = sectionBits,        // the virtual switchbox has no switches of its own yet
+            TramRight = (tram & 1) != 0,
+            TramLeft = (tram & 2) != 0,
+            GeoStop = (snap?.GeoStopState ?? 0) != 0,
+            HydUp = hyd == 1,
+            HydDown = hyd == 2,
+        }, m.FlowMasterMode);
     }
 
     /// <summary>Worked area rate: (active width × speed) and (total width × speed),
@@ -726,6 +773,22 @@ public sealed class RateControlService : IRateControlService, IDisposable
         SaveModuleSetups();
     }
 
+    /// <summary>Put every relay back to driving its own section.</summary>
+    public void ResetRelays(int moduleId)
+    {
+        GetOrAddModuleSetup(moduleId).Relays = RcRelayMap.DefaultRelays(moduleId);
+        SaveModuleSetups();
+    }
+
+    /// <summary>Renumber the section-driving relays consecutively, so a boom
+    /// wired in order does not have to be numbered by hand one at a time.</summary>
+    public void RenumberRelays(int moduleId, int startSection)
+    {
+        var m = GetOrAddModuleSetup(moduleId);
+        RcRelayMap.Renumber(m.EnsureRelays(), startSection, Math.Max(1, _sections.SectionStates.Count));
+        SaveModuleSetups();
+    }
+
     /// <summary>Fill a module's pins, flags and valve tuning with the factory
     /// defaults for a board type, matching the native app's Modules &gt; Boards
     /// page. Staged locally only — nothing reaches the module until pushed.</summary>
@@ -830,6 +893,31 @@ public sealed class RateControlService : IRateControlService, IDisposable
             case "cfg.workPin": m.Config.WorkPin = B(); break;
             case "cfg.pressurePin": m.Config.PressurePin = B(); break;
             case "cfg.board": m.Board = value; break;
+            case "cfg.flowMasterMode":
+                m.FlowMasterMode = Enum.TryParse<RcFlowMasterMode>(value, true, out var fm)
+                    ? fm : (RcFlowMasterMode)B();
+                break;
+            // relay functions, "rly<N>.type" / ".section" / ".switch"
+            case string k3 when k3.StartsWith("rly", StringComparison.Ordinal) && k3.Contains('.'):
+            {
+                int dot = k3.IndexOf('.');
+                if (!int.TryParse(k3.AsSpan(3, dot - 3), NumberStyles.Integer, CultureInfo.InvariantCulture, out var rid))
+                    return;
+                var rly = m.EnsureRelays().Find(x => x.Id == rid);
+                if (rly == null) return;
+                switch (k3[(dot + 1)..])
+                {
+                    case "type": rly.Type = (RcRelayType)B(); break;
+                    // -1 (no section) has to survive, so this one is signed.
+                    case "section":
+                        rly.SectionId = int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sid)
+                            ? Math.Clamp(sid, -1, 127) : -1;
+                        break;
+                    case "switch": rly.SwitchId = Math.Clamp((int)B(), 0, 15); break;
+                    default: return;
+                }
+                break;
+            }
             // relay output pins, "cfg.relay0".."cfg.relay15"
             case string k2 when k2.StartsWith("cfg.relay", StringComparison.Ordinal)
                              && int.TryParse(k2.Substring(9), out var ri)
@@ -892,9 +980,26 @@ public sealed class RateControlService : IRateControlService, IDisposable
             var m = _moduleSetups[i];
             if (i > 0) sb.Append(',');
             var c = m.Config;
+            // Live relay word too: the only way to see a relay map is doing what
+            // was intended, short of watching the outputs click.
+            var live = ComputeRelayWords(m.ModuleId, _sections.GetSectionBits());
             sb.Append("{\"moduleId\":").Append(m.ModuleId)
               .Append(",\"board\":").Append(JsonSerializer.Serialize(m.Board ?? "esp32"))
               .Append(",\"relayPins\":[").Append(string.Join(",", c.RelayPins)).Append(']')
+              .Append(",\"flowMasterMode\":").Append((int)m.FlowMasterMode)
+              .Append(",\"liveRelays\":").Append(live.Relays)
+              .Append(",\"liveValveIndex\":").Append(live.FlowMasterIndex)
+              .Append(",\"relays\":[");
+            var rl = m.EnsureRelays();
+            for (int r = 0; r < rl.Count; r++)
+            {
+                if (r > 0) sb.Append(',');
+                sb.Append("{\"id\":").Append(rl[r].Id)
+                  .Append(",\"type\":").Append((int)rl[r].Type)
+                  .Append(",\"section\":").Append(rl[r].SectionId)
+                  .Append(",\"switch\":").Append(rl[r].SwitchId).Append('}');
+            }
+            sb.Append(']')
               .Append(",\"cfg\":{\"sensorCount\":").Append(c.SensorCount)
               .Append(",\"invertRelay\":").Append(c.InvertRelayControl ? "true" : "false")
               .Append(",\"invertFlow\":").Append(c.InvertFlowControl ? "true" : "false")
