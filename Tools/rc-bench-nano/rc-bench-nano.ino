@@ -18,15 +18,17 @@
 // WIRING (Nano <-> RC module) — the module is a 12V board, so NEITHER side
 // connects directly. Sensor inputs are optocoupled and valve outputs are 12V.
 //
-//   PULSE OUT — imitate the flow sensor by SINKING the input, which is exactly
-//   what a hall flow meter does. The firmware sets the flow pin INPUT_PULLUP and
-//   counts RISING edges, so pulling the terminal to ground and releasing it
-//   gives one counted edge per cycle:
-//       D9 --[1k]--> base of an NPN (2N2222 / BC547)
-//                    emitter -> module GND
-//                    collector -> module FLOW terminal
-//   A small N-channel MOSFET (2N7000) works the same way, gate/source/drain.
-//   Do NOT drive the terminal from the Nano pin directly: it may sit at 12V.
+//   POWER — take the Nano's 5V from the board's flow-sensor supply. Grounds are
+//   then common by construction, which the PWM divider needs anyway.
+//
+//   PULSE OUT — the flow input is built for a 5V sensor, so a 5V Nano drives it
+//   at the level it expects. Measure the terminal to ground, unconnected:
+//     reads ~0V  (sourcing, wants driving):  D9 --[220R]--> FLOW terminal
+//     reads ~5V  (sinking, has a pull-up):   D9 --[1k]--> B of an NPN
+//                                            (2N2222/BC547), E -> GND,
+//                                            C -> FLOW terminal
+//   Either way one cycle = one counted edge: the ESP32 sees the opto output on
+//   INPUT_PULLUP and counts RISING.
 //
 //   PWM SENSE — the valve output swings to 12V, which would destroy an analog
 //   input. Divide it down and filter it in one go:

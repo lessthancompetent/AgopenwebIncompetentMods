@@ -21,11 +21,29 @@ Then open the serial console at **115200** and press `?`.
 The module is a **12 V board**: its sensor inputs are optocoupled and its valve
 outputs swing to 12 V, so neither side connects to the Nano directly.
 
+### Power
+
+The board provides **5 V to run the flow sensor** — power the Nano from it
+(5 V pin, not VIN) and the grounds are common by construction, which the PWM
+divider needs anyway. A Nano draws ~20 mA, far less than the hall sensor it is
+replacing.
+
 ### Pulse output — imitate the flow sensor
 
-The firmware sets the flow pin `INPUT_PULLUP` and counts **rising** edges, so
-the input is a *sinking* type: a real hall flow meter pulls it to ground and
-releases it. Do the same with a transistor.
+The flow input is built for a 5 V sensor, so the Nano drives it at the level it
+already expects. Which of the two circuits you need depends on whether the input
+sources or sinks — **measure it first** (see below):
+
+**Sourcing input** (terminal reads ~0 V unconnected — it wants to be driven):
+
+```
+D9 --[220R]--> module FLOW terminal
+```
+
+The resistor just protects both ends against a wiring slip.
+
+**Sinking input** (terminal reads ~5 V unconnected — it has a pull-up, like an
+open-collector hall meter):
 
 ```
 D9 --[1k]--> B (2N2222 / BC547)
@@ -33,10 +51,9 @@ D9 --[1k]--> B (2N2222 / BC547)
              C --> module FLOW terminal
 ```
 
-A 2N7000 MOSFET works identically (gate / source / drain). One pull-and-release
-per cycle = one counted edge, so the frequency arrives intact. **Never** wire
-the Nano pin straight to the terminal — with the board's pull-up it may sit at
-12 V.
+A 2N7000 MOSFET works identically. Either way one cycle produces one counted
+edge, so the frequency arrives intact — the module's ESP32 sees the opto's
+output through `INPUT_PULLUP` and counts rising edges.
 
 ### PWM sense — divide and filter in one go
 
@@ -63,10 +80,17 @@ backwards (high with no command): flip it with `i1`.
 
 ### Check before connecting
 
-With the module powered and nothing on the flow terminal, measure it against
-ground. Sitting near 12 V (or 3.3/5 V) confirms the pull-up and the sinking
-arrangement above. Sitting at 0 V means it expects to be *driven* instead — stop
-and tell me, because the drive circuit is then different.
+One meter reading decides the pulse circuit. With the module powered and nothing
+on the flow terminal, measure terminal → ground:
+
+| Reading | Input type | Use |
+|---|---|---|
+| ~5 V | sinking (has a pull-up) | the NPN circuit |
+| ~0 V | sourcing (wants driving) | the 220R direct connection |
+| ~12 V | not the sensor input | stop — wrong terminal |
+
+Do the same on the valve output at full command to get the real number for `v`,
+and note whether it idles high (low-side switched → `i1`).
 
 ## Modes
 
