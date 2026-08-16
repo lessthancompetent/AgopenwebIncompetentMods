@@ -1,0 +1,246 @@
+// RC bench rig — a fake flow meter (and fake sprayer) for an AOG_RC module.
+//
+// WHY
+// On a dry bench an RC module has nothing to measure, so most of the rate stack
+// cannot be exercised: no pulses means no measured rate, no quantity totals, no
+// catch-test calibration and — the one that matters — no way to tune the valve
+// PID before you are in the paddock. This Nano supplies the missing half.
+//
+// MODES
+//   OFF     no pulses.
+//   MANUAL  a flow you dial in (pot or serial). Proves the chain end to end:
+//           pulses -> module -> AgOpenWeb rate readout -> quantity -> job record.
+//   LOOP    a VIRTUAL SPRAYER: reads the module's valve PWM and returns the flow
+//           that valve would give, with a first-order lag for the plumbing. The
+//           module's PID then has something real to control, so Kp/Ki/deadband
+//           can be tuned on the bench and watched on the readout.
+//
+// WIRING (Nano <-> RC module)
+//   D9  --[ level shift ]-->  module FLOW pin      pulse output
+//   A1  <--[ RC filter ]---   module PWM/IN2 pin   valve command sense
+//   D4  --[ level shift ]-->  module BIN pin       optional bin-empty sim
+//   A0  <-- wiper of a 10k pot (ends to 5V and GND)   manual flow dial
+//   D2  <-- momentary button to GND                    cycle mode
+//   GND <-> module GND                                 REQUIRED common ground
+//
+// *** 3.3V WARNING ***
+// The ESP32-based RC modules are 3.3V. Do NOT drive their inputs from a 5V Nano
+// directly. Either run a 3.3V board (Pro Mini 8 MHz), or divide D9 and D4 down,
+// e.g. 1.8k in series with 3.3k to ground gives ~3.2V. Reading the module's
+// 3.3V PWM into a 5V Nano is fine (3.3V reads HIGH), but the analog sense wants
+// an RC filter: 10k in series, 10uF to ground, giving a steady voltage that
+// tracks duty cycle.
+//
+// THE MATHS
+// A module counts pulses and divides by its meter calibration, so to imitate a
+// flow of R units/min at calibration C pulses/unit:
+//     Hz = R * C / 60          e.g. 25 L/min at cal 180 -> 75 Hz
+// Keep the result inside the module's own pulse window (defaults gate roughly
+// 1..1500 Hz) or it will discard the readings.
+//
+// SERIAL 115200 — '?' lists commands.
+
+#include <Arduino.h>
+
+// ---- pins ----
+static const uint8_t PIN_PULSE   = 9;    // OC1A — hardware-timed, no jitter
+static const uint8_t PIN_PWM_IN  = A1;   // filtered valve PWM
+static const uint8_t PIN_POT     = A0;
+static const uint8_t PIN_BUTTON  = 2;
+static const uint8_t PIN_BIN     = 4;
+static const uint8_t PIN_LED     = LED_BUILTIN;
+
+// ---- modes ----
+enum Mode : uint8_t { MODE_OFF = 0, MODE_MANUAL = 1, MODE_LOOP = 2 };
+static Mode mode = MODE_MANUAL;
+
+// ---- settings (serial-adjustable) ----
+static float meterCal   = 180.0f;  // pulses per unit — MATCH the module's setting
+static float manualFlow = 20.0f;   // units/min in MANUAL
+static float maxFlow    = 60.0f;   // units/min at full PWM in LOOP; also pot full scale
+static float tauSec     = 1.5f;    // plumbing lag in LOOP
+static float pwmFullV   = 3.3f;    // module PWM logic level (3.3 ESP32, 5.0 AVR)
+static bool  usePot     = true;    // pot drives MANUAL until serial overrides
+static bool  binEmpty   = false;
+static bool  binActiveHigh = false; // match the module's invert-bin flag
+
+// ---- state ----
+static float flowNow = 0.0f;       // units/min actually being emitted
+static float pwmDuty = 0.0f;       // 0..1 sensed
+static float achievedHz = 0.0f;
+static int   potLast = -1000;
+
+// Timer1 in CTC toggles OC1A, so the pulse train is generated in hardware and
+// keeps exact frequency no matter what the loop is doing.
+static void setPulseHz(float hz)
+{
+  // Only reprogram on a real change. Rewriting the timer every loop and zeroing
+  // TCNT1 would restart the waveform ~50x a second, truncating pulses — and the
+  // module counts pulses, so the flow it measured would read low.
+  static float lastHz = -1.0f;
+  static uint8_t lastCs = 0xFF;
+  if (fabs(hz - lastHz) < max(0.2f, hz * 0.002f)) return;
+  lastHz = hz;
+
+  if (hz < 0.5f) {                       // below the module's window: just stop
+    TCCR1A = 0; TCCR1B = 0;
+    lastCs = 0xFF;
+    digitalWrite(PIN_PULSE, LOW);
+    achievedHz = 0;
+    return;
+  }
+  static const uint16_t presc[] = {1, 8, 64, 256, 1024};
+  static const uint8_t  csBits[] = {1, 2, 3, 4, 5};
+  for (uint8_t i = 0; i < 5; i++) {
+    // toggle-on-compare halves the rate, hence the 2
+    uint32_t ocr = (uint32_t)(F_CPU / (2.0f * presc[i] * hz)) - 1;
+    if (ocr <= 65535UL) {
+      noInterrupts();
+      TCCR1A = _BV(COM1A0);              // toggle OC1A on compare
+      TCCR1B = _BV(WGM12) | csBits[i];   // CTC, this prescaler
+      OCR1A  = (uint16_t)ocr;
+      // Restart the count only when the prescaler changed; otherwise let the
+      // running waveform continue into the new period.
+      if (csBits[i] != lastCs) { TCNT1 = 0; lastCs = csBits[i]; }
+      interrupts();
+      achievedHz = (float)F_CPU / (2.0f * presc[i] * (ocr + 1));
+      return;
+    }
+  }
+  TCCR1A = 0; TCCR1B = 0;                // asked for something impossibly slow
+  lastCs = 0xFF;
+  achievedHz = 0;
+}
+
+static float flowToHz(float unitsPerMin) { return unitsPerMin * meterCal / 60.0f; }
+
+// Sense the valve command. The RC filter turns the module's PWM into a level;
+// scale by the module's logic voltage so 100% duty reads as 1.0.
+static float readDuty()
+{
+  int raw = analogRead(PIN_PWM_IN);
+  float volts = raw * (5.0f / 1023.0f);
+  float d = volts / pwmFullV;
+  return d < 0 ? 0 : (d > 1 ? 1 : d);
+}
+
+static void printStatus()
+{
+  Serial.print(F("mode="));
+  Serial.print(mode == MODE_OFF ? F("OFF") : mode == MODE_MANUAL ? F("MANUAL") : F("LOOP"));
+  Serial.print(F("  flow=")); Serial.print(flowNow, 2);
+  Serial.print(F(" u/min  hz=")); Serial.print(achievedHz, 1);
+  Serial.print(F("  cal=")); Serial.print(meterCal, 1);
+  if (mode == MODE_LOOP) {
+    Serial.print(F("  duty=")); Serial.print(pwmDuty * 100.0f, 0); Serial.print('%');
+    Serial.print(F("  max=")); Serial.print(maxFlow, 1);
+    Serial.print(F("  tau=")); Serial.print(tauSec, 1); Serial.print('s');
+  }
+  if (binEmpty) Serial.print(F("  BIN-EMPTY"));
+  Serial.println();
+}
+
+static void printHelp()
+{
+  Serial.println(F("RC bench rig — fake flow meter for an AOG_RC module"));
+  Serial.println(F("  m0/m1/m2  mode: off / manual / closed-loop"));
+  Serial.println(F("  c<val>    meter calibration, pulses per unit (match the module)"));
+  Serial.println(F("  f<val>    manual flow, units/min (takes over from the pot)"));
+  Serial.println(F("  p         hand control back to the pot"));
+  Serial.println(F("  x<val>    max flow at full PWM (also the pot's full scale)"));
+  Serial.println(F("  t<val>    plumbing lag, seconds"));
+  Serial.println(F("  v<val>    module logic volts for PWM sense (3.3 or 5.0)"));
+  Serial.println(F("  b0/b1     bin-empty simulation off / on"));
+  Serial.println(F("  s         status    ?  this help"));
+}
+
+void setup()
+{
+  pinMode(PIN_PULSE, OUTPUT);
+  pinMode(PIN_BIN, OUTPUT);
+  pinMode(PIN_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_BIN, binActiveHigh ? LOW : HIGH);   // "not empty"
+  Serial.begin(115200);
+  Serial.setTimeout(50);                 // snappy: no 1s stall after each command
+  delay(200);
+  printHelp();
+  printStatus();
+}
+
+void loop()
+{
+  static uint32_t lastMs = 0, lastPrint = 0, lastBlink = 0;
+  uint32_t now = millis();
+  float dt = (now - lastMs) / 1000.0f;
+  if (dt < 0.02f) return;               // 50 Hz is plenty
+  lastMs = now;
+
+  // mode button, debounced by the loop rate
+  static bool btnPrev = true;
+  bool btn = digitalRead(PIN_BUTTON);
+  if (btnPrev && !btn) {
+    mode = (Mode)((mode + 1) % 3);
+    printStatus();
+  }
+  btnPrev = btn;
+
+  // pot — only takes over once actually moved, so a serial-set flow is not
+  // immediately overridden by a stationary knob
+  int pot = analogRead(PIN_POT);
+  if (abs(pot - potLast) > 8) { potLast = pot; usePot = true; }
+  if (usePot) manualFlow = (pot / 1023.0f) * maxFlow;
+
+  float wanted = 0.0f;
+  if (mode == MODE_MANUAL) {
+    wanted = manualFlow;
+    flowNow = wanted;                    // dialled flow responds immediately
+  } else if (mode == MODE_LOOP) {
+    pwmDuty = readDuty();
+    wanted = pwmDuty * maxFlow;
+    // first-order lag: a valve and its plumbing do not step instantly, and a
+    // PID tuned against an instant response is not tuned for the real machine
+    float a = (tauSec <= 0.01f) ? 1.0f : (dt / (tauSec + dt));
+    flowNow += (wanted - flowNow) * a;
+  } else {
+    flowNow = 0.0f;
+  }
+
+  setPulseHz(flowToHz(flowNow));
+
+  digitalWrite(PIN_BIN, binEmpty ? (binActiveHigh ? HIGH : LOW)
+                                 : (binActiveHigh ? LOW : HIGH));
+
+  // LED: off when idle, blink faster with more flow — a glance says it is alive
+  if (flowNow <= 0.01f) {
+    digitalWrite(PIN_LED, LOW);
+  } else {
+    uint32_t period = (uint32_t)(1000.0f / (1.0f + flowNow / 10.0f));
+    if (now - lastBlink > period) { lastBlink = now; digitalWrite(PIN_LED, !digitalRead(PIN_LED)); }
+  }
+
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\r' || c == '\n') continue;
+    // Only parse a number for commands that take one: parseFloat() otherwise
+    // blocks for the whole serial timeout and can swallow the next command.
+    bool takesValue = (strchr("mcfxtvb", c) != NULL);
+    float v = takesValue ? Serial.parseFloat() : 0.0f;
+    switch (c) {
+      case 'm': mode = (Mode)constrain((int)v, 0, 2); break;
+      case 'c': if (v > 0) meterCal = v; break;
+      case 'f': manualFlow = v; usePot = false; break;
+      case 'p': usePot = true; break;
+      case 'x': if (v > 0) maxFlow = v; break;
+      case 't': tauSec = v < 0 ? 0 : v; break;
+      case 'v': if (v > 0.5f) pwmFullV = v; break;
+      case 'b': binEmpty = (v >= 1); break;
+      case 's': break;
+      case '?': printHelp(); break;
+      default: continue;
+    }
+    printStatus();
+  }
+
+  if (now - lastPrint > 1000) { lastPrint = now; printStatus(); }
+}
