@@ -52,13 +52,17 @@
 // Keep the result inside the module's own pulse window (defaults gate roughly
 // 1..1500 Hz) or it will discard the readings.
 //
-// SERIAL 115200 — '?' lists commands.
+// SERIAL 38400 — '?' lists commands. (Was 115200; this board survived a 12V
+// mishap with a heat-shifted clock, and 115200 is the worst-margin baud on a
+// 16 MHz AVR — 38400 has ~10x the timing margin and matches the RC module's
+// own console rate.)
 
 #include <Arduino.h>
 
 // ---- pins ----
 static const uint8_t PIN_PULSE   = 9;    // OC1A — hardware-timed, no jitter
-static const uint8_t PIN_PWM_IN  = A1;   // filtered valve PWM
+static const uint8_t PIN_PWM_IN  = A1;   // filtered valve PWM (open side in 2-wire)
+static const uint8_t PIN_PWM_IN2 = A2;   // 2-wire only: the close side (same divider)
 static const uint8_t PIN_POT     = A0;
 static const uint8_t PIN_BUTTON  = 2;
 static const uint8_t PIN_BIN     = 4;
@@ -91,6 +95,14 @@ static bool  potLocked  = true;
 // real button is fitted.
 static bool  buttonArmed = false;
 static bool  binEmpty   = false;
+// 2-wire motorised valve ('w1'): the H-bridge REVERSES POLARITY across M1A/M1B
+// to run the valve open or closed, and it STAYS where it stops — an integrator,
+// not a proportional actuator. Tuning a PID against the wrong plant shape gives
+// numbers that are wrong on the real machine, which is the whole reason the
+// bench rig exists. Needs the second divider: M1B -> 10k -> A2 (+3.3k/10uF).
+static bool  twoWire    = false;
+static float travelSec  = 6.0f;    // 'r': full-travel time of the valve
+static float valvePos   = 0.0f;    // 0..1 modelled position
 static bool  binActiveHigh = false; // match the module's invert-bin flag
 
 // ---- state ----
@@ -145,13 +157,18 @@ static float flowToHz(float unitsPerMin) { return unitsPerMin * meterCal / 60.0f
 
 // Sense the valve command. The RC filter turns the module's PWM into a level;
 // scale by the module's logic voltage so 100% duty reads as 1.0.
+static float readDutyRaw(uint8_t pin)
+{
+  int raw = analogRead(pin);
+  float d = raw * (5.0f / 1023.0f) / pwmFullV;
+  return d < 0 ? 0 : (d > 1 ? 1 : d);
+}
+
 static float readDuty()
 {
-  int raw = analogRead(PIN_PWM_IN);
-  float volts = raw * (5.0f / 1023.0f);
-  float d = volts / pwmFullV;
+  float d = readDutyRaw(PIN_PWM_IN);
   if (pwmInvert) d = 1.0f - d;
-  return d < 0 ? 0 : (d > 1 ? 1 : d);
+  return d;
 }
 
 static void printStatus()
@@ -163,6 +180,7 @@ static void printStatus()
   Serial.print(F("  cal=")); Serial.print(meterCal, 1);
   if (mode == MODE_LOOP) {
     Serial.print(F("  duty=")); Serial.print(pwmDuty * 100.0f, 0); Serial.print('%');
+    if (twoWire) { Serial.print(F("  pos=")); Serial.print(valvePos * 100.0f, 0); Serial.print('%'); }
     if (pwmInvert) Serial.print(F(" (inv)"));
     Serial.print(F("  max=")); Serial.print(maxFlow, 1);
     Serial.print(F("  tau=")); Serial.print(tauSec, 1); Serial.print('s');
@@ -184,6 +202,8 @@ static void printHelp()
   Serial.println(F("  i0/i1     PWM sense normal / inverted (low-side switched output)"));
   Serial.println(F("  b0/b1     bin-empty simulation off / on"));
   Serial.println(F("  k0/k1     mode button disarmed / armed (default off)"));
+  Serial.println(F("  w0/w1     LOOP plant: proportional / 2-wire motorised (integrating)"));
+  Serial.println(F("  r<sec>    2-wire valve full-travel time"));
   Serial.println(F("  s         status    ?  this help"));
 }
 
@@ -194,7 +214,7 @@ void setup()
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_BIN, binActiveHigh ? LOW : HIGH);   // "not empty"
-  Serial.begin(115200);
+  Serial.begin(38400);
   Serial.setTimeout(50);                 // snappy: no 1s stall after each command
   delay(200);
   printHelp();
@@ -232,8 +252,19 @@ void loop()
     wanted = manualFlow;
     flowNow = wanted;                    // dialled flow responds immediately
   } else if (mode == MODE_LOOP) {
-    pwmDuty = readDuty();
-    wanted = pwmDuty * maxFlow;
+    if (twoWire) {
+      // Integrate: polarity one way opens, the other closes, idle holds.
+      // 'i1' swaps which divider is which without rewiring.
+      float dOpen  = readDutyRaw(pwmInvert ? PIN_PWM_IN2 : PIN_PWM_IN);
+      float dClose = readDutyRaw(pwmInvert ? PIN_PWM_IN : PIN_PWM_IN2);
+      pwmDuty = dOpen - dClose;                      // signed, for the status line
+      valvePos += (dOpen - dClose) * (dt / travelSec);
+      if (valvePos < 0) valvePos = 0; else if (valvePos > 1) valvePos = 1;
+      wanted = valvePos * maxFlow;
+    } else {
+      pwmDuty = readDuty();
+      wanted = pwmDuty * maxFlow;
+    }
     // first-order lag: a valve and its plumbing do not step instantly, and a
     // PID tuned against an instant response is not tuned for the real machine
     float a = (tauSec <= 0.01f) ? 1.0f : (dt / (tauSec + dt));
@@ -260,7 +291,7 @@ void loop()
     if (c == '\r' || c == '\n') continue;
     // Only parse a number for commands that take one: parseFloat() otherwise
     // blocks for the whole serial timeout and can swallow the next command.
-    bool takesValue = (strchr("mcfxtvbik", c) != NULL);
+    bool takesValue = (strchr("mcfxtvbikwr", c) != NULL);
     float v = takesValue ? Serial.parseFloat() : 0.0f;
     switch (c) {
       case 'm': mode = (Mode)constrain((int)v, 0, 2); break;
@@ -273,6 +304,8 @@ void loop()
       case 'i': pwmInvert = (v >= 1); break;
       case 'b': binEmpty = (v >= 1); break;
       case 'k': buttonArmed = (v >= 1); break;
+      case 'w': twoWire = (v >= 1); valvePos = 0; break;
+      case 'r': if (v > 0.2f) travelSec = v; break;
       case 's': break;
       case '?': printHelp(); break;
       default: continue;
