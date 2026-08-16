@@ -15,21 +15,33 @@
 //           module's PID then has something real to control, so Kp/Ki/deadband
 //           can be tuned on the bench and watched on the readout.
 //
-// WIRING (Nano <-> RC module)
-//   D9  --[ level shift ]-->  module FLOW pin      pulse output
-//   A1  <--[ RC filter ]---   module PWM/IN2 pin   valve command sense
-//   D4  --[ level shift ]-->  module BIN pin       optional bin-empty sim
+// WIRING (Nano <-> RC module) — the module is a 12V board, so NEITHER side
+// connects directly. Sensor inputs are optocoupled and valve outputs are 12V.
+//
+//   PULSE OUT — imitate the flow sensor by SINKING the input, which is exactly
+//   what a hall flow meter does. The firmware sets the flow pin INPUT_PULLUP and
+//   counts RISING edges, so pulling the terminal to ground and releasing it
+//   gives one counted edge per cycle:
+//       D9 --[1k]--> base of an NPN (2N2222 / BC547)
+//                    emitter -> module GND
+//                    collector -> module FLOW terminal
+//   A small N-channel MOSFET (2N7000) works the same way, gate/source/drain.
+//   Do NOT drive the terminal from the Nano pin directly: it may sit at 12V.
+//
+//   PWM SENSE — the valve output swings to 12V, which would destroy an analog
+//   input. Divide it down and filter it in one go:
+//       valve output --[10k]--+--> A1
+//                             |
+//                            [3.3k]  and  [10uF] to GND
+//   That gives ~2.98V at 12V in (set with 'v'), and ~25ms smoothing so the duty
+//   cycle arrives as a steady voltage. If the output is low-side switched it
+//   reads inverted (high with no command) — flip it with 'i1'.
+//
+//   BIN SIM  — same NPN arrangement as the pulse output, from D4.
 //   A0  <-- wiper of a 10k pot (ends to 5V and GND)   manual flow dial
 //   D2  <-- momentary button to GND                    cycle mode
-//   GND <-> module GND                                 REQUIRED common ground
-//
-// *** 3.3V WARNING ***
-// The ESP32-based RC modules are 3.3V. Do NOT drive their inputs from a 5V Nano
-// directly. Either run a 3.3V board (Pro Mini 8 MHz), or divide D9 and D4 down,
-// e.g. 1.8k in series with 3.3k to ground gives ~3.2V. Reading the module's
-// 3.3V PWM into a 5V Nano is fine (3.3V reads HIGH), but the analog sense wants
-// an RC filter: 10k in series, 10uF to ground, giving a steady voltage that
-// tracks duty cycle.
+//   GND <-> module GND    REQUIRED — the divider and the transistor emitter
+//                         both reference the module's ground.
 //
 // THE MATHS
 // A module counts pulses and divides by its meter calibration, so to imitate a
@@ -59,7 +71,12 @@ static float meterCal   = 180.0f;  // pulses per unit — MATCH the module's set
 static float manualFlow = 20.0f;   // units/min in MANUAL
 static float maxFlow    = 60.0f;   // units/min at full PWM in LOOP; also pot full scale
 static float tauSec     = 1.5f;    // plumbing lag in LOOP
-static float pwmFullV   = 3.3f;    // module PWM logic level (3.3 ESP32, 5.0 AVR)
+// Volts seen at A1 when the valve is commanded FULL. With the documented
+// 10k/3.3k divider on a 12V output that is ~2.98V. Measure yours and set it
+// with 'v' — this is the scale the whole closed loop hangs off.
+static float pwmFullV   = 2.98f;
+// Low-side switched outputs read backwards (full volts = no command).
+static bool  pwmInvert  = false;
 static bool  usePot     = true;    // pot drives MANUAL until serial overrides
 static bool  binEmpty   = false;
 static bool  binActiveHigh = false; // match the module's invert-bin flag
@@ -121,6 +138,7 @@ static float readDuty()
   int raw = analogRead(PIN_PWM_IN);
   float volts = raw * (5.0f / 1023.0f);
   float d = volts / pwmFullV;
+  if (pwmInvert) d = 1.0f - d;
   return d < 0 ? 0 : (d > 1 ? 1 : d);
 }
 
@@ -133,6 +151,7 @@ static void printStatus()
   Serial.print(F("  cal=")); Serial.print(meterCal, 1);
   if (mode == MODE_LOOP) {
     Serial.print(F("  duty=")); Serial.print(pwmDuty * 100.0f, 0); Serial.print('%');
+    if (pwmInvert) Serial.print(F(" (inv)"));
     Serial.print(F("  max=")); Serial.print(maxFlow, 1);
     Serial.print(F("  tau=")); Serial.print(tauSec, 1); Serial.print('s');
   }
@@ -149,7 +168,8 @@ static void printHelp()
   Serial.println(F("  p         hand control back to the pot"));
   Serial.println(F("  x<val>    max flow at full PWM (also the pot's full scale)"));
   Serial.println(F("  t<val>    plumbing lag, seconds"));
-  Serial.println(F("  v<val>    module logic volts for PWM sense (3.3 or 5.0)"));
+  Serial.println(F("  v<val>    volts at A1 when the valve is FULL (10k/3.3k on 12V = 2.98)"));
+  Serial.println(F("  i0/i1     PWM sense normal / inverted (low-side switched output)"));
   Serial.println(F("  b0/b1     bin-empty simulation off / on"));
   Serial.println(F("  s         status    ?  this help"));
 }
@@ -224,7 +244,7 @@ void loop()
     if (c == '\r' || c == '\n') continue;
     // Only parse a number for commands that take one: parseFloat() otherwise
     // blocks for the whole serial timeout and can swallow the next command.
-    bool takesValue = (strchr("mcfxtvb", c) != NULL);
+    bool takesValue = (strchr("mcfxtvbi", c) != NULL);
     float v = takesValue ? Serial.parseFloat() : 0.0f;
     switch (c) {
       case 'm': mode = (Mode)constrain((int)v, 0, 2); break;
@@ -233,7 +253,8 @@ void loop()
       case 'p': usePot = true; break;
       case 'x': if (v > 0) maxFlow = v; break;
       case 't': tauSec = v < 0 ? 0 : v; break;
-      case 'v': if (v > 0.5f) pwmFullV = v; break;
+      case 'v': if (v > 0.2f) pwmFullV = v; break;
+      case 'i': pwmInvert = (v >= 1); break;
       case 'b': binEmpty = (v >= 1); break;
       case 's': break;
       case '?': printHelp(); break;
