@@ -2338,6 +2338,7 @@ function msStatus(t) {
   setTimeout(() => { if (el.textContent === t) el.textContent = ''; }, 4000);
 }
 document.getElementById('rt-modsetup').addEventListener('pointerdown', e => { e.stopPropagation(); msOpen(); });
+wireTabStrip(document.getElementById('modulesetup'), 'ms-top');
 // Valve wiring: three real wirings mapped onto the two wire bits the module
 // actually stores (3-wire flag + invert flow).
 document.getElementById('ms-valvemode').addEventListener('change', e => {
