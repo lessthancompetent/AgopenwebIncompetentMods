@@ -205,6 +205,13 @@ public static partial class RemoteServerWiring
                                     }
                                     return;
                                 }
+                                case "rate.modDefaults": // arg = moduleId — stage factory defaults
+                                {
+                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var md))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .LoadModuleDefaults(md);
+                                    return;
+                                }
                                 case "rate.modAssignId": // arg = moduleId — commissioning: EVERY
                                 {                        // listening module adopts this id, so the
                                                          // client must confirm one board is connected.

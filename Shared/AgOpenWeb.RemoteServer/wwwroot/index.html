@@ -1140,6 +1140,10 @@
         <div class="sb-modrow"><i id="sb-imu" class="dot"></i><span class="sb-modname">IMU</span><span id="sb-imu-d" class="sb-modd"></span></div>
         <div class="sb-modrow"><i id="sb-as" class="dot"></i><span class="sb-modname">AutoSteer</span><span id="sb-as-d" class="sb-modd"></span></div>
         <div class="sb-modrow"><i id="sb-ma" class="dot"></i><span class="sb-modname">Machine</span><span id="sb-ma-d" class="sb-modd"></span></div>
+        <!-- Rate modules live on their own UDP plane (:29999/:28888), not the AOG
+             one, so they never appear in the scan the other four come from. Shown
+             only when this tool uses rate control. -->
+        <div class="sb-modrow" id="sb-rcrow" hidden><i id="sb-rc" class="dot"></i><span class="sb-modname">Rate</span><span id="sb-rc-d" class="sb-modd"></span></div>
       </div>
     </div>
     <div class="sb-speed-wrap">
@@ -1598,7 +1602,6 @@
             <label data-show="tbt">Tank trailing hitch (m)</label><input class="cfg-num" data-key="tool.tankTrailingHitchLength" data-show="tbt" type="number" step="0.01">
             <label>Implement length (m)</label><input class="cfg-num" data-key="tool.length" type="number" step="0.01">
             <label>Physical width (m)</label><input class="cfg-num" data-key="tool.physicalWidth" type="number" step="0.01" title="Actual frame width for obstacle clearance; 0 = use working width. Route planner swerves small obstacles by this instead of the full spread.">
-            <label>Rate control</label><button class="cfg-tgl" data-key="tool.useRateControl" title="This implement meters product (sprayer / spreader / drill). Rate settings and the on-map rate readout follow this tool profile.">Off</button>
           </div>
         </div>
       </div>
@@ -1703,6 +1706,34 @@
       <div class="cfg-tabs cfg-subtabs">
         <button class="cfg-tab active" data-strip="tc-mac" data-tab="tcm-module">Module</button>
         <button class="cfg-tab" data-strip="tc-mac" data-tab="tcm-pins">Pin Config</button>
+        <button class="cfg-tab" data-strip="tc-mac" data-tab="tcm-rate">Rate Control</button>
+      </div>
+      <!-- Rate control belongs with the implement's machine settings: it is a
+           property of THIS tool (a sprayer meters product, harrows do not), and
+           the settings live in the tool profile. -->
+      <div id="tcm-rate" class="cfg-body" data-strip="tc-mac" hidden>
+        <div class="cfg-cols2">
+          <div>
+            <div class="cfg-label">This implement</div>
+            <div class="cfg-grid">
+              <label>Use rate control</label><button class="cfg-tgl" data-key="tool.useRateControl" title="This implement meters product (sprayer / spreader / drill). Products, calibration and the on-map readout follow this tool profile.">Off</button>
+              <label>On-map readout</label>
+              <select class="cfg-sel" id="tcm-hudmode" title="Small always-visible rate panel on the map">
+                <option value="0">Off</option>
+                <option value="1">Current</option>
+                <option value="2">Target</option>
+                <option value="3">Both</option>
+              </select>
+            </div>
+            <div class="cfg-label" style="margin-top:10px">Status</div>
+            <div class="cfg-grid"><label>Modules heard</label><span class="cfg-label" id="tcm-heard" style="opacity:.85">—</span></div>
+          </div>
+          <div>
+            <div class="cfg-label">Setup</div>
+            <button class="cfg-act cfg-actwide" id="tcm-openrate" title="Products, target rates, tank and calibration for this tool">Products &amp; rates…</button>
+            <button class="cfg-act cfg-actwide" id="tcm-openmod" title="Pins, module flags and valve tuning stored on the module itself">⚙ Module setup…</button>
+          </div>
+        </div>
       </div>
       <div id="tcm-module" class="cfg-body" data-strip="tc-mac">
         <div class="cfg-cols2">
@@ -2376,6 +2407,7 @@
     <button class="cfg-act cfg-actwide" id="ms-pushctl">Send valve tuning</button>
 
     <div class="cfg-label" style="margin-top:8px">Commissioning</div>
+    <button class="cfg-act cfg-actwide" id="ms-defaults" title="Fill in the RC board's own factory defaults (pins, valve tuning, flags) — then review and send">↺ Load RC defaults</button>
     <button class="cfg-act cfg-actwide" id="ms-pushall">Send everything to this module</button>
     <button class="cfg-act cfg-actwide" id="ms-assignid" style="background:rgba(231,76,60,0.30)" title="Every module listening will take this ID — only one board may be connected">Assign this ID to the connected board</button>
     <div class="cfg-label" id="ms-status" style="min-height:16px"></div>

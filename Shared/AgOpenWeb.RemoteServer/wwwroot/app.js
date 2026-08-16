@@ -2336,6 +2336,56 @@ function msStatus(t) {
   setTimeout(() => { if (el.textContent === t) el.textContent = ''; }, 4000);
 }
 document.getElementById('rt-modsetup').addEventListener('pointerdown', e => { e.stopPropagation(); msOpen(); });
+document.getElementById('ms-defaults').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  // Staged locally only — the operator reviews the values and presses send.
+  // Nothing reaches the module until then.
+  showConfirm('Load RC defaults',
+    'Fill module ' + msMod + "'s pins, flags and valve tuning with the RC board's factory " +
+    'defaults? This only fills the form — nothing is sent until you press a Send button.',
+    () => { transport.send('rate.modDefaults|' + msMod); setTimeout(msRefresh, 400);
+            msStatus('Defaults loaded — review, then Send.'); });
+});
+// Rate control entry points on Tool config -> Machine -> Rate Control.
+{
+  const openRate = document.getElementById('tcm-openrate');
+  if (openRate) openRate.addEventListener('pointerdown', e => { e.stopPropagation(); rtOpen(); });
+  const openMod = document.getElementById('tcm-openmod');
+  if (openMod) openMod.addEventListener('pointerdown', e => { e.stopPropagation(); msOpen(); });
+  const hud = document.getElementById('tcm-hudmode');
+  if (hud) {
+    hud.value = String(rhMode);
+    hud.addEventListener('change', ev => rhSetMode(parseInt(ev.target.value) || 0));
+  }
+}
+// Rate modules in the status-bar Modules popup. They speak a different UDP plane
+// from GPS/IMU/AutoSteer/Machine, so the host's module scan never sees them and
+// this has to come from the rate service. Polled slowly — it is a presence
+// indicator, not telemetry.
+setInterval(() => {
+  const row = document.getElementById('sb-rcrow');
+  if (!row) return;
+  fetch('/api/ratemodules').then(r => r.json()).then(d => {
+    if (!d.useRateControl) { row.hidden = true; return; }   // not a metering tool
+    row.hidden = false;
+    const heard = d.modulesHeard || [];
+    const dot = document.getElementById('sb-rc');
+    const det = document.getElementById('sb-rc-d');
+    if (dot) dot.style.background = heard.length ? '#2ecc71' : '#e74c3c';
+    if (det) det.textContent = heard.length ? 'id ' + heard.join(', ') : 'none';
+  }).catch(() => {});
+}, 3000);
+
+// Keep the machine tab's status line current while it is open.
+setInterval(() => {
+  const el = document.getElementById('tcm-heard');
+  const panel = document.getElementById('toolcfg');
+  if (!el || !panel || !panel.classList.contains('open')) return;
+  fetch('/api/ratemodules').then(r => r.json()).then(d => {
+    const h = d.modulesHeard || [];
+    el.textContent = h.length ? h.join(', ') : 'none';
+  }).catch(() => {});
+}, 2000);
 document.getElementById('ms-back').addEventListener('pointerdown', e => { e.stopPropagation(); rtOpen(); });
 document.getElementById('ms-mod').addEventListener('change', e => { msMod = parseInt(e.target.value) || 0; msRender(); });
 document.getElementById('ms-sen').addEventListener('change', e => { msSen = parseInt(e.target.value) || 0; msRender(); });

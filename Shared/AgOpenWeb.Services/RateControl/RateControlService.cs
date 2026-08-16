@@ -62,6 +62,8 @@ public interface IRateControlService
     /// id, so the caller must have confirmed a single connected board.</summary>
     void PushModuleConfig(int moduleId, bool assignId = false);
     void PushAll(int moduleId);
+    /// <summary>Stage the RC board's factory defaults locally for review before sending.</summary>
+    void LoadModuleDefaults(int moduleId);
 }
 
 public sealed class RateControlService : IRateControlService, IDisposable
@@ -640,6 +642,55 @@ public sealed class RateControlService : IRateControlService, IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"[Rate] module setup save failed: {ex.Message}");
         }
+    }
+
+    /// <summary>Fill a module's stored setup with the RC board's own factory
+    /// defaults — the values its firmware writes in LoadDefaults() (Begin.ino).
+    ///
+    /// Worth having because nothing can read a module's configuration back: a
+    /// fresh or reset board gives no clue what its pins are, and typing 20
+    /// fields from a wiki is how a wrong pin ends up driving a valve. These are
+    /// staged locally only; the operator reviews them and presses send.</summary>
+    public void LoadModuleDefaults(int moduleId)
+    {
+        var m = GetOrAddModuleSetup(moduleId);
+        const byte NC = 0xFF;   // firmware's "not connected"
+
+        // Two driver channels on the board; anything beyond has no pins.
+        var s0 = m.GetOrAddSensor(0);
+        s0.Pins = new RcSensorPins { FlowPin = 17, DirPin = 32, PwmPin = 33, BinPin = NC, InvertBinSensor = false };
+        if (m.Sensors.Count > 1 || m.Config.SensorCount > 1)
+        {
+            var s1 = m.GetOrAddSensor(1);
+            s1.Pins = new RcSensorPins { FlowPin = 16, DirPin = 25, PwmPin = 26, BinPin = NC, InvertBinSensor = false };
+        }
+
+        foreach (var s in m.Sensors)
+        {
+            // On-wire values matching the firmware defaults: MaxPWM is a percent
+            // (the module scales to 255), deadband is percent x10, max integral
+            // x10, timed-min-start x100, pulse min Hz x10.
+            s.Control = new RcControlSettings
+            {
+                MaxPwm = 100, MinPwm = 5, Kp = 45, Ki = 70, Deadband = 15,
+                BrakePoint = 35, PidSlowAdjust = 60, SlewRate = 25, MaxIntegral = 250,
+                TimedMinStart = 50, TimedAdjust = 80, TimedPause = 400, PidTime = 150,
+                PulseMinHz = 10, PulseMaxHz = 4000, PulseSampleSize = 40,
+            };
+        }
+
+        m.Config.SensorCount = 1;
+        m.Config.InvertRelayControl = true;
+        m.Config.InvertFlowControl = true;
+        m.Config.WorkPinMomentary = false;
+        m.Config.Is3WireValve = true;
+        m.Config.Ads1115Enabled = true;
+        m.Config.OnboardRelayType = 5;   // PCA9685
+        m.Config.RemoteRelayType = 0;
+        m.Config.WorkPin = NC;
+        m.Config.PressurePin = NC;
+        for (int i = 0; i < m.Config.RelayPins.Length; i++) m.Config.RelayPins[i] = NC;
+        SaveModuleSetups();
     }
 
     public RcModuleSetup GetOrAddModuleSetup(int moduleId)
