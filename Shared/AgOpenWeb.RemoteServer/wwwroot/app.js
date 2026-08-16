@@ -2320,6 +2320,8 @@ function msRender() {
     const v = val(inp.dataset.k);
     if (v != null && document.activeElement !== inp) inp.value = v;
   }
+  const vm = document.getElementById('ms-valvemode');
+  if (vm && cur.m.cfg) vm.value = cur.m.cfg.is3Wire ? '3' : (cur.m.cfg.invertFlow ? '2i' : '2');
   for (const b of document.querySelectorAll('#modulesetup .ms-tgl')) {
     const on = !!val(b.dataset.k);
     b.classList.toggle('active', on);
@@ -2336,6 +2338,23 @@ function msStatus(t) {
   setTimeout(() => { if (el.textContent === t) el.textContent = ''; }, 4000);
 }
 document.getElementById('rt-modsetup').addEventListener('pointerdown', e => { e.stopPropagation(); msOpen(); });
+// Valve wiring: three real wirings mapped onto the two wire bits the module
+// actually stores (3-wire flag + invert flow).
+document.getElementById('ms-valvemode').addEventListener('change', e => {
+  const v = e.target.value;
+  msSend('cfg.is3Wire', v === '3' ? '1' : '0');
+  setTimeout(() => msSend('cfg.invertFlow', v === '2i' ? '1' : '0'), 200);
+});
+document.getElementById('ms-pushsubnet').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const o = ['ms-ip0','ms-ip1','ms-ip2'].map(id => parseInt(document.getElementById(id).value));
+  if (o.some(n => !Number.isFinite(n) || n < 0 || n > 255)) { msStatus('Subnet octets must be 0-255.'); return; }
+  showConfirm('Set wired subnet',
+    'Module ' + msMod + ' will reboot onto ' + o.join('.') + '.' + (50 + msMod) +
+    ' and leave the current wired network. Its WiFi connection is unaffected. Continue?',
+    () => { transport.send('rate.modSubnet|' + msMod + ',' + o.join(','));
+            msStatus('Subnet sent — module rebooting onto ' + o.join('.') + '.' + (50 + msMod)); });
+});
 document.getElementById('ms-defaults').addEventListener('pointerdown', e => {
   e.stopPropagation();
   // Staged locally only — the operator reviews the values and presses send.
@@ -2443,10 +2462,35 @@ function rtRefresh() {
     rtPlane = !!(d && d.plane);
     rtCatalog = (d && d.catalog) || [];
     rtTool = (d && d.tool) || '';
+    const mb = document.getElementById('rt-master');
+    if (mb) {
+      const on = !!(d && d.masterOn);
+      mb.classList.toggle('active', on);
+      mb.textContent = on ? 'On' : 'OFF';
+      mb.style.background = on ? '' : 'rgba(231,76,60,0.35)';   // OFF must be obvious
+    }
     rtRender();
   }).catch(() => {});
 }
 function rtSend(key, value) { transport.send('rate.set|' + rtSel + ',' + key + ',' + value); setTimeout(rtRefresh, 250); }
+// Virtual switchbox. Master gates every product at the module; rate up/down
+// nudges the selected channel's target, and Reset returns it to the catalogue
+// rate — the "what was it supposed to be" after a few nudges.
+document.getElementById('rt-master').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const on = !document.getElementById('rt-master').classList.contains('active');
+  transport.send('rate.master|' + (on ? '1' : '0'));
+  setTimeout(rtRefresh, 250);
+});
+document.getElementById('rt-rateup').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('rate.bump|' + rtSel + ',5'); setTimeout(rtRefresh, 250);
+});
+document.getElementById('rt-ratedn').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('rate.bump|' + rtSel + ',-5'); setTimeout(rtRefresh, 250);
+});
+document.getElementById('rt-ratereset').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('rate.rateReset|' + rtSel); setTimeout(rtRefresh, 250);
+});
 document.getElementById('rt-hudmode').addEventListener('change', e => {
   rhSetMode(parseInt(e.target.value) || 0);
 });

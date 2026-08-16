@@ -2314,6 +2314,15 @@
       <select class="cfg-sel" id="rt-catsel" style="width:150px" title="Load a product from the catalogue into this channel"></select>
       <button class="cfg-act" id="rt-catadd" title="Save this channel's name, units and rate to the shared catalogue">+ Catalogue</button></div>
     <div class="rp-row"><span class="cfg-label">Product name</span><input id="rt-name" class="of-input" type="text" style="width:130px"></div>
+    <!-- Virtual switchbox: stands in for the physical AOG_RC box. Master is the
+         one control that must always be reachable — without it there was no way
+         to stop product from the screen. -->
+    <div class="rp-row"><span class="cfg-label">Master</span>
+      <button class="cfg-tgl" id="rt-master" data-keep-label="1" style="min-width:74px">On</button>
+      <span class="cfg-label">Rate</span>
+      <button class="cfg-act" id="rt-ratedn" title="Target down 5%">−5%</button>
+      <button class="cfg-act" id="rt-rateup" title="Target up 5%">+5%</button>
+      <button class="cfg-act" id="rt-ratereset" title="Back to the product's catalogue rate">Reset</button></div>
     <div class="rp-pats" style="grid-template-columns:1fr 1fr">
       <button class="rp-pat" id="rt-enabled">Enabled</button>
       <button class="rp-pat" id="rt-auto">Auto</button>
@@ -2368,10 +2377,17 @@
       <label>Onboard relays</label><input class="ms-num" data-k="cfg.onboardRelayType" type="number" min="0" max="6" step="1" title="0 none, 1 GPIO, 2 PCA9555 x8, 3 PCA9555 x16, 4 MCP23017, 5 PCA9685, 6 PCF8574">
       <label>Remote relays</label><input class="ms-num" data-k="cfg.remoteRelayType" type="number" min="0" max="6" step="1" title="Same codes as onboard relays">
       <label>Invert relay</label><button class="ms-tgl" data-k="cfg.invertRelay">Off</button>
-      <label>Invert flow</label><button class="ms-tgl" data-k="cfg.invertFlow">Off</button>
       <label>Work momentary</label><button class="ms-tgl" data-k="cfg.workMomentary">Off</button>
-      <label>3-wire valve</label><button class="ms-tgl" data-k="cfg.is3Wire">Off</button>
       <label>ADS1115</label><button class="ms-tgl" data-k="cfg.ads1115">Off</button>
+      <!-- The native app calls this the flow/master valve mode. On the wire it
+           is two bits (3-wire, invert flow); presented as the three real
+           wirings so it means something at the machine. -->
+      <label>Valve wiring</label>
+      <select class="cfg-sel" id="ms-valvemode" title="How the flow/master valve is wired">
+        <option value="3">3-wire</option>
+        <option value="2">2-wire</option>
+        <option value="2i">2-wire, inverted</option>
+      </select>
     </div>
     <button class="cfg-act cfg-actwide" id="ms-pushcfg">Send module config</button>
 
@@ -2405,6 +2421,14 @@
       <label>Timed pause</label><input class="ms-num" data-k="ctl.timedPause" type="number" min="0" max="65535" step="1">
     </div>
     <button class="cfg-act cfg-actwide" id="ms-pushctl">Send valve tuning</button>
+
+    <div class="cfg-label" style="margin-top:8px">Wired network</div>
+    <div class="rp-row"><span class="cfg-label">Subnet</span>
+      <input class="ms-num" id="ms-ip0" type="number" min="0" max="255" step="1" style="width:52px" value="192">
+      <input class="ms-num" id="ms-ip1" type="number" min="0" max="255" step="1" style="width:52px" value="168">
+      <input class="ms-num" id="ms-ip2" type="number" min="0" max="255" step="1" style="width:52px" value="5">
+      <span class="cfg-label" id="ms-ipnote" style="opacity:.75">. 50+id</span></div>
+    <button class="cfg-act cfg-actwide" id="ms-pushsubnet" title="Ethernet only. The module reboots onto the new subnet and leaves this one.">Set wired subnet (module reboots)</button>
 
     <div class="cfg-label" style="margin-top:8px">Commissioning</div>
     <button class="cfg-act cfg-actwide" id="ms-defaults" title="Fill in the RC board's own factory defaults (pins, valve tuning, flags) — then review and send">↺ Load RC defaults</button>

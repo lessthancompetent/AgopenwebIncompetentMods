@@ -151,6 +151,7 @@ public static class RcPgn
     public const ushort PGN_CONTROL_SETTINGS = 32502; // 0xF6 0x7E valve/PID tuning
     public const ushort PGN_SENSOR_PINS = 32507;      // 0xFB 0x7E per-sensor pins
     public const ushort PGN_MODULE_CONFIG = 32700;    // 0xBC 0x7F module-wide config
+    public const ushort PGN_SUBNET = 32503;           // 0xF7 0x7E move the module's wired subnet
 
     /// <summary>Additive CRC over bytes 0..length-1 (RC plane sums from byte 0,
     /// unlike the AOG plane which sums from byte 2).</summary>
@@ -253,6 +254,26 @@ public static class RcPgn
         d[21] = (byte)(s.PulseMaxHz >> 8);
         d[22] = s.PulseSampleSize;
         d[23] = Crc(d, 23);
+        return d;
+    }
+
+    /// <summary>Build PGN 32503 (subnet change). 6 bytes.
+    ///
+    /// The module's WIRED address is static, not DHCP: it is
+    /// <c>IP0.IP1.IP2.(50 + moduleId)</c>, gateway .1, broadcasting to .255.
+    /// Ship defaults are 192.168.1.x, so on any other LAN the module sits on the
+    /// right cable and the wrong network and is never heard. This moves it. The
+    /// module saves and REBOOTS onto the new subnet, so it disappears from the
+    /// current one — send it from a host that will be on the new subnet too.</summary>
+    public static byte[] BuildSubnetChange(byte ip0, byte ip1, byte ip2)
+    {
+        var d = new byte[6];
+        d[0] = 0xF7;   // 247
+        d[1] = 0x7E;   // 126
+        d[2] = ip0;
+        d[3] = ip1;
+        d[4] = ip2;
+        d[5] = Crc(d, 5);
         return d;
     }
 

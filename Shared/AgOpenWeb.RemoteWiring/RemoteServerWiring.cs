@@ -205,6 +205,36 @@ public static partial class RemoteServerWiring
                                     }
                                     return;
                                 }
+                                case "rate.master": // arg = 0/1 — virtual switchbox master
+                                    services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                        .SetMaster(arg == "1");
+                                    return;
+                                case "rate.bump": // "idx,percent" — switchbox rate up/down
+                                {
+                                    var rb = arg.Split(',');
+                                    if (rb.Length >= 2
+                                        && int.TryParse(rb[0], System.Globalization.NumberStyles.Integer, inv, out var rbi)
+                                        && double.TryParse(rb[1], num, inv, out var rbp))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .BumpRate(rbi, rbp);
+                                    return;
+                                }
+                                case "rate.rateReset": // arg = idx — back to the catalogue rate
+                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var rri))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .ResetRate(rri);
+                                    return;
+                                case "rate.modSubnet": // "moduleId,ip0,ip1,ip2" — module reboots onto it
+                                {
+                                    var sn = arg.Split(',');
+                                    if (sn.Length >= 4
+                                        && int.TryParse(sn[0], System.Globalization.NumberStyles.Integer, inv, out var snm)
+                                        && byte.TryParse(sn[1], out var o0) && byte.TryParse(sn[2], out var o1)
+                                        && byte.TryParse(sn[3], out var o2))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .PushSubnet(snm, o0, o1, o2);
+                                    return;
+                                }
                                 case "rate.modDefaults": // arg = moduleId — stage factory defaults
                                 {
                                     if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var md))

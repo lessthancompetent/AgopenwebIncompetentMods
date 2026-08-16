@@ -64,6 +64,14 @@ public interface IRateControlService
     void PushAll(int moduleId);
     /// <summary>Stage the RC board's factory defaults locally for review before sending.</summary>
     void LoadModuleDefaults(int moduleId);
+
+    // Virtual switchbox — stands in for the physical AOG_RC box (PGN 32618).
+    bool MasterOn { get; }
+    void SetMaster(bool on);
+    void BumpRate(int index, double percent);
+    void ResetRate(int index);
+    /// <summary>Move the module's wired subnet; it reboots onto the new one.</summary>
+    void PushSubnet(int moduleId, byte ip0, byte ip1, byte ip2);
 }
 
 public sealed class RateControlService : IRateControlService, IDisposable
@@ -298,7 +306,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
                 // switchbox is connected).
                 var frame = RcPgn.BuildRateSettings(
                     p.ModuleId, p.SensorId, target, p.MeterCal, p.ControlType,
-                    masterOn: true, autoOn: p.AutoOn, resetQuantity: reset,
+                    masterOn: MasterOn, autoOn: p.AutoOn, resetQuantity: reset,
                     manualPwm: p.ManualPwm, productEnabled: p.Enabled);
 
                 foreach (var ep in BroadcastEndpoints())
@@ -541,6 +549,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
         sb.Append("{\"plane\":").Append(PlaneActive ? "true" : "false");
         sb.Append(",\"tool\":").Append(JsonSerializer.Serialize(_configStore.ActiveToolProfileName ?? ""));
         sb.Append(",\"useRateControl\":").Append(_configStore.Tool.UseRateControl ? "true" : "false");
+        sb.Append(",\"masterOn\":").Append(MasterOn ? "true" : "false");
         sb.Append(",\"catalog\":[");
         for (int i = 0; i < _catalog.Items.Count; i++)
         {
@@ -651,6 +660,51 @@ public sealed class RateControlService : IRateControlService, IDisposable
     /// fresh or reset board gives no clue what its pins are, and typing 20
     /// fields from a wiki is how a wrong pin ends up driving a valve. These are
     /// staged locally only; the operator reviews them and presses send.</summary>
+    // ── Virtual switchbox ───────────────────────────────────────────────────
+    // The physical AOG_RC switchbox (PGN 32618) is a box of toggles: master,
+    // auto rate, rate up/down, prime. With no box connected this app asserted
+    // masterOn permanently, so there was no way to stop product from the screen
+    // — not acceptable on a machine metering chemical. These stand in for it.
+
+    /// <summary>Master run/stop across every product. Off commands zero rate at
+    /// the module, the same as the physical master switch.</summary>
+    public bool MasterOn { get; private set; } = true;
+
+    public void SetMaster(bool on) => MasterOn = on;
+
+    /// <summary>Nudge a channel's target, as the switchbox's rate up/down does.
+    /// A percentage of the CURRENT target, so repeated presses behave sensibly
+    /// at any rate.</summary>
+    public void BumpRate(int index, double percent)
+    {
+        EnsureToolChannels();
+        if (index < 0 || index >= _products.Count) return;
+        var p = _products[index];
+        p.TargetRate = Math.Max(0, Math.Round(p.TargetRate * (1.0 + percent / 100.0), 2));
+        _dirty = true;
+        SaveProducts();
+    }
+
+    /// <summary>Back to the product's catalogue rate — "what was it meant to be"
+    /// after a few nudges.</summary>
+    public void ResetRate(int index)
+    {
+        EnsureToolChannels();
+        if (index < 0 || index >= _products.Count) return;
+        var p = _products[index];
+        var item = _catalog.Find(p.Name);
+        if (item == null || item.DefaultRate <= 0) return;
+        p.TargetRate = item.DefaultRate;
+        _dirty = true;
+        SaveProducts();
+    }
+
+    /// <summary>Move a module's WIRED subnet (PGN 32503). The module reboots onto
+    /// the new subnet and vanishes from this one, so only send it when this host
+    /// is on (or moving to) that network.</summary>
+    public void PushSubnet(int moduleId, byte ip0, byte ip1, byte ip2)
+        => SendToModule(moduleId, RcPgn.BuildSubnetChange(ip0, ip1, ip2));
+
     public void LoadModuleDefaults(int moduleId)
     {
         var m = GetOrAddModuleSetup(moduleId);
