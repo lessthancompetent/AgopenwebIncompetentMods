@@ -1,9 +1,12 @@
 # Rate control — handoff
 
-**Written 2026-08-16.** Two problems were reported: the *Use rate control* toggle
-did nothing, and a bench module would not connect. The toggle is **fixed and
-deployed**. The module problem is **diagnosed but not fixed** — it needs hands on
-the hardware, not a code change.
+**Written 2026-08-16, updated the same evening.** Two problems were reported:
+the *Use rate control* toggle does nothing, and a bench module would not
+connect. **Both are now resolved and deployed.** The bench module is connected
+end to end — module → house router → tablet's AgOpenWeb, PastureBoss channel
+green, module id 1 at `192.168.5.51` — the first hardware-confirmed module link
+this port has had. Section 2 records the diagnosis and the two code defects it
+uncovered.
 
 Repo: `C:\Users\OEM\.claude\sessions\Agvalonia Rework\AgOpenWeb`, branch
 `feature/route-planning`. Relevant commits, newest last:
@@ -12,7 +15,8 @@ Repo: `C:\Users\OEM\.claude\sessions\Agvalonia Rework\AgOpenWeb`, branch
 |---|---|
 | `528929a3` | Module setup: valve wiring, board defaults, relay pins, colour |
 | `8ca29bbc` | Relay functions (16 outputs per module) |
-| `357c978b` | **Rate control toggle fix** (this document) |
+| `357c978b` | **Rate control toggle fix** |
+| `3a4bbf36` | **Module discovery: ghost-id expiry + ID-assign by unicast** |
 
 ---
 
@@ -97,108 +101,86 @@ treatment:
 
 ---
 
-## 2. The bench module — DIAGNOSED, needs hardware work
+## 2. The bench module — RESOLVED (connected end to end)
 
-Symptom: Module Setup shows *no modules heard*; products show not connected.
+Symptom was *no modules heard*. Root cause: **subnet mismatch on a shared
+wire**, plus two real code defects the recovery exposed (both fixed in
+`3a4bbf36`).
 
-### How discovery actually works (verified against source + firmware)
+### What it was
 
-- The host is a **pure passive listener**. `modulesHeard` is populated only by
-  inbound **PGN 32400** (sensor) or **32401** (module status) arriving on
-  `0.0.0.0:29999`. There is **no handshake** — the module transmits unprompted at
-  ~5 Hz. So *no modules heard* means literally zero valid frames reached the
-  socket. It is a network problem, never an app-config problem.
-- A product shows `connected: true` only if **Enabled** AND `ModuleId` matches
-  AND `SensorId` matches AND a 32400 arrived in the last 4 s. PGN 32401 alone
-  never marks a product connected.
-- Ports: host listens **29999**, modules listen **28888** (`RcPgn.cs:140-141`).
+tcpdump on the tablet's wired NIC showed both sides transmitting on the same
+house L2, addressing past each other:
 
-### What I found on this PC (2026-08-16, ~19:00)
+```
+192.168.1.50.28888  > 192.168.1.255.29999   # module, factory subnet
+192.168.5.135.29999 > 192.168.5.255.28888   # tablet, house subnet
+```
 
-| Check | Result |
-|---|---|
-| Ethernet adapter | **Disconnected, 0 bps** — the `192.168.1.10` address is a dead static |
-| Wi-Fi | Up, `192.168.5.28`, SSID *HOUSE_SSID* |
-| Module MAC `ec:e3:34:aa:e9:90` on 192.168.5.x | **absent** from ARP; full ping sweep found no unexplained host |
-| `RateModule_*` access point | **not visible** in a Wi-Fi scan |
-| Ping 192.168.1.50 / .51 / .52 | no reply (and no link anyway) |
-| **COM12 `USB-SERIAL CH340`** | **present** — the module is powered and plugged into this PC by USB |
-| UDP 29999 | held by **`RateController.exe`** (the WinForms app), PID 50156, started 18:03 |
-| `AgOpenWeb.Desktop` | **not running on this PC** |
+The module's cable goes to the house router; its EEPROM had been wiped back to
+factory by a fresh firmware flash (v2026.07.17, built from the user's modified
+sketch in `Downloads\AOG_RC-main (2)`), so it sat on `192.168.1.50`
+broadcasting to `192.168.1.255` — which every 192.168.5.x host drops before any
+socket sees it. Each side's frames were on the wire the whole time; nobody's IP
+stack would deliver them.
 
-**Conclusion: the module is powered (USB) but is not on any IP network this PC
-can reach.** It is almost certainly still configured for the `rtkwifi` phone
-hotspot from the earlier session, which is not currently broadcasting — so it
-sits retrying forever.
+### How it was recovered (repeatable recipe)
 
-### Two firmware behaviours that bite here
+1. **Serial console first** — COM12 (CH340) at **38400**, reset via RTS pulse
+   (not DTR alone). The boot log names the firmware, module id, IP, and pin
+   config; everything else is guesswork without it. Note the port was held
+   first by RateController.exe and then by the Arduino IDE's serial monitor —
+   both had to be closed.
+2. **Temporary foot in the module's subnet** on any Linux box on the same L2:
+   `sudo ip addr add 192.168.1.201/24 dev enp0s25` on the tablet → module 0
+   heard within seconds. (Windows needs admin for the same trick, which the
+   house PC shell doesn't have.)
+3. **Push the wired subnet** (Module Setup → Network → Set wired subnet, PGN
+   32503) → module reboots onto `192.168.5.50`, temp address removed, heard
+   natively from then on.
+4. **Restore its intended id 1** (it had been wiped to 0): stage ESP32 board
+   defaults into the module-1 record first so the assign frame doesn't carry a
+   zeroed config, then assign.
 
-Both confirmed in `Modules/ESP32 Rate/RC_ESP32/`:
+### The two code defects this exposed (fixed, `3a4bbf36`)
 
-1. **Ethernet is exclusive.** If a W5500 is fitted and the link is UP, every
-   report goes out Ethernet only and the Wi-Fi transmit is skipped entirely
-   (`Send.ino:72-92, 190-210, 229-249, 340-360` all follow
-   `if (ChipFound) { if (linkStatus()==LinkON) {...; Sent=true; } } if (!Sent) { wifi }`).
-   **Plugging a cable in kills Wi-Fi reporting.**
-2. **The module broadcasts to its OWN saved subnet, not yours.**
-   `Begin.ino:147`: `Ethernet_DestinationIP = IPAddress(IP0, IP1, IP2, 255)` —
-   factory `192.168.1.255`. Windows silently discards a `192.168.1.255` datagram
-   arriving on a `192.168.5.x` NIC *before any socket sees it*. This is exactly
-   the failure seen earlier with the module at `192.168.1.51`.
+- **ID-assign never delivered on Ethernet.** The W5500 on these boards drops
+  directed broadcasts (`x.x.x.255`), which is exactly why `SendToModule` also
+  unicasts to the learned address — but *assign* targets an id that has no
+  learned address yet, so the frame went out broadcast-only and never arrived.
+  Bench-proven: the board only took its id from a direct unicast. Assign now
+  also unicasts to **every** learned module address (same semantics — every
+  listening module adopts the id).
+- **Heard list never forgot.** `_moduleAddresses` had no expiry, so after the
+  re-brand the list showed `[0, 1]` with one physical board. The ghost both
+  misleads the exact "is it heard?" diagnosis and trips the assign guard's
+  "more than one module answering" refusal. Entries now expire from the heard
+  list after 10 s (the address is still used for unicast while stale, which is
+  harmless).
 
-### Recovery, in order
+### Firmware facts worth keeping (from the flashed source, `AOG_RC-main (2)`)
 
-1. **Free the serial port and read the console.** `COM12` is currently
-   `Access denied` — something holds it, almost certainly the running
-   `RateController.exe`. Close it, then:
-   ```powershell
-   $sp = New-Object System.IO.Ports.SerialPort 'COM12',38400,'None',8,'One'
-   $sp.Open(); Start-Sleep 10; $sp.ReadExisting(); $sp.Close()
-   ```
-   App serial is **38400**. The boot log says which SSID it is trying and whether
-   it got an address. *Do this first — everything else is guesswork without it.*
-2. **Bring up whatever it is looking for**, or put it back in AP mode. Its AP is
-   `RateModule_<MAC>`, open by default, at `192.168.(200+ModuleID).1`.
-   Remember `#define ModStringLengths 15` → **SSID and password max 14 chars**
-   ("HOUSE_SSID" is 18 and silently truncates; `rtkwifi` fits).
-3. **If using Ethernet:** the PC's Ethernet link must actually be up, and the
-   module's saved subnet must match the PC's. Set it from Module Setup →
-   Network → *Set wired subnet* (PGN 32503; the module reboots onto it). Wired
-   address is **static**: `ip0.ip1.ip2.(50 + moduleId)`, gateway `.1`.
-4. **Watch for frames** once it is on a network — with AgOpenWeb running:
-   ```powershell
-   Get-NetUDPEndpoint -LocalPort 29999
-   ```
-   and to see actual traffic you will need Wireshark (Windows ships nothing that
-   dumps UDP payloads). Filter: `udp.port==28888 || udp.port==29999`.
+- **32700 is gated**: `GoodCRC && (AssignID || data[2] == MDL.ID)` — byte 4
+  bit 64 is the assign flag; without it the frame is a filtered per-module
+  update. On receipt: `SaveData(); ESP.restart();`.
+- This build **validates pins** (`PinAllowed`/`OutputPinAllowed`, NC=255
+  allowed) before accepting a config.
+- **Ethernet is exclusive**: W5500 link up ⇒ Wi-Fi transmit skipped entirely.
+- The module broadcasts to **its own saved subnet's** `.255`, not yours.
+- No station-mode Wi-Fi attempt appears in the boot log unless credentials are
+  saved *and* station mode was ticked.
 
-### Watch out: `RateController.exe` competes
+### Still true / traps
 
-The WinForms app binds **29999** and **17777** and appears to hold **COM12**.
-Our service sets `SO_REUSEADDR` so both can bind 29999, but on Windows a
-**unicast** datagram is delivered to only one of them. Module broadcasts reach
-both; anything unicast may be eaten by whichever app bound last. **Close
-RateController before testing AgOpenWeb**, and vice versa. It is also the best
-cross-check available: if RateController cannot see the module either, the
-problem is definitively the module/network.
-
-### A configuration trap worth knowing (not the current cause)
-
-`p.Enabled` gates **all** transmission — both PGN 32500 (rate settings) and
-32501 (relays) sit inside `if (!p.Enabled) continue;` loops in `SendTick()`.
-`RateProduct.Enabled` defaults to **false**. So a freshly created tool profile
-sends **nothing at all** to any module.
-
-This does not stop *discovery* (that is inbound-only), but it does mean the
-module never gets set up and never runs auto PID. Worse, the Rate panel gives no
-hint: `app.js:2671` renders a green dot for connected, red for enabled, and
-**nothing at all** for a disabled channel — so a disabled channel looks
-identical to a channel that does not exist.
-
-**Suggested improvement (not done):** show a grey dot plus "channel disabled"
-for disabled channels, so silence is explained rather than invisible.
-
----
+- `p.Enabled` gates ALL host transmission (32500/32501); a fresh tool profile
+  sends nothing. Disabled channels show no dot at all in the Rate panel —
+  indistinguishable from channels that don't exist. (Improvement still open:
+  grey dot + "channel disabled".)
+- The WinForms RateController and the Arduino serial monitor both compete for
+  the module: 29999 (SO_REUSEADDR means unicasts go to ONE of the two apps)
+  and COM12 respectively. Close them before testing AgOpenWeb.
+- hz/upm stay 0 until the flow sensor actually pulses — bench "connected, hz 0"
+  is the correct idle state.
 
 ## 3. State of play
 
