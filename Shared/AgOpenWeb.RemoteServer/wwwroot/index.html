@@ -768,6 +768,28 @@
     .cfg-subtabs { font-size: 12px; flex-wrap: wrap; }
     .cfg-subtabs .cfg-tab { padding: 5px 9px; }
     .cfg-note { color: #f0a868; font: 500 12px system-ui, sans-serif; margin-top: 8px; }
+    /* Section headings inside the module/rate panels. Plain grey-on-grey made a
+       wall of similar-looking fields; a coloured rule and brighter heading give
+       the eye somewhere to land, which is what a cab glance needs. Colour is
+       grouped by KIND of setting, not decoration:
+         blue   = identity / addressing        amber = physical wiring (pins)
+         violet = control tuning               red   = does something to hardware */
+    .ms-sec { font: 700 12px system-ui, sans-serif; letter-spacing: .02em;
+      margin: 10px 0 6px; padding-left: 8px; border-left: 3px solid var(--border); color: var(--text-2); }
+    .ms-sec.id    { border-left-color: #4A90D9; color: #86b9ec; }
+    .ms-sec.pins  { border-left-color: #e8b339; color: #e8c069; }
+    .ms-sec.tune  { border-left-color: #b46fd0; color: #cd9ee0; }
+    .ms-sec.act   { border-left-color: #e74c3c; color: #ec8578; }
+    .ms-sec.net   { border-left-color: #2ecc71; color: #7fdca4; }
+    /* Relay pin map: 16 narrow number boxes, two banks of eight. */
+    .ms-relays { display: grid; grid-template-columns: repeat(2, max-content auto); gap: 4px 6px; align-items: center; }
+    .ms-relays label { color: var(--text-muted); font: 500 11px system-ui, sans-serif; white-space: nowrap; }
+    .ms-relays input { width: 56px; }
+    /* Alternate row tint so a long label/field grid stays readable across. */
+    .cfg-grid.zebra > label:nth-of-type(even) { background: rgba(var(--ov),0.04); border-radius: 4px; padding-left: 4px; }
+    /* A channel pointing at a sensor the module does not have connects to
+       nothing and looks identical to a wiring fault — say so loudly. */
+    .rt-warn { color: #e74c3c; font: 700 11px system-ui, sans-serif; }
     .tc-dyngrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; min-width: 0; }
     .tc-dyngrid .tc-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .tc-dyngrid .tc-cell span { color: var(--text-muted); font: 500 11px system-ui, sans-serif; }
@@ -2310,6 +2332,7 @@
       </select></div>
     <!-- Products come from the shared catalogue; the channel keeps this tool's own
          hardware settings (module/sensor and above all the meter calibration). -->
+    <div class="ms-sec id">Product</div>
     <div class="rp-row"><span class="cfg-label">Product</span>
       <select class="cfg-sel" id="rt-catsel" style="width:150px" title="Load a product from the catalogue into this channel"></select>
       <button class="cfg-act" id="rt-catadd" title="Save this channel's name, units and rate to the shared catalogue">+ Catalogue</button></div>
@@ -2317,6 +2340,7 @@
     <!-- Virtual switchbox: stands in for the physical AOG_RC box. Master is the
          one control that must always be reachable — without it there was no way
          to stop product from the screen. -->
+    <div class="ms-sec act">Switchbox</div>
     <div class="rp-row"><span class="cfg-label">Master</span>
       <button class="cfg-tgl" id="rt-master" data-keep-label="1" style="min-width:74px">On</button>
       <span class="cfg-label">Rate</span>
@@ -2327,21 +2351,35 @@
       <button class="rp-pat" id="rt-enabled">Enabled</button>
       <button class="rp-pat" id="rt-auto">Auto</button>
     </div>
+    <div class="ms-sec pins">Channel hardware</div>
     <div class="rp-row"><span class="cfg-label">Module / Sensor</span>
       <input id="rt-mod" type="number" min="0" max="15" style="width:44px"> <input id="rt-sen" type="number" min="0" max="15" style="width:44px"></div>
+    <div class="rt-warn" id="rt-senwarn" hidden></div>
+    <div class="ms-sec tune">Rate and calibration</div>
     <div class="rp-row"><span class="cfg-label">Target rate</span>
       <input id="rt-target" type="number" step="0.5" min="0" style="width:70px"><select id="rt-units"><option value="1">/Ha</option><option value="0">/Ac</option><option value="2">/min</option><option value="3">/hr</option></select></div>
     <div class="rp-row"><span class="cfg-label">Flow cal (pulses/unit)</span>
       <input id="rt-cal" type="number" step="0.1" min="0" style="width:70px"></div>
+    <!-- Enum values are the module's, not the list order: MotorWeights and Fan sit
+         between Motor and ComboCloseTimed on the wire. -->
     <div class="rp-row"><span class="cfg-label">Control type</span>
-      <select id="rt-ctype"><option value="0">Valve</option><option value="1">Combo close</option><option value="2">Motor</option><option value="3">Motor+weights</option><option value="4">Fan</option><option value="5">Combo timed</option></select></div>
+      <select id="rt-ctype" title="How the application rate is controlled">
+        <option value="0" title="Uses a valve to vary flow rate">Standard valve</option>
+        <option value="1" title="Uses a valve to vary rate and provide on/off control">Combo close</option>
+        <option value="2" title="Varies motor speed to control application rate">Motor</option>
+        <option value="3" title="Motor driven from a weigh system">Motor + weights</option>
+        <option value="4">Fan</option>
+        <option value="5" title="Uses adjust/pause timing cycles for control — see the timed values in module tuning">Combo timed</option>
+      </select></div>
     <div class="rp-row"><span class="cfg-label">Manual PWM</span>
       <div class="rp-step"><button class="rp-sb" data-rt="pwm" data-d="-10">−</button><span id="rt-pwm">0</span><button class="rp-sb" data-rt="pwm" data-d="10">+</button></div></div>
     <div class="rp-row"><span class="cfg-label">Units</span>
       <input id="rt-units-txt" type="text" style="width:44px" title="Quantity unit (L, kg, …) — used in job records"></div>
     <div class="rp-row"><span class="cfg-label">Tank size / remaining</span>
       <input id="rt-tanksize" type="number" step="10" min="0" style="width:60px"><input id="rt-tank" type="number" step="10" min="0" style="width:60px"></div>
+    <div class="ms-sec tune">Live</div>
     <div class="rp-stats" id="rt-live">—</div>
+    <div class="ms-sec act">Totals</div>
     <div class="rp-btns">
       <button class="cfg-act" id="rt-resetqty">Reset Qty</button>
       <button class="cfg-act" id="rt-resetarea">Reset Area</button>
@@ -2364,15 +2402,18 @@
     <div class="ln-hdr"><button class="ln-x" id="ms-back" title="Back">&#8592;</button><span class="ln-hdr-title">Module Setup</span><button class="ln-x ln-closex" title="Close">&#10005;</button></div>
     <div class="rp-row"><span class="cfg-label">Tool</span><span class="cfg-label" id="ms-tool" style="opacity:.8">&#8212;</span>
       <span class="cfg-label">Module</span><select class="cfg-sel" id="ms-mod" style="width:70px"></select>
+      <button class="cfg-act" id="ms-addmod" title="Prepare settings for a module id that has no entry yet" style="flex:none;padding:4px 12px">+</button>
       <span class="cfg-label">Sensor</span><select class="cfg-sel" id="ms-sen" style="width:70px"></select>
       <span class="cfg-label" id="ms-heard" style="opacity:.8">&#8212;</span></div>
+    <div class="rt-warn" id="ms-senwarn" hidden></div>
     <!-- Sub-tabs mirror the native app's module menus. Each pane fits the cab
          screen on its own, which matters because that touchscreen is single
          touch and cannot drag-scroll. -->
     <div class="cfg-tabs cfg-subtabs">
       <button class="cfg-tab active" data-strip="ms-top" data-tab="mst-module">Module</button>
       <button class="cfg-tab" data-strip="ms-top" data-tab="mst-pins">Pins</button>
-      <button class="cfg-tab" data-strip="ms-top" data-tab="mst-valve">Valve</button>
+      <button class="cfg-tab" data-strip="ms-top" data-tab="mst-relays">Relays</button>
+      <button class="cfg-tab" data-strip="ms-top" data-tab="mst-valve">Tuning</button>
       <button class="cfg-tab" data-strip="ms-top" data-tab="mst-net">Network</button>
       <button class="cfg-tab" data-strip="ms-top" data-tab="mst-comm">Commission</button>
     </div>
@@ -2380,30 +2421,34 @@
     <div id="mst-module" class="cfg-body" data-strip="ms-top">
       <div class="cfg-cols2">
         <div>
-          <div class="cfg-label">Module</div>
-          <div class="cfg-grid">
-            <label>Sensor count</label><input class="ms-num" data-k="cfg.sensorCount" type="number" min="1" max="2" step="1">
-            <label>Work pin</label><input class="ms-num" data-k="cfg.workPin" type="number" min="0" max="255" step="1" title="255 = not connected">
-            <label>Pressure pin</label><input class="ms-num" data-k="cfg.pressurePin" type="number" min="0" max="255" step="1" title="255 = not connected">
+          <div class="ms-sec id">Module</div>
+          <div class="cfg-grid zebra">
+            <label>Sensor count</label><input class="ms-num" data-k="cfg.sensorCount" type="number" min="1" max="2" step="1" title="How many product channels this board meters">
+            <label>Work pin</label><input class="ms-num" data-k="cfg.workPin" type="number" min="0" max="255" step="1" title="Implement work switch input. 255 = not connected">
+            <label>Pressure pin</label><input class="ms-num" data-k="cfg.pressurePin" type="number" min="0" max="255" step="1" title="Analog pressure sensor input. 255 = not connected">
             <label>Work momentary</label><button class="ms-tgl" data-k="cfg.workMomentary">Off</button>
             <label>ADS1115</label><button class="ms-tgl" data-k="cfg.ads1115">Off</button>
           </div>
+          <!-- Modules > Valves in the native app. Two options, not three: the
+               invert-flow bit below is direction, not wiring. -->
+          <div class="ms-sec pins">Valve wiring</div>
+          <div class="cfg-grid zebra">
+            <label>Wiring</label>
+            <select class="cfg-sel" id="ms-valvemode" title="How the valve or motor driver is wired to the module">
+              <option value="3">3-wire (signal only)</option>
+              <option value="2">2-wire (driver powers both ways)</option>
+            </select>
+            <label>Invert direction</label><button class="ms-tgl" data-k="cfg.invertFlow" title="Swaps which way the driver counts as increasing flow. Set this if the valve closes when it should open.">Off</button>
+          </div>
         </div>
         <div>
-          <div class="cfg-label">Valve &amp; relays</div>
-          <div class="cfg-grid">
-            <!-- The native flow/master valve mode. On the wire this is two bits
-                 (3-wire, invert flow); shown here as the three real wirings. -->
-            <label>Valve wiring</label>
-            <select class="cfg-sel" id="ms-valvemode" title="How the flow/master valve is wired">
-              <option value="3">3-wire</option>
-              <option value="2">2-wire</option>
-              <option value="2i">2-wire, inverted</option>
-            </select>
-            <label>Onboard relays</label><input class="ms-num" data-k="cfg.onboardRelayType" type="number" min="0" max="6" step="1" title="0 none, 1 GPIO, 2 PCA9555 x8, 3 PCA9555 x16, 4 MCP23017, 5 PCA9685, 6 PCF8574">
-            <label>Remote relays</label><input class="ms-num" data-k="cfg.remoteRelayType" type="number" min="0" max="6" step="1" title="Same codes as onboard relays">
+          <div class="ms-sec pins">Relay drivers</div>
+          <div class="cfg-grid zebra">
+            <label>Onboard relays</label><select class="cfg-sel ms-sel" data-k="cfg.onboardRelayType"><option value="0">None</option><option value="1">Micro pins (GPIO)</option><option value="2">PCA9555 x8</option><option value="3">PCA9555 x16</option><option value="4">MCP23017</option><option value="5">PCA9685</option><option value="6">PCF8574</option></select>
+            <label>Remote relays</label><select class="cfg-sel ms-sel" data-k="cfg.remoteRelayType"><option value="0">None</option><option value="1">Micro pins (GPIO)</option><option value="2">PCA9555 x8</option><option value="3">PCA9555 x16</option><option value="4">MCP23017</option><option value="5">PCA9685</option><option value="6">PCF8574</option></select>
             <label>Invert relay</label><button class="ms-tgl" data-k="cfg.invertRelay">Off</button>
           </div>
+          <div class="dlg-msg" style="text-align:left">3-wire is the default for most installations: one switched signal wire, with the valve powered from its own supply and managing open/close itself. Choose 2-wire for a motorised or latching valve, where the driver has to power it in both directions.</div>
           <button class="cfg-act cfg-actwide" id="ms-pushcfg">Send module config</button>
         </div>
       </div>
@@ -2412,8 +2457,8 @@
     <div id="mst-pins" class="cfg-body" data-strip="ms-top" hidden>
       <div class="cfg-cols2">
         <div>
-          <div class="cfg-label">Pins for the sensor selected above</div>
-          <div class="cfg-grid">
+          <div class="ms-sec pins">Pins for the sensor selected above</div>
+          <div class="cfg-grid zebra">
             <label>Flow pin</label><input class="ms-num" data-k="pins.flow" type="number" min="0" max="255" step="1">
             <label>Dir pin (IN1)</label><input class="ms-num" data-k="pins.dir" type="number" min="0" max="255" step="1">
             <label>PWM pin (IN2)</label><input class="ms-num" data-k="pins.pwm" type="number" min="0" max="255" step="1">
@@ -2423,8 +2468,32 @@
           <button class="cfg-act cfg-actwide" id="ms-pushpins">Send pins (module restarts)</button>
         </div>
         <div>
-          <div class="cfg-label">Board defaults</div>
-          <div class="dlg-msg" style="text-align:left">Sensor 0 is flow 17, dir 32, PWM 33. Sensor 1 is flow 16, dir 25, PWM 26. 255 means not connected. Changing a pin makes the module save and restart.</div>
+          <div class="ms-sec id">Board defaults</div>
+          <div class="dlg-msg" style="text-align:left" id="ms-pinhelp">&#8212;</div>
+          <div class="dlg-msg" style="text-align:left">255 means not connected. Changing a pin makes the module save and restart. Load the board defaults on the Commission tab if these do not match your hardware.</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="mst-relays" class="cfg-body" data-strip="ms-top" hidden>
+      <div class="cfg-cols2">
+        <div>
+          <div class="ms-sec pins">Relay output pins</div>
+          <div class="ms-relays">
+            <label>Relay 1</label><input class="ms-num" data-k="cfg.relay0" type="number" min="0" max="255" step="1"><label>Relay 9</label><input class="ms-num" data-k="cfg.relay8" type="number" min="0" max="255" step="1">
+            <label>Relay 2</label><input class="ms-num" data-k="cfg.relay1" type="number" min="0" max="255" step="1"><label>Relay 10</label><input class="ms-num" data-k="cfg.relay9" type="number" min="0" max="255" step="1">
+            <label>Relay 3</label><input class="ms-num" data-k="cfg.relay2" type="number" min="0" max="255" step="1"><label>Relay 11</label><input class="ms-num" data-k="cfg.relay10" type="number" min="0" max="255" step="1">
+            <label>Relay 4</label><input class="ms-num" data-k="cfg.relay3" type="number" min="0" max="255" step="1"><label>Relay 12</label><input class="ms-num" data-k="cfg.relay11" type="number" min="0" max="255" step="1">
+            <label>Relay 5</label><input class="ms-num" data-k="cfg.relay4" type="number" min="0" max="255" step="1"><label>Relay 13</label><input class="ms-num" data-k="cfg.relay12" type="number" min="0" max="255" step="1">
+            <label>Relay 6</label><input class="ms-num" data-k="cfg.relay5" type="number" min="0" max="255" step="1"><label>Relay 14</label><input class="ms-num" data-k="cfg.relay13" type="number" min="0" max="255" step="1">
+            <label>Relay 7</label><input class="ms-num" data-k="cfg.relay6" type="number" min="0" max="255" step="1"><label>Relay 15</label><input class="ms-num" data-k="cfg.relay14" type="number" min="0" max="255" step="1">
+            <label>Relay 8</label><input class="ms-num" data-k="cfg.relay7" type="number" min="0" max="255" step="1"><label>Relay 16</label><input class="ms-num" data-k="cfg.relay15" type="number" min="0" max="255" step="1">
+          </div>
+        </div>
+        <div>
+          <div class="ms-sec id">About relay pins</div>
+          <div class="dlg-msg" style="text-align:left">These are the micro pins wired to each of the 16 relay outputs. 255 means unassigned. They only apply when the relays are driven straight off micro pins &#8212; a board using a PCA9685 or MCP23017 expander addresses its relays by channel, so it leaves every pin here unassigned.</div>
+          <button class="cfg-act cfg-actwide" id="ms-pushcfg2">Send module config</button>
         </div>
       </div>
     </div>
@@ -2432,30 +2501,31 @@
     <div id="mst-valve" class="cfg-body" data-strip="ms-top" hidden>
       <div class="cfg-cols2">
         <div>
-          <div class="cfg-label">Response</div>
-          <div class="cfg-grid">
-            <label>Max PWM %</label><input class="ms-num" data-k="ctl.maxPwm" type="number" min="0" max="100" step="1">
-            <label>Min PWM %</label><input class="ms-num" data-k="ctl.minPwm" type="number" min="0" max="100" step="1">
-            <label>Kp</label><input class="ms-num" data-k="ctl.kp" type="number" min="0" max="255" step="1">
-            <label>Ki</label><input class="ms-num" data-k="ctl.ki" type="number" min="0" max="255" step="1">
-            <label>Deadband</label><input class="ms-num" data-k="ctl.deadband" type="number" min="0" max="255" step="1" title="Percent x 10 on the wire">
-            <label>Brake point %</label><input class="ms-num" data-k="ctl.brakePoint" type="number" min="0" max="255" step="1">
-            <label>Slow adjust %</label><input class="ms-num" data-k="ctl.slowAdjust" type="number" min="0" max="255" step="1">
-            <label>Slew rate</label><input class="ms-num" data-k="ctl.slewRate" type="number" min="0" max="255" step="1">
-            <label>Max integral</label><input class="ms-num" data-k="ctl.maxIntegral" type="number" min="0" max="255" step="1">
+          <div class="ms-sec tune">Response</div>
+          <div class="cfg-grid zebra">
+            <label>Max power %</label><input class="ms-num" data-k="ctl.maxPwm" type="number" min="0" max="100" step="1" title="Maximum PWM power delivered to the motor or valve">
+            <label>Min power %</label><input class="ms-num" data-k="ctl.minPwm" type="number" min="0" max="100" step="1" title="Least power that still moves the motor or valve. Set to 0 if a motor will not shut off.">
+            <label>Gain (Kp)</label><input class="ms-num" data-k="ctl.kp" type="number" min="0" max="255" step="1" title="Rate adjustment factor. Higher product volume needs lower gain; the effect is exponential, so change it in small steps.">
+            <label>Integral (Ki)</label><input class="ms-num" data-k="ctl.ki" type="number" min="0" max="255" step="1" title="Uses accumulated error to reach the target rate faster. Start at 0.">
+            <label>Deadband</label><input class="ms-num" data-k="ctl.deadband" type="number" min="0" max="255" step="1" title="Error % below which no adjustment is made. Percent x 10 on the wire.">
+            <label>Brake point %</label><input class="ms-num" data-k="ctl.brakePoint" type="number" min="0" max="255" step="1" title="Error % at which adjustment switches to the slow rate">
+            <label>Slow adjust %</label><input class="ms-num" data-k="ctl.slowAdjust" type="number" min="0" max="255" step="1" title="Fraction of a full adjustment to use at the slow rate">
+            <label>Slew rate</label><input class="ms-num" data-k="ctl.slewRate" type="number" min="0" max="255" step="1" title="Maximum total PWM change per PID loop">
+            <label>Max integral</label><input class="ms-num" data-k="ctl.maxIntegral" type="number" min="0" max="255" step="1" title="Maximum integral PWM change per PID loop">
           </div>
         </div>
         <div>
-          <div class="cfg-label">Timing</div>
-          <div class="cfg-grid">
-            <label>PID time</label><input class="ms-num" data-k="ctl.pidTime" type="number" min="0" max="255" step="1">
-            <label>Pulse min Hz</label><input class="ms-num" data-k="ctl.pulseMinHz" type="number" min="0" max="255" step="1" title="Hz x 10">
-            <label>Pulse max Hz</label><input class="ms-num" data-k="ctl.pulseMaxHz" type="number" min="0" max="65535" step="1">
-            <label>Sample window</label><input class="ms-num" data-k="ctl.sampleWindow" type="number" min="5" max="200" step="1" title="Centiseconds; module clamps 5-200">
-            <label>Timed min start</label><input class="ms-num" data-k="ctl.timedMinStart" type="number" min="0" max="255" step="1">
-            <label>Timed adjust</label><input class="ms-num" data-k="ctl.timedAdjust" type="number" min="0" max="65535" step="1">
-            <label>Timed pause</label><input class="ms-num" data-k="ctl.timedPause" type="number" min="0" max="65535" step="1">
+          <div class="ms-sec tune">Timing and flow sensor</div>
+          <div class="cfg-grid zebra">
+            <label>PID loop time</label><input class="ms-num" data-k="ctl.pidTime" type="number" min="0" max="255" step="1" title="Adjustment loop interval, milliseconds">
+            <label>Min flow Hz</label><input class="ms-num" data-k="ctl.pulseMinHz" type="number" min="0" max="255" step="1" title="Lowest valid flow sensor frequency. Hz x 10, so 10 = 1 Hz.">
+            <label>Max flow Hz</label><input class="ms-num" data-k="ctl.pulseMaxHz" type="number" min="0" max="65535" step="1" title="Highest valid flow sensor frequency">
+            <label>Flow samples</label><input class="ms-num" data-k="ctl.sampleWindow" type="number" min="1" max="25" step="1" title="How many pulse times the median Hz is taken from. The module caps this at 25 (11 on some boards).">
+            <label>Timed min start %</label><input class="ms-num" data-k="ctl.timedMinStart" type="number" min="0" max="255" step="1" title="Combo Timed only: % of target rate used for a faster start from zero">
+            <label>Timed adjust</label><input class="ms-num" data-k="ctl.timedAdjust" type="number" min="0" max="65535" step="1" title="Combo Timed only: milliseconds the valve adjusts">
+            <label>Timed pause</label><input class="ms-num" data-k="ctl.timedPause" type="number" min="0" max="65535" step="1" title="Combo Timed only: milliseconds the valve pauses between adjustments">
           </div>
+          <div class="dlg-msg" style="text-align:left">Tuning order: set min power to the least that moves the valve, max power to 100 and integral to 0. Raise the gain until the rate overshoots, then back it off. Only then add integral.</div>
           <button class="cfg-act cfg-actwide" id="ms-pushctl">Send valve tuning</button>
         </div>
       </div>
@@ -2464,7 +2534,7 @@
     <div id="mst-net" class="cfg-body" data-strip="ms-top" hidden>
       <div class="cfg-cols2">
         <div>
-          <div class="cfg-label">Wired subnet</div>
+          <div class="ms-sec net">Wired subnet</div>
           <div class="rp-row">
             <input class="ms-num" id="ms-ip0" type="number" min="0" max="255" step="1" style="width:58px" value="192">
             <input class="ms-num" id="ms-ip1" type="number" min="0" max="255" step="1" style="width:58px" value="168">
@@ -2474,7 +2544,7 @@
           <button class="cfg-act cfg-actwide" id="ms-pushsubnet" title="Ethernet only. The module reboots onto the new subnet and leaves this one.">Set wired subnet (module reboots)</button>
         </div>
         <div>
-          <div class="cfg-label">How the module is addressed</div>
+          <div class="ms-sec id">How the module is addressed</div>
           <div class="dlg-msg" style="text-align:left">Ethernet uses a STATIC address: these three octets plus 50 + the module id, gateway .1. WiFi is different - it takes DHCP from whatever access point it joins, so that network decides its subnet, not this.</div>
         </div>
       </div>
@@ -2483,14 +2553,25 @@
     <div id="mst-comm" class="cfg-body" data-strip="ms-top" hidden>
       <div class="cfg-cols2">
         <div>
-          <div class="cfg-label">Commissioning</div>
-          <button class="cfg-act cfg-actwide" id="ms-defaults" title="Fill in the RC board's own factory defaults - then review and send">&#8634; Load RC defaults</button>
+          <div class="ms-sec id">Board type</div>
+          <div class="cfg-grid zebra">
+            <label>Board</label>
+            <select class="cfg-sel" id="ms-board" title="Which board this module is - decides the default pin and relay map">
+              <option value="esp32">ESP32 (RC15)</option>
+              <option value="teensy">Teensy 4.1 (RC11-2)</option>
+              <option value="nano">Arduino Nano (RC12-3)</option>
+            </select>
+          </div>
+          <div class="ms-sec act">Commissioning</div>
+          <button class="cfg-act cfg-actwide" id="ms-defaults" title="Fill in this board's factory defaults - then review and send">&#8634; Load defaults for this board</button>
           <button class="cfg-act cfg-actwide" id="ms-pushall">Send everything to this module</button>
           <button class="cfg-act cfg-actwide" id="ms-assignid" style="background:rgba(231,76,60,0.30)" title="Every module listening will take this ID - only one board may be connected">Assign this ID to the connected board</button>
         </div>
         <div>
-          <div class="cfg-label">Before assigning an ID</div>
+          <div class="ms-sec act">Before assigning an ID</div>
           <div class="dlg-msg" style="text-align:left">A module adopts the ID unconditionally, so every board powered and reachable takes it - and two boards sharing an ID both stop working. Power only the board being commissioned.</div>
+          <div class="ms-sec id">After reflashing a module</div>
+          <div class="dlg-msg" style="text-align:left">A reflash wipes the module's saved settings. Set the wired subnet again on the Network tab, then use Send everything above - the module keeps no copy this app can read back.</div>
         </div>
       </div>
     </div>

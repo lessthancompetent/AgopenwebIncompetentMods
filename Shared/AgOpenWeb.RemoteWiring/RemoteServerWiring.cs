@@ -235,11 +235,17 @@ public static partial class RemoteServerWiring
                                             .PushSubnet(snm, o0, o1, o2);
                                     return;
                                 }
-                                case "rate.modDefaults": // arg = moduleId — stage factory defaults
-                                {
-                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var md))
+                                case "rate.modAdd": // arg = moduleId — prepare a board before it has that id
+                                    if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var ma2))
                                         services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
-                                            .LoadModuleDefaults(md);
+                                            .AddModule(ma2);
+                                    return;
+                                case "rate.modDefaults": // arg = moduleId[,board] — stage factory defaults
+                                {
+                                    var dp = arg.Split(',');
+                                    if (int.TryParse(dp[0], System.Globalization.NumberStyles.Integer, inv, out var md))
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .LoadModuleDefaults(md, dp.Length > 1 ? dp[1] : "esp32");
                                     return;
                                 }
                                 case "rate.modAssignId": // arg = moduleId — commissioning: EVERY

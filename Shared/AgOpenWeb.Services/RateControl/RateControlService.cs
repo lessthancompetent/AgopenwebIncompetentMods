@@ -62,8 +62,11 @@ public interface IRateControlService
     /// id, so the caller must have confirmed a single connected board.</summary>
     void PushModuleConfig(int moduleId, bool assignId = false);
     void PushAll(int moduleId);
-    /// <summary>Stage the RC board's factory defaults locally for review before sending.</summary>
-    void LoadModuleDefaults(int moduleId);
+    /// <summary>Stage a board type's factory defaults locally for review before
+    /// sending. Board is "esp32" (RC15), "teensy" (RC11-2) or "nano" (RC12-3).</summary>
+    void LoadModuleDefaults(int moduleId, string board = "esp32");
+    /// <summary>Create a setup entry for a module id that does not have one yet.</summary>
+    void AddModule(int moduleId);
 
     // Virtual switchbox — stands in for the physical AOG_RC box (PGN 32618).
     bool MasterOn { get; }
@@ -550,6 +553,15 @@ public sealed class RateControlService : IRateControlService, IDisposable
         sb.Append(",\"tool\":").Append(JsonSerializer.Serialize(_configStore.ActiveToolProfileName ?? ""));
         sb.Append(",\"useRateControl\":").Append(_configStore.Tool.UseRateControl ? "true" : "false");
         sb.Append(",\"masterOn\":").Append(MasterOn ? "true" : "false");
+        EnsureModuleSetupsLoaded();
+        sb.Append(",\"moduleSensorCounts\":{");
+        for (int mi = 0; mi < _moduleSetups.Count; mi++)
+        {
+            if (mi > 0) sb.Append(',');
+            sb.Append('"').Append(_moduleSetups[mi].ModuleId).Append("\":")
+              .Append(Math.Max(1, (int)_moduleSetups[mi].Config.SensorCount));
+        }
+        sb.Append('}');
         sb.Append(",\"catalog\":[");
         for (int i = 0; i < _catalog.Items.Count; i++)
         {
@@ -705,45 +717,21 @@ public sealed class RateControlService : IRateControlService, IDisposable
     public void PushSubnet(int moduleId, byte ip0, byte ip1, byte ip2)
         => SendToModule(moduleId, RcPgn.BuildSubnetChange(ip0, ip1, ip2));
 
-    public void LoadModuleDefaults(int moduleId)
+    /// <summary>Create an entry for a module id that has no setup yet. The UI
+    /// could previously only select modules it already knew about, so there was
+    /// no way to prepare a board before giving it that id.</summary>
+    public void AddModule(int moduleId)
     {
-        var m = GetOrAddModuleSetup(moduleId);
-        const byte NC = 0xFF;   // firmware's "not connected"
+        GetOrAddModuleSetup(moduleId);
+        SaveModuleSetups();
+    }
 
-        // Two driver channels on the board; anything beyond has no pins.
-        var s0 = m.GetOrAddSensor(0);
-        s0.Pins = new RcSensorPins { FlowPin = 17, DirPin = 32, PwmPin = 33, BinPin = NC, InvertBinSensor = false };
-        if (m.Sensors.Count > 1 || m.Config.SensorCount > 1)
-        {
-            var s1 = m.GetOrAddSensor(1);
-            s1.Pins = new RcSensorPins { FlowPin = 16, DirPin = 25, PwmPin = 26, BinPin = NC, InvertBinSensor = false };
-        }
-
-        foreach (var s in m.Sensors)
-        {
-            // On-wire values matching the firmware defaults: MaxPWM is a percent
-            // (the module scales to 255), deadband is percent x10, max integral
-            // x10, timed-min-start x100, pulse min Hz x10.
-            s.Control = new RcControlSettings
-            {
-                MaxPwm = 100, MinPwm = 5, Kp = 45, Ki = 70, Deadband = 15,
-                BrakePoint = 35, PidSlowAdjust = 60, SlewRate = 25, MaxIntegral = 250,
-                TimedMinStart = 50, TimedAdjust = 80, TimedPause = 400, PidTime = 150,
-                PulseMinHz = 10, PulseMaxHz = 4000, PulseSampleSize = 40,
-            };
-        }
-
-        m.Config.SensorCount = 1;
-        m.Config.InvertRelayControl = true;
-        m.Config.InvertFlowControl = true;
-        m.Config.WorkPinMomentary = false;
-        m.Config.Is3WireValve = true;
-        m.Config.Ads1115Enabled = true;
-        m.Config.OnboardRelayType = 5;   // PCA9685
-        m.Config.RemoteRelayType = 0;
-        m.Config.WorkPin = NC;
-        m.Config.PressurePin = NC;
-        for (int i = 0; i < m.Config.RelayPins.Length; i++) m.Config.RelayPins[i] = NC;
+    /// <summary>Fill a module's pins, flags and valve tuning with the factory
+    /// defaults for a board type, matching the native app's Modules &gt; Boards
+    /// page. Staged locally only — nothing reaches the module until pushed.</summary>
+    public void LoadModuleDefaults(int moduleId, string board = "esp32")
+    {
+        RcBoardDefaults.Apply(GetOrAddModuleSetup(moduleId), board);
         SaveModuleSetups();
     }
 
@@ -841,6 +829,12 @@ public sealed class RateControlService : IRateControlService, IDisposable
             case "cfg.remoteRelayType": m.Config.RemoteRelayType = B(); break;
             case "cfg.workPin": m.Config.WorkPin = B(); break;
             case "cfg.pressurePin": m.Config.PressurePin = B(); break;
+            case "cfg.board": m.Board = value; break;
+            // relay output pins, "cfg.relay0".."cfg.relay15"
+            case string k2 when k2.StartsWith("cfg.relay", StringComparison.Ordinal)
+                             && int.TryParse(k2.Substring(9), out var ri)
+                             && ri >= 0 && ri < m.Config.RelayPins.Length:
+                m.Config.RelayPins[ri] = B(); break;
             // per-sensor pins (32507)
             case "pins.flow": sen.Pins.FlowPin = B(); break;
             case "pins.dir": sen.Pins.DirPin = B(); break;
@@ -899,6 +893,8 @@ public sealed class RateControlService : IRateControlService, IDisposable
             if (i > 0) sb.Append(',');
             var c = m.Config;
             sb.Append("{\"moduleId\":").Append(m.ModuleId)
+              .Append(",\"board\":").Append(JsonSerializer.Serialize(m.Board ?? "esp32"))
+              .Append(",\"relayPins\":[").Append(string.Join(",", c.RelayPins)).Append(']')
               .Append(",\"cfg\":{\"sensorCount\":").Append(c.SensorCount)
               .Append(",\"invertRelay\":").Append(c.InvertRelayControl ? "true" : "false")
               .Append(",\"invertFlow\":").Append(c.InvertFlowControl ? "true" : "false")

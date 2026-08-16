@@ -2184,7 +2184,7 @@ document.getElementById('ft-ratecontrol').addEventListener('pointerdown', e => {
 // ---- Rate Control (native AOG_RC port) -------------------------------------
 // Products A-E on RC hardware modules. Status polls /api/ratecontrol at 1 Hz
 // while the panel is open; edits go out as rate.set|idx,key,value (Tier-2).
-let rtProducts = [], rtSel = 0, rtPlane = false, rtPoll = null, rtCatalog = [], rtTool = '';
+let rtProducts = [], rtSel = 0, rtPlane = false, rtPoll = null, rtCatalog = [], rtTool = '', rtSensorCounts = {};
 // ── Rate readout (on-map) ───────────────────────────────────────────────────
 // The small always-there panel the separate RateController app used to give
 // you: what is going on now, against what was asked for. Polls on its own (the
@@ -2310,24 +2310,58 @@ function msRender() {
     senSel.dataset.n = String(sensors.length);
   }
   if (cur.s) { msSen = cur.s.sensorId; senSel.value = String(msSen); }
+  // A channel pointing past the module's sensor count reaches nothing, and the
+  // symptom (no flow) is identical to a wiring fault — so say which it is.
+  const senWarn = document.getElementById('ms-senwarn');
+  if (senWarn) {
+    const n = (cur.m.cfg && cur.m.cfg.sensorCount) || 0;
+    const bad = n > 0 && msSen >= n;
+    senWarn.hidden = !bad;
+    if (bad) senWarn.textContent =
+      'Sensor ' + msSen + ' is past this module’s sensor count of ' + n +
+      ' — the module ignores it. Sensors are numbered from 0.';
+  }
   const val = k => {
     const [grp, name] = k.split('.');
-    if (grp === 'cfg') return cur.m.cfg ? cur.m.cfg[name] : undefined;
+    if (grp === 'cfg') {
+      if (name.startsWith('relay')) return (cur.m.relayPins || [])[parseInt(name.slice(5))];
+      return cur.m.cfg ? cur.m.cfg[name] : undefined;
+    }
     if (!cur.s) return undefined;
     return grp === 'pins' ? cur.s.pins[name] : cur.s.ctl[name];
   };
-  for (const inp of document.querySelectorAll('#modulesetup .ms-num')) {
+  // [data-k] matters: the subnet octet boxes share .ms-num for styling but are
+  // not module-setup fields, and reading a key off them threw here — which took
+  // out the selects and toggles rendered below.
+  for (const inp of document.querySelectorAll('#modulesetup .ms-num[data-k]')) {
     const v = val(inp.dataset.k);
     if (v != null && document.activeElement !== inp) inp.value = v;
   }
+  for (const sel of document.querySelectorAll('#modulesetup .ms-sel')) {
+    const v = val(sel.dataset.k);
+    if (v != null && document.activeElement !== sel) sel.value = String(v);
+  }
+  // Valve wiring is is3Wire alone. The invert-flow bit next to it is direction,
+  // not wiring — the firmware uses it to decide which way is "more flow".
   const vm = document.getElementById('ms-valvemode');
-  if (vm && cur.m.cfg) vm.value = cur.m.cfg.is3Wire ? '3' : (cur.m.cfg.invertFlow ? '2i' : '2');
+  if (vm && cur.m.cfg && document.activeElement !== vm) vm.value = cur.m.cfg.is3Wire ? '3' : '2';
+  const bd = document.getElementById('ms-board');
+  if (bd && document.activeElement !== bd) bd.value = cur.m.board || 'esp32';
+  const ph = document.getElementById('ms-pinhelp');
+  if (ph) ph.textContent = MS_BOARD_PINS[cur.m.board] || MS_BOARD_PINS.esp32;
   for (const b of document.querySelectorAll('#modulesetup .ms-tgl')) {
     const on = !!val(b.dataset.k);
     b.classList.toggle('active', on);
     b.textContent = on ? 'On' : 'Off';
   }
 }
+// Factory pin maps, shown so the operator can see what the board should be
+// wired as without loading defaults over their own values.
+const MS_BOARD_PINS = {
+  esp32:  'ESP32 (RC15): sensor 0 flow 17, dir 32, PWM 33. Sensor 1 flow 16, dir 25, PWM 26. Work and pressure unassigned; relays via PCA9685.',
+  teensy: 'Teensy 4.1 (RC11-2): sensor 0 flow 28, dir 37, PWM 36. Sensor 1 flow 29, dir 14, PWM 15. Work 30, pressure 40; relays 1-8 on pins 8-12, 25-27.',
+  nano:   'Nano (RC12-3): sensor 0 flow 3, dir 4, PWM 5. Sensor 1 flow 2, dir 6, PWM 9. Work 15 (A1), pressure 14 (A0); relays via MCP23017. On a Nano, A0-A7 are pins 14-21.',
+};
 function msSend(key, value) {
   transport.send('rate.modSet|' + msMod + ',' + msSen + ',' + key + ',' + value);
   setTimeout(msRefresh, 150);
@@ -2339,12 +2373,23 @@ function msStatus(t) {
 }
 document.getElementById('rt-modsetup').addEventListener('pointerdown', e => { e.stopPropagation(); msOpen(); });
 wireTabStrip(document.getElementById('modulesetup'), 'ms-top');
-// Valve wiring: three real wirings mapped onto the two wire bits the module
-// actually stores (3-wire flag + invert flow).
 document.getElementById('ms-valvemode').addEventListener('change', e => {
-  const v = e.target.value;
-  msSend('cfg.is3Wire', v === '3' ? '1' : '0');
-  setTimeout(() => msSend('cfg.invertFlow', v === '2i' ? '1' : '0'), 200);
+  msSend('cfg.is3Wire', e.target.value === '3' ? '1' : '0');
+});
+for (const sel of document.querySelectorAll('#modulesetup .ms-sel'))
+  sel.addEventListener('change', () => msSend(sel.dataset.k, sel.value));
+document.getElementById('ms-board').addEventListener('change', e => msSend('cfg.board', e.target.value));
+// Nothing selects a module id that has no saved entry yet, so a board cannot be
+// prepared before it is given that id without this.
+document.getElementById('ms-addmod').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const used = ((msData && msData.modules) || []).map(m => m.moduleId);
+  let id = 0;
+  while (used.includes(id) && id < 8) id++;
+  if (id > 7) { msStatus('All eight module ids already have settings.'); return; }
+  transport.send('rate.modAdd|' + id);
+  msMod = id;
+  setTimeout(() => { msRefresh(); msStatus('Module ' + id + ' added — load its board defaults on Commission.'); }, 300);
 });
 document.getElementById('ms-pushsubnet').addEventListener('pointerdown', e => {
   e.stopPropagation();
@@ -2360,11 +2405,14 @@ document.getElementById('ms-defaults').addEventListener('pointerdown', e => {
   e.stopPropagation();
   // Staged locally only — the operator reviews the values and presses send.
   // Nothing reaches the module until then.
-  showConfirm('Load RC defaults',
-    'Fill module ' + msMod + "'s pins, flags and valve tuning with the RC board's factory " +
-    'defaults? This only fills the form — nothing is sent until you press a Send button.',
-    () => { transport.send('rate.modDefaults|' + msMod); setTimeout(msRefresh, 400);
-            msStatus('Defaults loaded — review, then Send.'); });
+  const board = document.getElementById('ms-board').value || 'esp32';
+  const label = document.getElementById('ms-board').selectedOptions[0].textContent;
+  showConfirm('Load board defaults',
+    'Fill module ' + msMod + "'s pins, relay map, flags and valve tuning with the factory " +
+    'defaults for ' + label + '? This only fills the form — nothing is sent until you ' +
+    'press a Send button.',
+    () => { transport.send('rate.modDefaults|' + msMod + ',' + board); setTimeout(msRefresh, 400);
+            msStatus(label + ' defaults loaded — review, then Send.'); });
 });
 // Rate control entry points on Tool config -> Machine -> Rate Control.
 {
@@ -2409,7 +2457,7 @@ setInterval(() => {
 document.getElementById('ms-back').addEventListener('pointerdown', e => { e.stopPropagation(); rtOpen(); });
 document.getElementById('ms-mod').addEventListener('change', e => { msMod = parseInt(e.target.value) || 0; msRender(); });
 document.getElementById('ms-sen').addEventListener('change', e => { msSen = parseInt(e.target.value) || 0; msRender(); });
-for (const inp of document.querySelectorAll('#modulesetup .ms-num'))
+for (const inp of document.querySelectorAll('#modulesetup .ms-num[data-k]'))
   inp.addEventListener('change', () => {
     const v = parseInt(inp.value);
     if (Number.isFinite(v)) msSend(inp.dataset.k, v);
@@ -2419,9 +2467,12 @@ for (const b of document.querySelectorAll('#modulesetup .ms-tgl'))
     e.stopPropagation();
     msSend(b.dataset.k, b.classList.contains('active') ? '0' : '1');
   });
-document.getElementById('ms-pushcfg').addEventListener('pointerdown', e => {
-  e.stopPropagation(); transport.send('rate.modPush|' + msMod + ',' + msSen + ',cfg'); msStatus('Module config sent.');
-});
+// Relay pins ride in the module-config packet, so the Relays tab pushes the
+// same thing the Module tab does.
+for (const id of ['ms-pushcfg', 'ms-pushcfg2'])
+  document.getElementById(id).addEventListener('pointerdown', e => {
+    e.stopPropagation(); transport.send('rate.modPush|' + msMod + ',' + msSen + ',cfg'); msStatus('Module config sent.');
+  });
 document.getElementById('ms-pushpins').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('rate.modPush|' + msMod + ',' + msSen + ',pins');
   msStatus('Pins sent — the module restarts if any changed.');
@@ -2463,6 +2514,7 @@ function rtRefresh() {
     rtPlane = !!(d && d.plane);
     rtCatalog = (d && d.catalog) || [];
     rtTool = (d && d.tool) || '';
+    rtSensorCounts = (d && d.moduleSensorCounts) || {};
     const mb = document.getElementById('rt-master');
     if (mb) {
       const on = !!(d && d.masterOn);
@@ -2556,6 +2608,17 @@ function rtRender() {
   document.getElementById('rt-enabled').classList.toggle('on', !!p.enabled);
   document.getElementById('rt-auto').classList.toggle('on', !!p.auto);
   set('rt-mod', p.moduleId); set('rt-sen', p.sensorId);
+  // Sensor numbers count from 0, so a one-sensor module answers on sensor 0 and
+  // ignores sensor 1 — which reads as a dead flow meter, not a setting mistake.
+  const sw = document.getElementById('rt-senwarn');
+  if (sw) {
+    const n = rtSensorCounts[p.moduleId];
+    const bad = n != null && p.sensorId >= n;
+    sw.hidden = !bad;
+    if (bad) sw.textContent =
+      'Module ' + p.moduleId + ' is set up for ' + n + ' sensor' + (n === 1 ? '' : 's') +
+      ', so sensor ' + p.sensorId + ' never reports. Sensors are numbered from 0.';
+  }
   set('rt-target', p.targetRate);
   const un = document.getElementById('rt-units'); if (document.activeElement !== un) un.value = String(p.coverageUnits);
   set('rt-cal', p.meterCal);
