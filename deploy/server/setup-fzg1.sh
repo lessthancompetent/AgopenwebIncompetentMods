@@ -155,7 +155,13 @@ systemctl enable --now fzg1-buttons >/dev/null 2>&1 || true
 apt-get install -y -qq xinput x11-xserver-utils >/dev/null 2>&1 || true
 curl -fsSL "$RAW/fzg1-buttonsd" -o /usr/local/bin/fzg1-buttonsd
 curl -fsSL "$RAW/ag-rotate"    -o /usr/local/bin/ag-rotate
-chmod +x /usr/local/bin/fzg1-buttonsd /usr/local/bin/ag-rotate
+# Configure a rate/steer module from the TABLET instead of a phone. The module's
+# settings page only exists on its own AP, and the phone is usually the thing
+# providing the network the module is being pointed at — joining from the phone
+# drops that hotspot, so the module has nothing to join when it reboots. The
+# tablet has no such conflict and keeps its Ethernet throughout.
+curl -fsSL "$RAW/ag-modwifi"   -o /usr/local/bin/ag-modwifi
+chmod +x /usr/local/bin/fzg1-buttonsd /usr/local/bin/ag-rotate /usr/local/bin/ag-modwifi
 if [ ! -f /etc/fzg1-buttons.conf ]; then   # never clobber the operator's edits
 cat > /etc/fzg1-buttons.conf << 'EOF'
 # FZ-G1 bezel button actions.
@@ -378,6 +384,27 @@ Terminal=false
 EOF
 chmod +x "$AGHOME/Desktop/$1.desktop"; }
 mkdesk "Split YouTube" youtube youtube
+# Module WiFi buttons use ag-modwifi rather than ag-split, so they are written
+# directly instead of through mkdesk.
+cat > "$AGHOME/Desktop/Module WiFi.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=Module WiFi
+Comment=Join a rate module's AP to configure it
+Exec=/usr/local/bin/ag-modwifi
+Icon=network-wireless
+Terminal=false
+EOF
+cat > "$AGHOME/Desktop/Module WiFi Back.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=Module WiFi Back
+Comment=Leave the module AP and rejoin the normal network
+Exec=/usr/local/bin/ag-modwifi back
+Icon=network-wireless
+Terminal=false
+EOF
+chmod +x "$AGHOME/Desktop/Module WiFi.desktop" "$AGHOME/Desktop/Module WiFi Back.desktop"
 # Only if it actually installed — a launcher for a missing program looks like a
 # broken tablet, not a missing package.
 [ "${SPOTIFY_MISSING:-0}" = "1" ] || mkdesk "Split Spotify" spotify spotify-client

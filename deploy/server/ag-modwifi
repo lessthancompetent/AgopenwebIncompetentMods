@@ -1,0 +1,57 @@
+#!/bin/bash
+# Join a rate/steer module's own AP to configure it, then come back.
+#
+# Why this exists: the module's config page only lives on its AP, and the
+# obvious client - the phone - is usually the thing PROVIDING the network the
+# module is being pointed at. Joining from the phone drops the hotspot, so the
+# module has nothing to connect to when it reboots. The tablet has no such
+# conflict, and keeps its Ethernet (and so this SSH session) throughout.
+#
+# Usage:  ag-modwifi            join the first RateModule_* AP found, open the page
+#         ag-modwifi back       return to the normal network
+set -u
+IFACE=$(nmcli -t -f DEVICE,TYPE device status | awk -F: '$2=="wifi"{print $1; exit}')
+NOTIFY() { command -v notify-send >/dev/null && notify-send "Module WiFi" "$1" || echo "$1"; }
+
+if [ "${1:-}" = "back" ]; then
+  # Drop the module AP; NetworkManager then reconnects by priority (rtkwifi,
+  # else REDACTED). Nothing is deleted, so this is repeatable.
+  for c in $(nmcli -t -f NAME connection show --active | grep -i '^RateModule'); do
+    nmcli connection down "$c" >/dev/null 2>&1
+  done
+  nmcli device connect "$IFACE" >/dev/null 2>&1
+  sleep 3
+  NOTIFY "Back on: $(nmcli -t -f NAME connection show --active | grep -v -E 'tun|lo$|Wired' | head -1)"
+  exit 0
+fi
+
+echo "scanning for module APs..."
+nmcli device wifi rescan >/dev/null 2>&1
+sleep 5
+# nmcli -t escapes ':' as '\:' — module APs are named with the MAC on some
+# firmware builds, so strip the escapes or the connect fails on a bogus SSID.
+AP=$(nmcli -t -f SSID device wifi list | tr -d '\\' | grep -m1 -i '^RateModule')
+if [ -z "$AP" ]; then
+  NOTIFY "No RateModule AP in range. Is the module powered?"
+  exit 1
+fi
+
+echo "joining $AP ..."
+# Modules ship with an open AP (the firmware forces open unless a >=8 char
+# password is set), so no credentials here.
+if ! nmcli device wifi connect "$AP" ifname "$IFACE" >/dev/null 2>&1; then
+  NOTIFY "Could not join $AP"
+  exit 1
+fi
+# Don't let this AP win future auto-connects over the working network.
+nmcli connection modify "$AP" connection.autoconnect no 2>/dev/null
+sleep 3
+
+# The module's address is 192.168.(200 + module ID).1 — .200.1 for ID 0. Take
+# the gateway it actually handed us rather than assuming the ID.
+GW=$(ip route | awk '/default/ && /'"$IFACE"'/ {print $3; exit}')
+[ -z "$GW" ] && GW=192.168.200.1
+echo "module page: http://$GW"
+NOTIFY "On $AP — opening http://$GW"
+command -v chromium >/dev/null && nohup chromium --new-window --force-device-scale-factor=1.5 --app="http://$GW" >/dev/null 2>&1 &
+echo "when finished:  ag-modwifi back"
