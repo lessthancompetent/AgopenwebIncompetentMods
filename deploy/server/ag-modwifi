@@ -53,5 +53,8 @@ GW=$(ip route | awk '/default/ && /'"$IFACE"'/ {print $3; exit}')
 [ -z "$GW" ] && GW=192.168.200.1
 echo "module page: http://$GW"
 NOTIFY "On $AP — opening http://$GW"
-command -v chromium >/dev/null && nohup chromium --new-window --force-device-scale-factor=1.5 --app="http://$GW" >/dev/null 2>&1 &
+# Native scale, not the cab's 1.5x: the tablet's touchscreen is single-touch and
+# presents as a pointer, so the browser has no drag-to-scroll and a page taller
+# than the window is simply unreachable. At 1.0 the module's settings page fits.
+command -v chromium >/dev/null && nohup chromium --new-window --force-device-scale-factor=1.0 --app="http://$GW" >/dev/null 2>&1 &
 echo "when finished:  ag-modwifi back"

@@ -338,6 +338,23 @@
     .cfg-diaggrid .vc-diag { width: 110px; height: 72px; }
     .cfg-diaggrid .vc-diagrow { margin-bottom: 6px; }
     .ln-panel.open { display: block; }
+    /* No panel may grow past the screen. A tall one (Module Setup is ~30 rows)
+       otherwise runs its action buttons off the bottom edge, where they cannot be
+       reached at all — and the cab tablet's viewport shrinks again when the
+       on-screen keyboard docks. Bound the height and scroll inside instead. */
+    /* border-box so the 14px padding and border count INSIDE max-height; with
+       content-box the panel still overhung the screen by its own chrome. */
+    .ln-panel { box-sizing: border-box; max-height: calc(100vh - 68px - var(--sat) - var(--sab));
+      overflow-y: auto; overscroll-behavior: contain; }
+    /* Fat, always-visible scrollbars. The cab tablet's eGalax panel is SINGLE
+       touch and reports as a plain pointer, so the browser gets no touch events
+       and drag-to-scroll does not exist — the scrollbar is the only way to
+       scroll, and the default ~15px one is not a finger target. */
+    .ln-panel::-webkit-scrollbar { width: 22px; }
+    .ln-panel::-webkit-scrollbar-track { background: rgba(var(--ov),0.06); border-radius: 11px; }
+    .ln-panel::-webkit-scrollbar-thumb { background: rgba(var(--ov),0.38); border-radius: 11px;
+      border: 4px solid transparent; background-clip: content-box; }
+    .ln-panel::-webkit-scrollbar-thumb:active { background: #1f6fb2; background-clip: content-box; }
     .ln-title { color: var(--text); font: 700 16px system-ui, sans-serif; margin-bottom: 12px; }
     .ln-section { margin-bottom: 12px; }
     .ln-label { color: var(--text-muted); font: 600 12px system-ui, sans-serif; margin-bottom: 6px; }
