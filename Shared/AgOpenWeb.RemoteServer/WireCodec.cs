@@ -267,6 +267,15 @@ public static class WireCodec
         w.Write((byte)(t.IsSteerSwitchEnabled ? 1 : 0));
         w.Write((byte)(t.IsSteerSwitchManualSections ? 1 : 0));
         w.Write(t.TotalWidth);         // f64
+        // These two were declared on the DTO and populated by the projector but
+        // never encoded, so the client never saw them: the Physical width box sat
+        // blank and the Use-rate-control toggle read Off no matter what was
+        // stored — and since the click handler derives the value it sends from
+        // the rendered state, rate control could be switched on but never off.
+        // transport.js decodes this frame positionally, so anything added here
+        // MUST be added there in the same order and the same commit.
+        w.Write(t.PhysicalWidth);      // f64
+        w.Write((byte)(t.UseRateControl ? 1 : 0));
         // U-Turn tab.
         var u = c.Uturn;
         w.Write(u.Style);              // i32

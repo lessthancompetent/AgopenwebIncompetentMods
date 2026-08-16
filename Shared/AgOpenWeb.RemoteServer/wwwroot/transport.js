@@ -256,6 +256,10 @@ window.RemoteTransport = {
             slowSpeedCutoff: f64(), coverageMargin: f64(),
             isWorkSwitchEnabled: !!u8(), isWorkSwitchActiveLow: !!u8(), isWorkSwitchManualSections: !!u8(),
             isSteerSwitchEnabled: !!u8(), isSteerSwitchManualSections: !!u8(), totalWidth: f64(),
+            // Must stay in lockstep with WireCodec's tool block — this decode is
+            // positional, so a field added on one side only turns every later
+            // section (uturn, tram, machine, display, autosteer) into garbage.
+            physicalWidth: f64(), useRateControl: !!u8(),
           };
           const uturn = { style: i32(), extension: f64(), smoothing: i32(), radius: f64(), distanceFromBoundary: f64() };
           const tram = { passes: i32(), display: !!u8(), line: i32() };

@@ -780,10 +780,15 @@ public sealed class SceneProjector
               + (t.IsSectionsNotZones ? 1 : 0) + (t.IsMultiColoredSections ? 2 : 0)
               + (t.IsSectionOffWhenOut ? 4 : 0) + (t.IsHeadlandSectionControl ? 8 : 0) + t.MinCoverage
               + (t.IsWorkSwitchEnabled ? 16 : 0) + (t.IsWorkSwitchActiveLow ? 32 : 0) + (t.IsWorkSwitchManualSections ? 64 : 0)
-              + (t.IsSteerSwitchEnabled ? 128 : 0) + (t.IsSteerSwitchManualSections ? 256 : 0);
+              + (t.IsSteerSwitchEnabled ? 128 : 0) + (t.IsSteerSwitchManualSections ? 256 : 0)
+              // Without this the frame is not re-sent when rate control is
+              // toggled, so the button would stay stale even once the wire
+              // carries the field.
+              + (t.UseRateControl ? 512 : 0);
         foreach (var d in new[] { t.HitchLength, t.TrailingHitchLength, t.TankTrailingHitchLength, t.Length,
                                   t.LookAheadOnSetting, t.LookAheadOffSetting, t.TurnOffDelay, t.Offset, t.Overlap,
                                   t.TrailingToolToPivotLength, t.DefaultSectionWidth, t.SlowSpeedCutoff, t.CoverageMargin,
+                                  t.PhysicalWidth,
                                   g.UTurnExtension, g.UTurnRadius, g.UTurnDistanceFromBoundary, mc.LookAhead })
             h = h * 31 + d.GetHashCode();
         for (int i = 0; i < 16; i++) h = h * 31 + t.GetSectionWidth(i).GetHashCode() + (int)t.GetSectionColor(i);
