@@ -105,10 +105,20 @@ public sealed class RateControlService : IRateControlService, IDisposable
     private double _lastTotalHaPerMin;
     private List<IPEndPoint> _broadcastEndpoints = new();
     private DateTime _lastEndpointRefresh = DateTime.MinValue;
-    /// <summary>Learned module addresses (moduleId → last frame source). Some RC
-    /// module builds run the W5500 with broadcast blocking, so once a module is
-    /// heard we also unicast to it directly.</summary>
-    private readonly Dictionary<int, IPAddress> _moduleAddresses = new();
+    /// <summary>Learned module addresses (moduleId → last frame source, when
+    /// heard). The RC boards' W5500 drops directed broadcasts, so once a module
+    /// is heard we also unicast to it directly — proven on the bench: the
+    /// broadcast path alone never delivered a single config frame.
+    ///
+    /// Entries EXPIRE from the
+    /// heard list after <see cref="ModuleHeardWindowSeconds"/>: a module that was
+    /// re-branded to a new id leaves its old id behind here, and that ghost both
+    /// misled the "no modules heard" diagnosis and tripped the assign-ID guard's
+    /// "more than one module answering" refusal with only one physical board.
+    /// The address itself is still used for unicast while stale — sending to a
+    /// gone address is harmless, and it bridges brief gaps.</summary>
+    private readonly Dictionary<int, (IPAddress Address, DateTime LastHeardUtc)> _moduleAddresses = new();
+    private const int ModuleHeardWindowSeconds = 10;
 
     /// <summary><paramref name="autoSteer"/> is optional so tests and headless
     /// hosts can build the service without the steering stack; without it the
@@ -252,7 +262,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
                 if (pgn == RcPgn.PGN_SENSOR && RcPgn.TryParseSensor(buf.AsSpan(0, n), out var sf))
                 {
                     if (from is IPEndPoint ip)
-                        lock (_ioLock) _moduleAddresses[sf.ModuleId] = ip.Address;
+                        lock (_ioLock) _moduleAddresses[sf.ModuleId] = (ip.Address, DateTime.UtcNow);
                     foreach (var p in _products)
                         if (p.Enabled && p.ModuleId == sf.ModuleId && p.SensorId == sf.SensorId)
                         {
@@ -263,7 +273,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
                 else if (pgn == RcPgn.PGN_MODULE_STATUS && RcPgn.TryParseModuleStatus(buf.AsSpan(0, n), out var mf))
                 {
                     if (from is IPEndPoint ip2)
-                        lock (_ioLock) _moduleAddresses[mf.ModuleId] = ip2.Address;
+                        lock (_ioLock) _moduleAddresses[mf.ModuleId] = (ip2.Address, DateTime.UtcNow);
                 }
                 // 32401 module status: liveness rides the sensor frames; nothing
                 // further needed for Phase 1 (pressure/wifi diagnostics later).
@@ -326,7 +336,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
                     try { _socket.SendTo(frame, ep); } catch { }
                 // Learned module address → also unicast (W5500 broadcast blocking).
                 IPAddress? modAddr;
-                lock (_ioLock) _moduleAddresses.TryGetValue(p.ModuleId, out modAddr);
+                lock (_ioLock) modAddr = _moduleAddresses.TryGetValue(p.ModuleId, out var e1) ? e1.Address : null;
                 if (modAddr != null)
                     try { _socket.SendTo(frame, new IPEndPoint(modAddr, RcPgn.ModuleListenPort)); } catch { }
             }
@@ -348,7 +358,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
                 foreach (var ep in BroadcastEndpoints())
                     try { _socket.SendTo(relayFrame, ep); } catch { }
                 IPAddress? ma;
-                lock (_ioLock) _moduleAddresses.TryGetValue(p.ModuleId, out ma);
+                lock (_ioLock) ma = _moduleAddresses.TryGetValue(p.ModuleId, out var e2) ? e2.Address : null;
                 if (ma != null)
                     try { _socket.SendTo(relayFrame, new IPEndPoint(ma, RcPgn.ModuleListenPort)); } catch { }
             }
@@ -818,7 +828,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
         foreach (var ep in BroadcastEndpoints())
             try { _socket.SendTo(frame, ep); } catch { }
         IPAddress? addr;
-        lock (_ioLock) _moduleAddresses.TryGetValue(moduleId, out addr);
+        lock (_ioLock) addr = _moduleAddresses.TryGetValue(moduleId, out var e3) ? e3.Address : null;
         if (addr != null)
             try { _socket.SendTo(frame, new IPEndPoint(addr, RcPgn.ModuleListenPort)); } catch { }
     }
@@ -851,7 +861,29 @@ public sealed class RateControlService : IRateControlService, IDisposable
         cfg.ModuleId = (byte)moduleId;
         bool prior = cfg.AssignModuleId;
         cfg.AssignModuleId = assignId;
-        try { SendToModule(moduleId, RcPgn.BuildModuleConfig(cfg)); }
+        try
+        {
+            var frame = RcPgn.BuildModuleConfig(cfg);
+            SendToModule(moduleId, frame);
+            // Assigning gives a board a NEW id, so the target id has no learned
+            // address yet — and the W5500 drops the directed broadcasts, so
+            // broadcast-only delivery never arrives on Ethernet (bench-proven:
+            // the board only took its id from a direct unicast). Assign is
+            // defined as "every listening module adopts it", so unicasting to
+            // every address we know is the same semantics with delivery that
+            // actually works.
+            if (assignId && _socket != null)
+            {
+                List<IPAddress> known;
+                lock (_ioLock)
+                {
+                    known = new List<IPAddress>();
+                    foreach (var e in _moduleAddresses.Values) known.Add(e.Address);
+                }
+                foreach (var a in known)
+                    try { _socket.SendTo(frame, new IPEndPoint(a, RcPgn.ModuleListenPort)); } catch { }
+            }
+        }
         finally { cfg.AssignModuleId = prior; }
     }
 
@@ -971,7 +1003,13 @@ public sealed class RateControlService : IRateControlService, IDisposable
         sb.Append("{\"tool\":").Append(JsonSerializer.Serialize(_configStore.ActiveToolProfileName ?? ""));
         sb.Append(",\"useRateControl\":").Append(_configStore.Tool.UseRateControl ? "true" : "false");
         List<int> heard;
-        lock (_ioLock) heard = new List<int>(_moduleAddresses.Keys);
+        var cutoff = DateTime.UtcNow.AddSeconds(-ModuleHeardWindowSeconds);
+        lock (_ioLock)
+        {
+            heard = new List<int>();
+            foreach (var kv in _moduleAddresses)
+                if (kv.Value.LastHeardUtc >= cutoff) heard.Add(kv.Key);
+        }
         heard.Sort();
         sb.Append(",\"modulesHeard\":[").Append(string.Join(",", heard)).Append(']');
         sb.Append(",\"modules\":[");
