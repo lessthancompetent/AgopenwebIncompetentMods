@@ -79,7 +79,17 @@ static float tauSec     = 1.5f;    // plumbing lag in LOOP
 static float pwmFullV   = 2.98f;
 // Low-side switched outputs read backwards (full volts = no command).
 static bool  pwmInvert  = false;
-static bool  usePot     = true;    // pot drives MANUAL until serial overrides
+// The pot is OPT-IN ('p' arms it): with no pot fitted A0 floats, and a floating
+// A0 both drifts past the movement threshold and survives every reset — after
+// any bench bump of the USB lead the rig came back up running the phantom
+// knob's flow instead of the serial-commanded one.
+static bool  usePot     = false;
+static bool  potLocked  = true;
+// The mode button is DISARMED until 'k1': on a serial-driven bench nothing is
+// wired to D2, and a dangling jumper or a meter probe near the pin registers as
+// presses — observed cycling the rig into LOOP mid-test. Arm it only when a
+// real button is fitted.
+static bool  buttonArmed = false;
 static bool  binEmpty   = false;
 static bool  binActiveHigh = false; // match the module's invert-bin flag
 
@@ -173,6 +183,7 @@ static void printHelp()
   Serial.println(F("  v<val>    volts at A1 when the valve is FULL (10k/3.3k on 12V = 2.98)"));
   Serial.println(F("  i0/i1     PWM sense normal / inverted (low-side switched output)"));
   Serial.println(F("  b0/b1     bin-empty simulation off / on"));
+  Serial.println(F("  k0/k1     mode button disarmed / armed (default off)"));
   Serial.println(F("  s         status    ?  this help"));
 }
 
@@ -198,19 +209,22 @@ void loop()
   if (dt < 0.02f) return;               // 50 Hz is plenty
   lastMs = now;
 
-  // mode button, debounced by the loop rate
+  // mode button, debounced by the loop rate (armed with 'k1' only)
   static bool btnPrev = true;
   bool btn = digitalRead(PIN_BUTTON);
-  if (btnPrev && !btn) {
+  if (buttonArmed && btnPrev && !btn) {
     mode = (Mode)((mode + 1) % 3);
     printStatus();
   }
   btnPrev = btn;
 
   // pot — only takes over once actually moved, so a serial-set flow is not
-  // immediately overridden by a stationary knob
+  // immediately overridden by a stationary knob. A FLOATING A0 (no pot wired,
+  // the usual dry-bench case) drifts more than the movement threshold every few
+  // reads and was re-arming itself over serial control constantly — so 'f'
+  // locks the pot out entirely until 'p' asks for it back.
   int pot = analogRead(PIN_POT);
-  if (abs(pot - potLast) > 8) { potLast = pot; usePot = true; }
+  if (!potLocked && abs(pot - potLast) > 8) { potLast = pot; usePot = true; }
   if (usePot) manualFlow = (pot / 1023.0f) * maxFlow;
 
   float wanted = 0.0f;
@@ -246,18 +260,19 @@ void loop()
     if (c == '\r' || c == '\n') continue;
     // Only parse a number for commands that take one: parseFloat() otherwise
     // blocks for the whole serial timeout and can swallow the next command.
-    bool takesValue = (strchr("mcfxtvbi", c) != NULL);
+    bool takesValue = (strchr("mcfxtvbik", c) != NULL);
     float v = takesValue ? Serial.parseFloat() : 0.0f;
     switch (c) {
       case 'm': mode = (Mode)constrain((int)v, 0, 2); break;
       case 'c': if (v > 0) meterCal = v; break;
-      case 'f': manualFlow = v; usePot = false; break;
-      case 'p': usePot = true; break;
+      case 'f': manualFlow = v; usePot = false; potLocked = true; break;
+      case 'p': usePot = true; potLocked = false; break;
       case 'x': if (v > 0) maxFlow = v; break;
       case 't': tauSec = v < 0 ? 0 : v; break;
       case 'v': if (v > 0.2f) pwmFullV = v; break;
       case 'i': pwmInvert = (v >= 1); break;
       case 'b': binEmpty = (v >= 1); break;
+      case 'k': buttonArmed = (v >= 1); break;
       case 's': break;
       case '?': printHelp(); break;
       default: continue;
