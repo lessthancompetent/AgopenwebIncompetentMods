@@ -2184,7 +2184,7 @@ document.getElementById('ft-ratecontrol').addEventListener('pointerdown', e => {
 // ---- Rate Control (native AOG_RC port) -------------------------------------
 // Products A-E on RC hardware modules. Status polls /api/ratecontrol at 1 Hz
 // while the panel is open; edits go out as rate.set|idx,key,value (Tier-2).
-let rtProducts = [], rtSel = 0, rtPlane = false, rtPoll = null, rtCatalog = [], rtTool = '', rtSensorCounts = {};
+let rtProducts = [], rtSel = 0, rtPlane = false, rtPoll = null, rtCatalog = [], rtTool = '', rtSensorCounts = {}, rtStatus = null;
 // ── Rate readout (on-map) ───────────────────────────────────────────────────
 // The small always-there panel the separate RateController app used to give
 // you: what is going on now, against what was asked for. Polls on its own (the
@@ -2248,10 +2248,105 @@ function rhRender(d) {
     }
   }
 }
+let rcLive = null;   // latest /api/ratecontrol, shared by HUD + on-screen switchbox
 function rhTick() {
-  if (!rhMode) { const h = document.getElementById('rate-hud'); if (h) h.classList.remove('on'); return; }
-  fetch('/api/ratecontrol').then(r => r.json()).then(rhRender).catch(() => {});
+  fetch('/api/ratecontrol').then(r => r.json()).then(d => {
+    rcLive = d;
+    if (rhMode) rhRender(d);
+    else { const h = document.getElementById('rate-hud'); if (h) h.classList.remove('on'); }
+    renderSwitchbox(d);
+  }).catch(() => {});
 }
+
+// ── On-screen switchbox ─────────────────────────────────────────────────────
+// The native RC floating switch panel: master valve, primed start, auto rate,
+// rate nudge, and the section GROUP switches (sections allocated to the same
+// switch flip together — the native zone idea).
+function swbGroups(d) {
+  const alloc = (d.switchbox && d.switchbox.sectionSwitch) || [];
+  const secs = (tick && tick.sections) || [];
+  const groups = new Map();
+  for (let i = 0; i < secs.length; i++) {
+    const sw = i < alloc.length ? alloc[i] : (i < 8 ? i : 7);
+    if (sw < 0) continue;
+    if (!groups.has(sw)) groups.set(sw, []);
+    groups.get(sw).push(i);
+  }
+  return [...groups.entries()].sort((a, b) => a[0] - b[0]);
+}
+function swbSend(cmd) {
+  if (!iHoldControl) transport.send('control.takeover|Browser');
+  transport.send(cmd);
+}
+function renderSwitchbox(d) {
+  const box = document.getElementById('rc-switchbox');
+  if (!box) return;
+  const show = d && d.useRateControl && d.switchbox && d.switchbox.onScreen;
+  box.classList.toggle('on', !!show);
+  if (!show) return;
+  const mst = document.getElementById('swb-mst');
+  mst.classList.toggle('on', !!d.effectiveMaster);
+  mst.disabled = d.switchbox.masterMode === 2;      // override: always on
+  mst.title = mst.disabled ? 'Master override is on (Switches tab)' : 'Master valve';
+  const prm = document.getElementById('swb-prm');
+  prm.classList.toggle('on', !!(d.primed && d.primed.active));
+  prm.disabled = d.switchbox.switchType === 1;      // maintained: no primed start
+  prm.textContent = (d.primed && d.primed.active) ? 'PRM ' + d.primed.remaining : 'PRM';
+  const auto = document.getElementById('swb-auto');
+  auto.classList.toggle('on', !!d.switchbox.autoRate);
+  // section group switches
+  const host = document.getElementById('swb-secs');
+  const groups = swbGroups(d);
+  if (host.childElementCount !== groups.length) {
+    host.innerHTML = '';
+    for (const [sw] of groups) {
+      const b = document.createElement('button');
+      b.dataset.sw = sw;
+      b.addEventListener('pointerdown', e => {
+        e.stopPropagation();
+        const gs = swbGroups(rcLive).find(g => g[0] === sw);
+        if (!gs) return;
+        const secs = (tick && tick.sections) || [];
+        const allOn = gs[1].every(i => secs[i] && secs[i].on);
+        // one press moves the whole group to the same state
+        for (const i of gs[1]) {
+          const on = !!(secs[i] && secs[i].on);
+          if (on === allOn) swbSend('section.toggle|' + i);
+        }
+      });
+      host.appendChild(b);
+    }
+  }
+  const secs = (tick && tick.sections) || [];
+  let bi = 0;
+  for (const [sw, members] of groups) {
+    const b = host.children[bi++];
+    if (!b) break;
+    const on = members.filter(i => secs[i] && secs[i].on).length;
+    b.textContent = 'S' + (sw + 1) + (members.length > 1 ? ' (' + members.length + ')' : '');
+    b.title = 'sections ' + members.map(i => i + 1).join(', ');
+    b.classList.toggle('on', on === members.length && on > 0);
+    b.classList.toggle('mix', on > 0 && on < members.length);
+  }
+}
+document.getElementById('swb-mst').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  if (rcLive) swbSend('rate.master|' + (rcLive.masterOn ? 0 : 1));
+});
+document.getElementById('swb-prm').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  if (rcLive) swbSend('rate.primed|' + (rcLive.primed && rcLive.primed.active ? 0 : 1));
+});
+document.getElementById('swb-auto').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  if (rcLive) swbSend('rate.sw|autoRate,' + (rcLive.switchbox.autoRate ? 0 : 1));
+});
+for (const [id, dir] of [['swb-dn', -5], ['swb-up', 5]])
+  document.getElementById(id).addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    if (!rcLive) return;
+    rcLive.products.forEach((p, i) => { if (p.enabled) swbSend('rate.bump|' + i + ',' + dir); });
+  });
 {
   const hud = document.getElementById('rate-hud');
   if (hud) hud.addEventListener('pointerdown', e => { e.stopPropagation(); rtOpen(); });
@@ -2587,6 +2682,8 @@ function rtRefresh() {
     rtCatalog = (d && d.catalog) || [];
     rtTool = (d && d.tool) || '';
     rtSensorCounts = (d && d.moduleSensorCounts) || {};
+    rtStatus = d;
+    rtRenderSwitches();
     const mb = document.getElementById('rt-master');
     if (mb) {
       const on = !!(d && d.masterOn);
@@ -2710,6 +2807,70 @@ function rtRender() {
   document.getElementById('rt-calind').textContent =
     'Indicated: ' + (p.calIndicated || 0) + ' ' + (p.units || '') + (p.calActive ? ' (running…)' : '');
 }
+wireTabStrip(document.getElementById('ratecontrol'), 'rt-top');
+
+// Switches + Primed tabs (native Machine > Switches / Primed Start).
+function rtRenderSwitches() {
+  const d = rtStatus;
+  if (!d || !d.switchbox) return;
+  const sm = document.getElementById('sw-mastermode');
+  if (document.activeElement !== sm) sm.value = String(d.switchbox.masterMode);
+  const st = document.getElementById('sw-type');
+  if (document.activeElement !== st) st.value = String(d.switchbox.switchType);
+  for (const [id, on] of [['sw-workgate', d.switchbox.workGate], ['sw-onscreen', d.switchbox.onScreen], ['sw-autorate', d.switchbox.autoRate]]) {
+    const b = document.getElementById(id);
+    b.classList.toggle('active', !!on); b.textContent = on ? 'On' : 'Off';
+  }
+  // allocation grid: one select per section
+  const grid = document.getElementById('sw-alloc');
+  const alloc = d.switchbox.sectionSwitch || [];
+  if (grid.childElementCount !== alloc.length) {
+    grid.innerHTML = '';
+    for (let i = 0; i < alloc.length; i++) {
+      const cell = document.createElement('div'); cell.className = 'tc-cell';
+      const lab = document.createElement('span'); lab.textContent = 'Sec ' + (i + 1);
+      const sel = document.createElement('select'); sel.className = 'cfg-sel'; sel.dataset.sec = i;
+      sel.innerHTML = '<option value="-1">none</option>' +
+        Array.from({length: 8}, (_, k) => '<option value="' + k + '">S' + (k + 1) + '</option>').join('');
+      sel.addEventListener('change', () => transport.send('rate.sw|secSwitch:' + i + ',' + sel.value));
+      cell.appendChild(lab); cell.appendChild(sel); grid.appendChild(cell);
+    }
+  }
+  for (let i = 0; i < alloc.length; i++) {
+    const sel = grid.children[i] && grid.children[i].querySelector('select');
+    if (sel && document.activeElement !== sel) sel.value = String(alloc[i]);
+  }
+  if (d.primed) {
+    for (const [id, v] of [['pr-ontime', d.primed.onTime], ['pr-speed', d.primed.speed], ['pr-delay', d.primed.delay]]) {
+      const el = document.getElementById(id);
+      if (document.activeElement !== el) el.value = v;
+    }
+    const rb = document.getElementById('pr-resume');
+    rb.classList.toggle('active', !!d.primed.resume); rb.textContent = d.primed.resume ? 'On' : 'Off';
+    document.getElementById('pr-status').textContent =
+      d.primed.active ? 'PRIMING — ' + d.primed.remaining + 's left' : '';
+  }
+}
+document.getElementById('sw-mastermode').addEventListener('change', e => transport.send('rate.sw|masterMode,' + e.target.value));
+document.getElementById('sw-type').addEventListener('change', e => transport.send('rate.sw|switchType,' + e.target.value));
+for (const [id, key] of [['sw-workgate','workGate'], ['sw-onscreen','onScreen'], ['sw-autorate','autoRate']])
+  document.getElementById(id).addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    const b = document.getElementById(id);
+    transport.send('rate.sw|' + key + ',' + (b.classList.contains('active') ? 0 : 1));
+    setTimeout(rtRefresh, 250);
+  });
+for (const [id, key] of [['pr-ontime','primed.onTime'], ['pr-speed','primed.speed'], ['pr-delay','primed.delay']])
+  document.getElementById(id).addEventListener('change', e => transport.send('rate.sw|' + key + ',' + e.target.value));
+document.getElementById('pr-resume').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  const b = document.getElementById('pr-resume');
+  transport.send('rate.sw|primed.resume,' + (b.classList.contains('active') ? 0 : 1));
+  setTimeout(rtRefresh, 250);
+});
+document.getElementById('pr-test').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('rate.primed|1'); setTimeout(rtRefresh, 300);
+});
 document.getElementById('rt-back').addEventListener('pointerdown', e => { e.stopPropagation(); lnOpen('fieldtools', 'ln-fieldtools'); });
 document.getElementById('rt-name').addEventListener('change', () => rtSend('name', document.getElementById('rt-name').value.replace(/[|,]/g, ' ')));
 document.getElementById('rt-enabled').addEventListener('pointerdown', e => { e.stopPropagation(); const p = rtProducts[rtSel]; rtSend('enabled', p && p.enabled ? 0 : 1); });

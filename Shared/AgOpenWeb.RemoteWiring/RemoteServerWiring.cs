@@ -248,6 +248,20 @@ public static partial class RemoteServerWiring
                                             .LoadModuleDefaults(md, dp.Length > 1 ? dp[1] : "esp32");
                                     return;
                                 }
+                                case "rate.sw": // arg = key,value — switch behaviour (Machine > Switches)
+                                {
+                                    var sw = arg.Split(',', 2);
+                                    if (sw.Length == 2)
+                                        services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()
+                                            .SetSwitchboxValue(sw[0], sw[1]);
+                                    return;
+                                }
+                                case "rate.primed": // arg = 1 start / 0 cancel
+                                {
+                                    var rcp = services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>();
+                                    if (arg == "1") rcp.StartPrimed(); else rcp.CancelPrimed();
+                                    return;
+                                }
                                 case "rate.relayReset": // arg = moduleId — every relay back to its own section
                                     if (int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out var rr))
                                         services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>()

@@ -77,6 +77,16 @@ public interface IRateControlService
     void SetMaster(bool on);
     void BumpRate(int index, double percent);
     void ResetRate(int index);
+    /// <summary>Behaviour of the switches (master mode, auto rate, section
+    /// allocation) — the native Machine &gt; Switches page, per tool.</summary>
+    RcSwitchboxSettings Switchbox { get; }
+    RcPrimedSettings Primed { get; }
+    void SetSwitchboxValue(string key, string value);
+    /// <summary>Primed start: run the enabled channels at a simulated speed
+    /// while parked, for the configured time. Native Machine &gt; Primed Start.</summary>
+    void StartPrimed();
+    void CancelPrimed();
+    bool PrimedActive { get; }
     /// <summary>Move the module's wired subnet; it reboots onto the new one.</summary>
     void PushSubnet(int moduleId, byte ip0, byte ip1, byte ip2);
 }
@@ -119,6 +129,12 @@ public sealed class RateControlService : IRateControlService, IDisposable
     /// gone address is harmless, and it bridges brief gaps.</summary>
     private readonly Dictionary<int, (IPAddress Address, DateTime LastHeardUtc)> _moduleAddresses = new();
     private const int ModuleHeardWindowSeconds = 10;
+
+    // Switch behaviour + primed start, per tool (Machine > Switches / Primed Start).
+    private RcSwitchboxSettings _switchbox = new();
+    private RcPrimedSettings _primed = new();
+    private string? _switchboxToolKey;
+    private DateTime _primedUntilUtc = DateTime.MinValue;
 
     /// <summary><paramref name="autoSteer"/> is optional so tests and headless
     /// hosts can build the service without the steering stack; without it the
@@ -295,7 +311,20 @@ public sealed class RateControlService : IRateControlService, IDisposable
             // implement, we would keep pushing the previous one's calibration and
             // targets to the module until something touched the UI.
             EnsureToolChannels();
+            EnsureSwitchboxLoaded();
             var (activeHaPerMin, totalHaPerMin) = HectaresPerMinute();
+            // Primed start: the machine is parked, so the real coverage rate is
+            // zero — substitute the configured priming speed so the channels get
+            // a real target. Only the sections the operator switched on count,
+            // which HectaresPerMinute already handles via the section states.
+            if (PrimedActive)
+            {
+                double primedSpeed = _primed.SpeedKmh;
+                var (aw, tw) = ActiveWidths();
+                activeHaPerMin = aw * primedSpeed / 600.0;
+                totalHaPerMin = tw * primedSpeed / 600.0;
+            }
+            bool master = EffectiveMaster();
             // Kept for the status JSON: the readout needs the same coverage rate
             // the targets were computed from, not one sampled at request time.
             _lastActiveHaPerMin = activeHaPerMin;
@@ -329,7 +358,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
                 // switchbox is connected).
                 var frame = RcPgn.BuildRateSettings(
                     p.ModuleId, p.SensorId, target, p.MeterCal, p.ControlType,
-                    masterOn: MasterOn, autoOn: p.AutoOn, resetQuantity: reset,
+                    masterOn: master, autoOn: p.AutoOn && _switchbox.AutoRate, resetQuantity: reset,
                     manualPwm: p.ManualPwm, productEnabled: p.Enabled);
 
                 foreach (var ep in BroadcastEndpoints())
@@ -349,7 +378,11 @@ public sealed class RateControlService : IRateControlService, IDisposable
             foreach (var p in _products)
             {
                 if (!p.Enabled || !sentModules.Add(p.ModuleId)) continue;
-                var w = ComputeRelayWords(p.ModuleId, secBits);
+                // Master mode ControlAll: the master switch kills the section
+                // relays too. MasterRelayOnly leaves sections to their own state.
+                ushort effBits = (_switchbox.MasterMode == RcMasterMode.ControlAll && !master)
+                    ? (ushort)0 : secBits;
+                var w = ComputeRelayWords(p.ModuleId, effBits, master);
                 var relayFrame = RcPgn.BuildRelaySettings(p.ModuleId,
                     (byte)(w.Relays & 0xFF), (byte)(w.Relays >> 8),
                     (byte)(w.Power & 0xFF), (byte)(w.Power >> 8),
@@ -413,7 +446,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
     /// a setup saved before relay functions existed behaves exactly as it did.
     /// Anything else — a master shutoff, a bypass valve, tram markers — now comes
     /// from the module's own relay assignments.</summary>
-    private RcRelayWords ComputeRelayWords(int moduleId, ushort sectionBits)
+    private RcRelayWords ComputeRelayWords(int moduleId, ushort sectionBits, bool? masterOverride = null)
     {
         var m = GetOrAddModuleSetup(moduleId);
         // Tram, lift and geo-stop are the steering side's view of the machine —
@@ -426,9 +459,10 @@ public sealed class RateControlService : IRateControlService, IDisposable
         byte hyd = _configStore.Machine.HydraulicLiftEnabled ? (snap?.HydLiftState ?? 0) : (byte)0;
         return RcRelayMap.Compute(m.EnsureRelays(), new RcRelayInputs
         {
-            MasterOn = MasterOn,
+            MasterOn = masterOverride ?? EffectiveMaster(),
             AutoSectionOn = _state.Operation.IsSectionAutoMaster,
-            Moving = Math.Abs(_state.Vehicle.Speed) * 3.6 > 0.1,
+            // A primed run happens parked; the flow master must still open.
+            Moving = PrimedActive || Math.Abs(_state.Vehicle.Speed) * 3.6 > 0.1,
             Calibrating = _products.Exists(p => p.CalActive),
             SectionBits = sectionBits,
             SwitchBits = sectionBits,        // the virtual switchbox has no switches of its own yet
@@ -438,6 +472,21 @@ public sealed class RateControlService : IRateControlService, IDisposable
             HydUp = hyd == 1,
             HydDown = hyd == 2,
         }, m.FlowMasterMode);
+    }
+
+    /// <summary>Active and total implement width in metres, from the section states.</summary>
+    private (double Active, double Total) ActiveWidths()
+    {
+        double activeW = 0, totalW = 0;
+        var states = _sections.SectionStates;
+        for (int i = 0; i < states.Count; i++)
+        {
+            double w = Math.Abs(states[i].PositionRight - states[i].PositionLeft);
+            totalW += w;
+            if (states[i].IsOn) activeW += w;
+        }
+        if (totalW <= 0) { totalW = _configStore.ActualToolWidth; activeW = 0; }
+        return (activeW, totalW);
     }
 
     /// <summary>Worked area rate: (active width × speed) and (total width × speed),
@@ -610,6 +659,32 @@ public sealed class RateControlService : IRateControlService, IDisposable
         sb.Append(",\"tool\":").Append(JsonSerializer.Serialize(_configStore.ActiveToolProfileName ?? ""));
         sb.Append(",\"useRateControl\":").Append(_configStore.Tool.UseRateControl ? "true" : "false");
         sb.Append(",\"masterOn\":").Append(MasterOn ? "true" : "false");
+        EnsureSwitchboxLoaded();
+        sb.Append(",\"effectiveMaster\":").Append(EffectiveMaster() ? "true" : "false");
+        sb.Append(",\"switchbox\":{\"masterMode\":").Append((int)_switchbox.MasterMode)
+          .Append(",\"switchType\":").Append(_switchbox.SwitchType)
+          .Append(",\"onScreen\":").Append(_switchbox.OnScreenEnabled ? "true" : "false")
+          .Append(",\"autoRate\":").Append(_switchbox.AutoRate ? "true" : "false")
+          .Append(",\"workGate\":").Append(_switchbox.WorkSwitchGate ? "true" : "false")
+          .Append(",\"sectionSwitch\":[");
+        // The section service keeps its full slot table; the tool knows how
+        // many sections actually exist on the implement.
+        int nSec = Math.Min(_sections.SectionStates.Count,
+            Math.Max(1, _configStore.NumSections));
+        for (int i = 0; i < nSec; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append(_switchbox.SwitchFor(i));
+        }
+        sb.Append("]}");
+        double primedLeft = (_primedUntilUtc - DateTime.UtcNow).TotalSeconds;
+        sb.Append(",\"primed\":{\"onTime\":").Append(_primed.OnTimeS.ToString("0.#", CultureInfo.InvariantCulture))
+          .Append(",\"speed\":").Append(_primed.SpeedKmh.ToString("0.#", CultureInfo.InvariantCulture))
+          .Append(",\"delay\":").Append(_primed.MasterDelayS.ToString("0.#", CultureInfo.InvariantCulture))
+          .Append(",\"resume\":").Append(_primed.Resume ? "true" : "false")
+          .Append(",\"active\":").Append(PrimedActive ? "true" : "false")
+          .Append(",\"remaining\":").Append((primedLeft > 0 ? primedLeft : 0).ToString("0", CultureInfo.InvariantCulture))
+          .Append('}');
         EnsureModuleSetupsLoaded();
         sb.Append(",\"moduleSensorCounts\":{");
         for (int mi = 0; mi < _moduleSetups.Count; mi++)
@@ -817,6 +892,108 @@ public sealed class RateControlService : IRateControlService, IDisposable
         _moduleSetups.Add(added);
         SaveModuleSetups();
         return added;
+    }
+
+    private sealed class SwitchboxFile
+    {
+        public RcSwitchboxSettings Switchbox { get; set; } = new();
+        public RcPrimedSettings Primed { get; set; } = new();
+    }
+
+    private string SwitchboxPath => Path.Combine(RateDir, $"switchbox-{ToolKey}.json");
+
+    private void EnsureSwitchboxLoaded()
+    {
+        if (_switchboxToolKey == ToolKey) return;
+        _switchboxToolKey = ToolKey;
+        _switchbox = new RcSwitchboxSettings();
+        _primed = new RcPrimedSettings();
+        try
+        {
+            if (File.Exists(SwitchboxPath))
+            {
+                var f = JsonSerializer.Deserialize<SwitchboxFile>(File.ReadAllText(SwitchboxPath));
+                if (f != null) { _switchbox = f.Switchbox; _primed = f.Primed; }
+            }
+        }
+        catch { }
+    }
+
+    private void SaveSwitchbox()
+    {
+        try
+        {
+            Directory.CreateDirectory(RateDir);
+            File.WriteAllText(SwitchboxPath, JsonSerializer.Serialize(
+                new SwitchboxFile { Switchbox = _switchbox, Primed = _primed },
+                new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Rate] switchbox save failed: {ex.Message}");
+        }
+    }
+
+    public RcSwitchboxSettings Switchbox { get { EnsureSwitchboxLoaded(); return _switchbox; } }
+    public RcPrimedSettings Primed { get { EnsureSwitchboxLoaded(); return _primed; } }
+
+    public void SetSwitchboxValue(string key, string value)
+    {
+        EnsureSwitchboxLoaded();
+        bool Bo() => value == "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+        double D() => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : 0;
+        switch (key)
+        {
+            case "masterMode": _switchbox.MasterMode = (RcMasterMode)Math.Clamp((int)D(), 0, 2); break;
+            case "switchType": _switchbox.SwitchType = Math.Clamp((int)D(), 0, 1); break;
+            case "onScreen": _switchbox.OnScreenEnabled = Bo(); break;
+            case "autoRate": _switchbox.AutoRate = Bo(); break;
+            case "workGate": _switchbox.WorkSwitchGate = Bo(); break;
+            // "secSwitch:<section>" allocates a section to an on-screen switch
+            case string k when k.StartsWith("secSwitch:", StringComparison.Ordinal)
+                            && int.TryParse(k.AsSpan(10), out var sec) && sec >= 0 && sec < 64:
+            {
+                var arr = _switchbox.SectionSwitch;
+                if (arr.Length <= sec)
+                {
+                    var grown = new int[sec + 1];
+                    for (int i = 0; i < grown.Length; i++)
+                        grown[i] = i < arr.Length ? arr[i] : (i < 8 ? i : 7);
+                    _switchbox.SectionSwitch = arr = grown;
+                }
+                arr[sec] = Math.Clamp((int)D(), -1, 7);
+                break;
+            }
+            case "primed.onTime": _primed.OnTimeS = Math.Clamp(D(), 1, 120); break;
+            case "primed.speed": _primed.SpeedKmh = Math.Clamp(D(), 0.5, 40); break;
+            case "primed.delay": _primed.MasterDelayS = Math.Clamp(D(), 0, 30); break;
+            case "primed.resume": _primed.Resume = Bo(); break;
+            default: return;
+        }
+        SaveSwitchbox();
+    }
+
+    public bool PrimedActive => DateTime.UtcNow < _primedUntilUtc;
+
+    public void StartPrimed()
+    {
+        EnsureSwitchboxLoaded();
+        // The native rule: not while moving, not with a maintained switch.
+        if (_switchbox.SwitchType == 1) return;
+        if (Math.Abs(_state.Vehicle.Speed) * 3.6 > 0.5) return;
+        _primedUntilUtc = DateTime.UtcNow.AddSeconds(_primed.OnTimeS);
+    }
+
+    public void CancelPrimed() => _primedUntilUtc = DateTime.MinValue;
+
+    /// <summary>Master as the machine should see it: the raw switch filtered
+    /// through the master mode, the work-switch gate and a primed run.</summary>
+    private bool EffectiveMaster()
+    {
+        EnsureSwitchboxLoaded();
+        if (PrimedActive) return true;
+        if (_switchbox.MasterMode == RcMasterMode.Override) return true;
+        return MasterOn;
     }
 
     /// <summary>Send one frame to a module: per-NIC directed broadcast plus a

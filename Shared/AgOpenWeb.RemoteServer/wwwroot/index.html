@@ -888,6 +888,24 @@
       background: rgba(20,22,26,0.82); border: 1px solid var(--border);
       box-shadow: 0 6px 20px rgba(0,0,0,0.45); cursor: pointer; min-width: 132px; }
     #rate-hud.on { display: flex; }
+    /* On-screen switchbox — a vertical strip under the rate HUD. Big targets:
+       this is pressed with a gloved thumb on the cab screen. */
+    #rc-switchbox { position: fixed; top: 132px; right: 12px; z-index: 30; display: none;
+      flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px;
+      background: rgba(20,24,28,0.88); border: 1px solid var(--border); }
+    #rc-switchbox.on { display: flex; }
+    #rc-switchbox .sw-big { width: 74px; height: 44px; border: 0; border-radius: 8px;
+      background: rgba(231,76,60,0.35); color: #fff; font: 700 14px system-ui, sans-serif; cursor: pointer; }
+    #rc-switchbox .sw-big.on { background: rgba(46,204,113,0.55); }
+    #rc-switchbox .sw-big:disabled { opacity: .35; }
+    #rc-switchbox .sw-rate { display: flex; gap: 6px; }
+    #rc-switchbox .sw-rate button { flex: 1; height: 40px; border: 0; border-radius: 8px;
+      background: rgba(var(--ov),0.16); color: var(--text); font: 700 20px system-ui, sans-serif; cursor: pointer; }
+    #swb-secs { display: flex; flex-direction: column; gap: 4px; }
+    #swb-secs button { width: 74px; height: 34px; border: 0; border-radius: 6px;
+      background: rgba(var(--ov),0.14); color: var(--text); font: 700 12px system-ui, sans-serif; cursor: pointer; }
+    #swb-secs button.on { background: rgba(46,204,113,0.55); color: #fff; }
+    #swb-secs button.mix { background: rgba(240,168,104,0.45); color: #fff; }
     .rh-row { display: flex; align-items: baseline; gap: 8px; justify-content: space-between; }
     .rh-name { color: var(--text-2); font: 700 12px system-ui, sans-serif;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 108px; }
@@ -2324,80 +2342,149 @@
   </div>
   <!-- Rate Control — native AOG_RC port: products A-E on RC hardware modules
        (RCnano / Teensy / ESP32) over the RC module plane (:29999/:28888). -->
-  <div id="ratecontrol" class="ln-panel rp-panel">
-    <div class="ln-hdr"><button class="ln-x" id="rt-back" title="Back">←</button><span class="ln-hdr-title">Rate Control</span><button class="ln-x ln-closex" title="Close">✕</button></div>
-    <div class="rp-pats" id="rt-tabs" style="grid-template-columns:repeat(5,1fr)"></div>
-    <div class="rp-row"><span class="cfg-label">Tool</span><span class="cfg-label" id="rt-tool" style="opacity:.8">—</span></div>
-    <div class="rp-row"><span class="cfg-label">On-map readout</span>
-      <select class="cfg-sel" id="rt-hudmode" style="width:120px" title="Small always-visible rate panel on the map">
-        <option value="0">Off</option>
-        <option value="1">Current</option>
-        <option value="2">Target</option>
-        <option value="3">Both</option>
-      </select></div>
-    <!-- Products come from the shared catalogue; the channel keeps this tool's own
-         hardware settings (module/sensor and above all the meter calibration). -->
-    <div class="ms-sec id">Product</div>
-    <div class="rp-row"><span class="cfg-label">Product</span>
-      <select class="cfg-sel" id="rt-catsel" style="width:150px" title="Load a product from the catalogue into this channel"></select>
-      <button class="cfg-act" id="rt-catadd" title="Save this channel's name, units and rate to the shared catalogue">+ Catalogue</button></div>
-    <div class="rp-row"><span class="cfg-label">Product name</span><input id="rt-name" class="of-input" type="text" style="width:130px"></div>
-    <!-- Virtual switchbox: stands in for the physical AOG_RC box. Master is the
-         one control that must always be reachable — without it there was no way
-         to stop product from the screen. -->
-    <div class="ms-sec act">Switchbox</div>
-    <div class="rp-row"><span class="cfg-label">Master</span>
-      <button class="cfg-tgl" id="rt-master" data-keep-label="1" style="min-width:74px">On</button>
-      <span class="cfg-label">Rate</span>
-      <button class="cfg-act" id="rt-ratedn" title="Target down 5%">−5%</button>
-      <button class="cfg-act" id="rt-rateup" title="Target up 5%">+5%</button>
-      <button class="cfg-act" id="rt-ratereset" title="Back to the product's catalogue rate">Reset</button></div>
-    <div class="rp-pats" style="grid-template-columns:1fr 1fr">
-      <button class="rp-pat" id="rt-enabled">Enabled</button>
-      <button class="rp-pat" id="rt-auto">Auto</button>
+  <div id="ratecontrol" class="ln-panel ln-wide">
+    <div class="ln-hdr"><button class="ln-x" id="rt-back" title="Back">&#8592;</button><span class="ln-hdr-title">Rate Control</span><button class="ln-x ln-closex" title="Close">&#10005;</button></div>
+    <div class="rp-row"><span class="cfg-label">Tool</span><span class="cfg-label" id="rt-tool" style="opacity:.8">&#8212;</span>
+      <div class="rp-pats" id="rt-tabs" style="grid-template-columns:repeat(5,44px);margin:0"></div></div>
+    <!-- Operating vs setup, split like the native app's Products menus: the
+         Rate tab is what changes day to day, Channel is the implement's own
+         hardware and calibration, Switches/Primed are behaviour. -->
+    <div class="cfg-tabs cfg-subtabs">
+      <button class="cfg-tab active" data-strip="rt-top" data-tab="rtt-rate">Rate</button>
+      <button class="cfg-tab" data-strip="rt-top" data-tab="rtt-channel">Channel</button>
+      <button class="cfg-tab" data-strip="rt-top" data-tab="rtt-switches">Switches</button>
+      <button class="cfg-tab" data-strip="rt-top" data-tab="rtt-primed">Primed start</button>
     </div>
-    <div class="ms-sec pins">Channel hardware</div>
-    <div class="rp-row"><span class="cfg-label">Module / Sensor</span>
-      <input id="rt-mod" type="number" min="0" max="15" style="width:44px"> <input id="rt-sen" type="number" min="0" max="15" style="width:44px"></div>
-    <div class="rt-warn" id="rt-senwarn" hidden></div>
-    <div class="ms-sec tune">Rate and calibration</div>
-    <div class="rp-row"><span class="cfg-label">Target rate</span>
-      <input id="rt-target" type="number" step="0.5" min="0" style="width:70px"><select id="rt-units"><option value="1">/Ha</option><option value="0">/Ac</option><option value="2">/min</option><option value="3">/hr</option></select></div>
-    <div class="rp-row"><span class="cfg-label">Flow cal (pulses/unit)</span>
-      <input id="rt-cal" type="number" step="0.1" min="0" style="width:70px"></div>
-    <!-- Enum values are the module's, not the list order: MotorWeights and Fan sit
-         between Motor and ComboCloseTimed on the wire. -->
-    <div class="rp-row"><span class="cfg-label">Control type</span>
-      <select id="rt-ctype" title="How the application rate is controlled">
-        <option value="0" title="Uses a valve to vary flow rate">Standard valve</option>
-        <option value="1" title="Uses a valve to vary rate and provide on/off control">Combo close</option>
-        <option value="2" title="Varies motor speed to control application rate">Motor</option>
-        <option value="3" title="Motor driven from a weigh system">Motor + weights</option>
-        <option value="4">Fan</option>
-        <option value="5" title="Uses adjust/pause timing cycles for control — see the timed values in module tuning">Combo timed</option>
-      </select></div>
-    <div class="rp-row"><span class="cfg-label">Manual PWM</span>
-      <div class="rp-step"><button class="rp-sb" data-rt="pwm" data-d="-10">−</button><span id="rt-pwm">0</span><button class="rp-sb" data-rt="pwm" data-d="10">+</button></div></div>
-    <div class="rp-row"><span class="cfg-label">Units</span>
-      <input id="rt-units-txt" type="text" style="width:44px" title="Quantity unit (L, kg, …) — used in job records"></div>
-    <div class="rp-row"><span class="cfg-label">Tank size / remaining</span>
-      <input id="rt-tanksize" type="number" step="10" min="0" style="width:60px"><input id="rt-tank" type="number" step="10" min="0" style="width:60px"></div>
-    <div class="ms-sec tune">Live</div>
-    <div class="rp-stats" id="rt-live">—</div>
-    <div class="ms-sec act">Totals</div>
-    <div class="rp-btns">
-      <button class="cfg-act" id="rt-resetqty">Reset Qty</button>
-      <button class="cfg-act" id="rt-resetarea">Reset Area</button>
+
+    <div id="rtt-rate" class="cfg-body" data-strip="rt-top">
+      <div class="cfg-cols2">
+        <div>
+          <div class="ms-sec id">Product</div>
+          <div class="rp-row"><span class="cfg-label">Product</span>
+            <select class="cfg-sel" id="rt-catsel" style="width:150px" title="Load a product from the catalogue into this channel"></select>
+            <button class="cfg-act" id="rt-catadd" title="Save this channel's name, units and rate to the shared catalogue">+ Cat</button></div>
+          <div class="rp-row"><span class="cfg-label">Name</span><input id="rt-name" class="of-input" type="text" style="width:140px"></div>
+          <div class="ms-sec tune">Target</div>
+          <div class="rp-row"><span class="cfg-label">Target rate</span>
+            <input id="rt-target" type="number" step="0.5" min="0" style="width:70px"><select id="rt-units"><option value="1">/Ha</option><option value="0">/Ac</option><option value="2">/min</option><option value="3">/hr</option></select></div>
+          <div class="rp-row"><span class="cfg-label">Adjust</span>
+            <button class="cfg-act" id="rt-ratedn" title="Target down 5%">&minus;5%</button>
+            <button class="cfg-act" id="rt-rateup" title="Target up 5%">+5%</button>
+            <button class="cfg-act" id="rt-ratereset" title="Back to the product's catalogue rate">Reset</button></div>
+          <div class="rp-row"><span class="cfg-label">Tank size / remaining</span>
+            <input id="rt-tanksize" type="number" step="10" min="0" style="width:60px"><input id="rt-tank" type="number" step="10" min="0" style="width:60px"></div>
+        </div>
+        <div>
+          <div class="ms-sec tune">Live</div>
+          <div class="rp-stats" id="rt-live">&#8212;</div>
+          <div class="rp-row"><span class="cfg-label">On-map readout</span>
+            <select class="cfg-sel" id="rt-hudmode">
+              <option value="0">Off</option><option value="1">Actual</option>
+              <option value="2">Target</option><option value="3">Both</option>
+            </select></div>
+          <div class="ms-sec act">Totals</div>
+          <div class="rp-btns">
+            <button class="cfg-act" id="rt-resetqty">Reset Qty</button>
+            <button class="cfg-act" id="rt-resetarea">Reset Area</button>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="cfg-label" title="Catch test: runs the product manually at the Manual PWM above into a container; enter what you actually caught and the flow cal rescales.">Flow calibration (catch test)</div>
-    <div class="rp-btns">
-      <button class="cfg-act" id="rt-calstart">▶ Start cal run</button>
-      <button class="cfg-act fj-danger" id="rt-calstop">■ Stop</button>
+
+    <div id="rtt-channel" class="cfg-body" data-strip="rt-top" hidden>
+      <div class="cfg-cols2">
+        <div>
+          <div class="ms-sec pins">Channel hardware</div>
+          <div class="rp-pats" style="grid-template-columns:1fr 1fr">
+            <button class="rp-pat" id="rt-enabled">Enabled</button>
+            <button class="rp-pat" id="rt-auto">Auto</button>
+          </div>
+          <div class="rp-row"><span class="cfg-label">Module / Sensor</span>
+            <input id="rt-mod" type="number" min="0" max="15" style="width:44px"> <input id="rt-sen" type="number" min="0" max="15" style="width:44px"></div>
+          <div class="rt-warn" id="rt-senwarn" hidden></div>
+          <!-- Enum values are the module's, not the list order. -->
+          <div class="rp-row"><span class="cfg-label">Control type</span>
+            <select id="rt-ctype" title="How the application rate is controlled">
+              <option value="0" title="Uses a valve to vary flow rate">Standard valve</option>
+              <option value="1" title="Uses a valve to vary rate and provide on/off control">Combo close</option>
+              <option value="2" title="Varies motor speed to control application rate">Motor</option>
+              <option value="3" title="Motor driven from a weigh system">Motor + weights</option>
+              <option value="4">Fan</option>
+              <option value="5" title="Adjust/pause timing cycles - see timed values in module tuning">Combo timed</option>
+            </select></div>
+          <div class="rp-row"><span class="cfg-label">Flow cal (pulses/unit)</span>
+            <input id="rt-cal" type="number" step="0.1" min="0" style="width:70px"></div>
+          <div class="rp-row"><span class="cfg-label">Units</span>
+            <input id="rt-units-txt" type="text" style="width:44px" title="Quantity unit (L, kg, ...) - used in job records"></div>
+          <button class="cfg-act cfg-actwide" id="rt-modsetup" title="Pins, module flags and valve tuning - the settings the module keeps in its own memory">&#9881; Module setup</button>
+        </div>
+        <div>
+          <div class="ms-sec act">Flow calibration (catch test)</div>
+          <div class="dlg-msg" style="text-align:left">Runs the product manually at the PWM below into a container; enter what you actually caught and the flow cal rescales.</div>
+          <div class="rp-row"><span class="cfg-label">Manual PWM</span>
+            <div class="rp-step"><button class="rp-sb" data-rt="pwm" data-d="-10">&minus;</button><span id="rt-pwm">0</span><button class="rp-sb" data-rt="pwm" data-d="10">+</button></div></div>
+          <div class="rp-btns">
+            <button class="cfg-act" id="rt-calstart">&#9654; Start cal run</button>
+            <button class="cfg-act fj-danger" id="rt-calstop">&#9632; Stop</button>
+          </div>
+          <div class="rp-row" id="rt-calrow" style="display:none"><span class="cfg-label" id="rt-calind">Indicated: &#8212;</span>
+            <input id="rt-calactual" type="number" step="0.1" min="0" style="width:64px" placeholder="actual">
+            <button class="cfg-act" id="rt-calapply">Apply</button></div>
+        </div>
+      </div>
     </div>
-    <div class="rp-row" id="rt-calrow" style="display:none"><span class="cfg-label" id="rt-calind">Indicated: —</span>
-      <input id="rt-calactual" type="number" step="0.1" min="0" style="width:64px" placeholder="actual">
-      <button class="cfg-act" id="rt-calapply">Apply</button></div>
-    <button class="cfg-act cfg-actwide" id="rt-modsetup" title="Pins, module flags and valve tuning — the settings the module keeps in its own memory">⚙ Module setup</button>
+
+    <div id="rtt-switches" class="cfg-body" data-strip="rt-top" hidden>
+      <div class="cfg-cols2">
+        <div>
+          <div class="ms-sec id">Master switch</div>
+          <div class="cfg-grid zebra">
+            <label>Master controls</label>
+            <select class="cfg-sel" id="sw-mastermode" title="What the master switch turns on and off">
+              <option value="0">Master + all sections</option>
+              <option value="1">Master relay only</option>
+              <option value="2">Always on (override)</option>
+            </select>
+            <label>Switch type</label>
+            <select class="cfg-sel" id="sw-type" title="Physical switchbox only. Maintained also disables primed start.">
+              <option value="0">Momentary</option>
+              <option value="1">Maintained</option>
+            </select>
+            <label>Work switch gates master</label><button class="ms-tgl" id="sw-workgate">Off</button>
+          </div>
+          <div class="ms-sec act">On-screen switchbox</div>
+          <div class="cfg-grid zebra">
+            <label>Show on main screen</label><button class="ms-tgl" id="sw-onscreen">Off</button>
+            <label>Auto rate</label><button class="ms-tgl" id="sw-autorate" title="The operator's auto-rate switch: off = manual PWM only">Off</button>
+          </div>
+        </div>
+        <div>
+          <div class="ms-sec pins">Section &#8594; switch allocation</div>
+          <div class="dlg-msg" style="text-align:left">Which on-screen switch flips each section. Give several sections the same switch and they work as one group, like the native zones.</div>
+          <div class="tc-dyngrid" id="sw-alloc"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="rtt-primed" class="cfg-body" data-strip="rt-top" hidden>
+      <div class="cfg-cols2">
+        <div>
+          <div class="ms-sec tune">Primed start</div>
+          <div class="cfg-grid zebra">
+            <label>Run time (s)</label><input class="cfg-num" id="pr-ontime" type="number" min="1" max="120" step="1">
+            <label>Simulated speed (km/h)</label><input class="cfg-num" id="pr-speed" type="number" min="0.5" max="40" step="0.5">
+            <label>Hold delay (s, physical box)</label><input class="cfg-num" id="pr-delay" type="number" min="0" max="30" step="1">
+            <label>Resume if moving after</label><button class="ms-tgl" id="pr-resume">Off</button>
+          </div>
+          <button class="cfg-act cfg-actwide" id="pr-test" title="Runs now, exactly as the PRM button does">&#9654; Prime now</button>
+          <div class="cfg-label" id="pr-status" style="min-height:16px"></div>
+        </div>
+        <div>
+          <div class="ms-sec id">What it does</div>
+          <div class="dlg-msg" style="text-align:left">Primes the boom or simulates application while parked: for the run time, the target rate is computed as if the machine were travelling at the simulated speed. Turn on the section switches you want to prime first &#8212; only sections that are on will run. Cancel by pressing PRM again or turning the master off. Not available with a maintained switch type.</div>
+        </div>
+      </div>
+    </div>
   </div>
   <!-- Module setup — PGN 32700 / 32507 / 32502. These live in the module's EEPROM
        and nothing else can write them: its own web page is only WiFi + a master
@@ -3069,6 +3156,19 @@
   <!-- Rate readout: actual vs target while working, like the old standalone
        RateController window. Populated by rhTick(); tap opens Rate Control. -->
   <div id="rate-hud" title="Rate control — tap to open"></div>
+  <!-- On-screen switchbox: the native RC floating switch panel. Shown when the
+       tool uses rate control and Switches -> "Show on main screen" is on.
+       Section buttons flip switch GROUPS (the section->switch allocation). -->
+  <div id="rc-switchbox">
+    <button class="sw-big" id="swb-mst" title="Master valve">MST</button>
+    <button class="sw-big" id="swb-prm" title="Primed start">PRM</button>
+    <button class="sw-big" id="swb-auto" title="Auto rate">AUTO</button>
+    <div class="sw-rate">
+      <button id="swb-dn" title="Rate down 5%">&minus;</button>
+      <button id="swb-up" title="Rate up 5%">+</button>
+    </div>
+    <div id="swb-secs"></div>
+  </div>
   <div id="dialoghost">
     <div class="dlg-backdrop"></div>
     <div id="dlg-simcoords" class="dlg-card">
