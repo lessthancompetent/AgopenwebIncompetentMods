@@ -637,6 +637,24 @@ public static class PgnBuilder
     /// <param name="result">Parsed steer module data</param>
     /// <returns>True if parsing succeeded, false if data is invalid</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    /// <summary>Parse the work-switch report out of a machine status frame
+    /// (PGN 237 / 0xED). Data byte 3 (frame byte 8) is unused by stock
+    /// firmware; our extended machine firmware sets bit 7 to say "I have a
+    /// work switch" and bit 0 to the raw closed-to-ground state — so stock
+    /// boards parse as present=false rather than as a phantom switch.</summary>
+    public static bool TryParseMachineWorkSwitch(ReadOnlySpan<byte> data,
+        out bool present, out bool active)
+    {
+        present = false; active = false;
+        if (data.Length < 14) return false;
+        if (data[0] != HEADER1 || data[1] != HEADER2) return false;
+        if (data[3] != 237) return false;
+        byte b = data[8];
+        present = (b & 0x80) != 0;
+        active = (b & 0x01) != 0;
+        return true;
+    }
+
     public static bool TryParseSteerData(ReadOnlySpan<byte> data, out SteerModuleData result)
     {
         result = default;

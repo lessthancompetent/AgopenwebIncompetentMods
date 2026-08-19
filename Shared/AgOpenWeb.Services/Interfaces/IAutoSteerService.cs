@@ -233,6 +233,11 @@ public readonly struct VehicleStateSnapshot
     /// <summary>Geo-fence stop: 0 ok, 1 out of bounds.</summary>
     public byte GeoStopState { get; init; }
 
+    /// <summary>RAW work-switch bit from the steer board (PGN 253). Polarity is
+    /// applied at use via ToolConfig.IsWorkSwitchActiveLow, same as the section
+    /// logic does.</summary>
+    public bool WorkSwitchActive { get; init; }
+
     public double TotalLatencyMs { get; init; }
     public double ParseLatencyMs { get; init; }
     public double GuidanceLatencyMs { get; init; }

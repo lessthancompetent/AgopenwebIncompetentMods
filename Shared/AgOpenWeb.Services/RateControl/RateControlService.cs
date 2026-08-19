@@ -666,6 +666,9 @@ public sealed class RateControlService : IRateControlService, IDisposable
           .Append(",\"onScreen\":").Append(_switchbox.OnScreenEnabled ? "true" : "false")
           .Append(",\"autoRate\":").Append(_switchbox.AutoRate ? "true" : "false")
           .Append(",\"workGate\":").Append(_switchbox.WorkSwitchGate ? "true" : "false")
+          .Append(",\"workSwitchOn\":").Append(
+              ((_autoSteer?.LatestSnapshot?.WorkSwitchActive ?? false)
+               != _configStore.Tool.IsWorkSwitchActiveLow) ? "true" : "false")
           .Append(",\"sectionSwitch\":[");
         // The section service keeps its full slot table; the tool knows how
         // many sections actually exist on the implement.
@@ -993,6 +996,15 @@ public sealed class RateControlService : IRateControlService, IDisposable
         EnsureSwitchboxLoaded();
         if (PrimedActive) return true;
         if (_switchbox.MasterMode == RcMasterMode.Override) return true;
+        // Work-switch gate: master only engages while the implement is down.
+        // The raw bit comes from the steer board (PGN 253); polarity follows the
+        // tool's active-low setting, same convention as the section logic.
+        if (_switchbox.WorkSwitchGate)
+        {
+            bool raw = _autoSteer?.LatestSnapshot?.WorkSwitchActive ?? false;
+            bool workOn = raw != _configStore.Tool.IsWorkSwitchActiveLow;
+            if (!workOn) return false;
+        }
         return MasterOn;
     }
 

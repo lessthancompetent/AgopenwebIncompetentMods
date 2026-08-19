@@ -155,8 +155,16 @@ public struct VehicleState
     // Switch States (received from hardware via PGN)
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// <summary>Work switch state from hardware</summary>
+    /// <summary>Work switch state from hardware (steer board, PGN 253)</summary>
     public bool WorkSwitchActive;
+
+    /// <summary>A machine module that reports its own work switch has been
+    /// heard (extended firmware, PGN 237 data byte 3 bit 7). When present, the
+    /// machine's switch takes precedence over the steer board's.</summary>
+    public bool MachineWorkSwitchPresent;
+
+    /// <summary>Raw work switch state reported by the machine module.</summary>
+    public bool MachineWorkSwitchActive;
 
     /// <summary>Steer switch state from hardware</summary>
     public bool SteerSwitchActive;

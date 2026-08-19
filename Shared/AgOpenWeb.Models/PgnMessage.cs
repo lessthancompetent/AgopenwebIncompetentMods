@@ -134,6 +134,11 @@ public static class PgnNumbers
     /// Hello/ping from Machine module (0x7B = 123)
     /// </summary>
     public const byte HELLO_FROM_MACHINE = 123;
+    /// <summary>Machine module status (0xED): relay pin states, tramline echo,
+    /// and — from our extended firmware — the work switch in data byte 3
+    /// (bit 7 = reports-a-work-switch, bit 0 = raw closed-to-ground state).
+    /// Stock firmware leaves that byte 0, so the flag doubles as detection.</summary>
+    public const byte FROM_MACHINE = 237;
 
     /// <summary>
     /// Hello/ping from IMU module (0x79 = 121)

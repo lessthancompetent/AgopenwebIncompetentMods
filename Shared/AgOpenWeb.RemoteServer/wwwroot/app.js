@@ -2821,6 +2821,11 @@ function rtRenderSwitches() {
     const b = document.getElementById(id);
     b.classList.toggle('active', !!on); b.textContent = on ? 'On' : 'Off';
   }
+  const ws = document.getElementById('sw-workstate');
+  if (ws) {
+    ws.textContent = d.switchbox.workSwitchOn ? 'ON (implement down)' : 'off';
+    ws.style.color = d.switchbox.workSwitchOn ? '#2ecc71' : '';
+  }
   // allocation grid: one select per section
   const grid = document.getElementById('sw-alloc');
   const alloc = d.switchbox.sectionSwitch || [];

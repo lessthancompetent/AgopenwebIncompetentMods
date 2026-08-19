@@ -257,7 +257,26 @@ public class AutoSteerService : IAutoSteerService
             case PgnNumbers.SENSOR_DATA: // 250 - Sensor Data from module
                 ProcessSensorData(e.Data);
                 break;
+
+            case PgnNumbers.FROM_MACHINE: // 237 - machine status (work switch)
+                ProcessMachineData(e.Data);
+                break;
         }
+    }
+
+    /// <summary>Process PGN 237 — machine module status. Only the work-switch
+    /// report matters here; relay echo/tramline are diagnostics.</summary>
+    private void ProcessMachineData(byte[] data)
+    {
+        if (!PgnBuilder.TryParseMachineWorkSwitch(data, out bool present, out bool active))
+            return;
+        bool changed = _state.MachineWorkSwitchPresent != present
+                    || _state.MachineWorkSwitchActive != active;
+        _state.MachineWorkSwitchPresent = present;
+        _state.MachineWorkSwitchActive = active;
+        // Same reasoning as the steer switches: a flipped switch should be
+        // visible immediately, not on the next GPS tick.
+        if (changed) NotifyStateUpdated();
     }
 
     /// <summary>
@@ -772,6 +791,10 @@ public class AutoSteerService : IAutoSteerService
             TramState = _state.TramState,
             HydLiftState = _state.HydLiftState,
             GeoStopState = _state.GeoStopState,
+            // The machine board's own work switch wins when that hardware
+            // exists; otherwise the steer board's input (stock AOG wiring).
+            WorkSwitchActive = _state.MachineWorkSwitchPresent
+                ? _state.MachineWorkSwitchActive : _state.WorkSwitchActive,
             TotalLatencyMs = _state.TotalLatencyMs,
             ParseLatencyMs = _state.ParseLatencyMs,
             GuidanceLatencyMs = _state.GuidanceLatencyMs,
