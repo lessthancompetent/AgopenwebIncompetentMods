@@ -1281,10 +1281,12 @@ public partial class MainViewModel : ObservableObject
     {
         _dispatcher.Post(() =>
         {
-            // Toggle section master when requested by module communication service
-            // This replaces the direct PerformClick() calls from the WinForms implementation
-            // TODO: When separate Auto/Manual section buttons are implemented, handle them individually
-            ToggleSectionMasterCommand?.Execute(null);
+            // Toggle the requested section master button — the switch logic asks
+            // for Manual when the work switch is configured for manual sections.
+            if (e.Button == SectionMasterToggleEventArgs.SectionMasterButton.Manual)
+                ToggleManualModeCommand?.Execute(null);
+            else
+                ToggleSectionMasterCommand?.Execute(null);
         });
     }
 

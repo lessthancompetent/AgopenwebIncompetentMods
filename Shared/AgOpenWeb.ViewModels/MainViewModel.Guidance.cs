@@ -50,6 +50,7 @@ public partial class MainViewModel
         // stays on the source rate. Single-double / single-byte writes are
         // atomic on x86/ARM — no lock needed.
         _latestGpsToPgnLatencyMs = state.TotalLatencyMs;
+        ProcessModuleSwitches(state);
         if (_dispatcher.CheckAccess())
         {
             TramControlByte = state.TramState;
@@ -64,6 +65,41 @@ public partial class MainViewModel
             });
         }
     }
+
+    #region Hardware Switches
+
+    private readonly Models.Communication.ModuleSwitchState _moduleSwitchState = new();
+
+    /// <summary>
+    /// Feed the hardware work/steer switch bits into the native switch logic
+    /// (ModuleCommunicationService.CheckSwitches) and let its events drive the
+    /// section master / autosteer toggles. This is the piece that makes the
+    /// "Work switch" / "Steer switch" vehicle settings actually do something —
+    /// the logic was ported long ago but nothing ever fed it.
+    /// </summary>
+    private void ProcessModuleSwitches(in VehicleStateSnapshot state)
+    {
+        // Only with live steer-module data: parser defaults must not flap buttons.
+        if (!IsAutoSteerDataOk) return;
+
+        var tool = ConfigStore.Tool;
+        var mc = _moduleCommunicationService;
+        mc.IsRemoteWorkSystemOn = tool.IsWorkSwitchEnabled || tool.IsSteerSwitchEnabled;
+        // Snapshot's WorkSwitchActive is "pin pulled low (closed)"; the native
+        // logic wants the raw pin level, its ActiveLow flag does the polarity.
+        mc.WorkSwitchHigh = !state.WorkSwitchActive;
+        mc.SteerSwitchHigh = _autoSteerService.LastSteerData.SteerSwitchActive;
+
+        _moduleSwitchState.IsAutoSteerOn = IsAutoSteerEngaged;
+        _moduleSwitchState.IsAutoSteerAuto = ConfigStore.AutoSteer.ExternalEnable != 0;
+        _moduleSwitchState.AutoButtonState = IsSectionMasterOn
+            ? Models.Communication.ButtonStates.Auto : Models.Communication.ButtonStates.Off;
+        _moduleSwitchState.ManualButtonState = IsManualSectionMode
+            ? Models.Communication.ButtonStates.On : Models.Communication.ButtonStates.Off;
+        mc.CheckSwitches(_moduleSwitchState);
+    }
+
+    #endregion
 
     #endregion
 }

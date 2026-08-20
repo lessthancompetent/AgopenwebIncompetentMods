@@ -666,9 +666,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
           .Append(",\"onScreen\":").Append(_switchbox.OnScreenEnabled ? "true" : "false")
           .Append(",\"autoRate\":").Append(_switchbox.AutoRate ? "true" : "false")
           .Append(",\"workGate\":").Append(_switchbox.WorkSwitchGate ? "true" : "false")
-          .Append(",\"workSwitchOn\":").Append(
-              ((_autoSteer?.LatestSnapshot?.WorkSwitchActive ?? false)
-               != _configStore.Tool.IsWorkSwitchActiveLow) ? "true" : "false")
+          .Append(",\"workSwitchOn\":").Append(WorkSwitchOn() ? "true" : "false")
           .Append(",\"sectionSwitch\":[");
         // The section service keeps its full slot table; the tool knows how
         // many sections actually exist on the implement.
@@ -989,6 +987,16 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     public void CancelPrimed() => _primedUntilUtc = DateTime.MinValue;
 
+    /// <summary>Work switch reads "on" (implement down). The snapshot bit is
+    /// normalized to "pin pulled low (closed)", so a closed-to-ground switch —
+    /// ActiveLow=true, the native default — compares EQUAL, not opposite. (The
+    /// original != here silently required the polarity setting to be wrong.)</summary>
+    private bool WorkSwitchOn()
+    {
+        bool pinLow = _autoSteer?.LatestSnapshot?.WorkSwitchActive ?? false;
+        return pinLow == _configStore.Tool.IsWorkSwitchActiveLow;
+    }
+
     /// <summary>Master as the machine should see it: the raw switch filtered
     /// through the master mode, the work-switch gate and a primed run.</summary>
     private bool EffectiveMaster()
@@ -997,13 +1005,12 @@ public sealed class RateControlService : IRateControlService, IDisposable
         if (PrimedActive) return true;
         if (_switchbox.MasterMode == RcMasterMode.Override) return true;
         // Work-switch gate: master only engages while the implement is down.
-        // The raw bit comes from the steer board (PGN 253); polarity follows the
-        // tool's active-low setting, same convention as the section logic.
-        if (_switchbox.WorkSwitchGate)
+        // Only meaningful when the vehicle settings enable a work switch at all —
+        // a gate on a switch that doesn't exist would latch the master off.
+        if (_switchbox.WorkSwitchGate && _configStore.Tool.IsWorkSwitchEnabled
+            && !WorkSwitchOn())
         {
-            bool raw = _autoSteer?.LatestSnapshot?.WorkSwitchActive ?? false;
-            bool workOn = raw != _configStore.Tool.IsWorkSwitchActiveLow;
-            if (!workOn) return false;
+            return false;
         }
         return MasterOn;
     }
