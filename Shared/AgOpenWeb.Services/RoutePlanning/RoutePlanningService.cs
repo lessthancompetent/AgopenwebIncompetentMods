@@ -561,21 +561,20 @@ public sealed class RoutePlanningService : IRoutePlanningService
         int skipPasses = 0,
         int blockSkip = 0,
         double cornerRadius = 0,
-        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null)
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
+        double rowSpacing = 0)
     {
         var first = GenerateBoustrophedon(outerBoundary, swathWidth, turnRadius, headlandMargin,
             headingRad, pattern, headlandPasses, startPos, swathOffset, swapEnds, startOppositeSide,
             boundaryClearance, skipPasses, blockSkip, cornerRadius, innerBoundaries);
         if (first == null) return null;
 
-        // Second set starts where the first finished and skips the headland laps
-        // (the perimeter is the same ground regardless of angle — driving it twice
-        // is pointless); it re-covers only the interior at the crossing angle.
+        // Second set starts where the first finished; it re-covers the interior at
+        // the crossing angle and is tagged coverage channel 1, so its sections
+        // neither read nor trip the first family's paint.
         Vec3? secondStart = first.Segments.Count > 0 && first.Segments[^1].Points.Count > 0
             ? first.Segments[^1].Points[^1]
             : startPos;
-        // The perimeter loop is the same ground at either angle — the first set already
-        // laid it, so don't repeat it on the crossing set.
         var second = GenerateBoustrophedon(outerBoundary, swathWidth, turnRadius, headlandMargin,
             headingRad + crossAngleRad, pattern, 0, secondStart, swathOffset, swapEnds, startOppositeSide,
             boundaryClearance, skipPasses, blockSkip, cornerRadius, innerBoundaries, addPondLoops: false);
@@ -583,9 +582,254 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
         var segs = new List<RouteSegment>(first.Segments.Count + second.Segments.Count);
         segs.AddRange(first.Segments);
-        segs.AddRange(second.Segments);
+        foreach (var s in second.Segments)
+            segs.Add(new RouteSegment(s.Type, s.Points, 1));
 
-        return new RoutePlan(segs, BuildMeta(segs, swathWidth));
+        var plan = new RoutePlan(segs, BuildMeta(segs, swathWidth));
+
+        // The perimeter can't be re-covered at a crossing angle, so its double
+        // coverage comes from a SECOND set of headland laps offset by half a
+        // row-unit spacing — the second set's seed rows fall midway between the
+        // first set's. Driven last, tagged channel 1.
+        if (rowSpacing > 0.001 && headlandPasses > 0)
+            plan = AppendSecondHeadland(plan, outerBoundary, swathWidth, headlandPasses,
+                rowSpacing / 2.0, turnRadius, cornerRadius);
+        return plan;
+    }
+
+    /// <summary>
+    /// Cross-drill driven as the operator's WOVEN pattern: family A and family B
+    /// legs alternate — work one A leg, V-turn in the side headland onto a B leg,
+    /// back across, V onto the next A leg — a W marching down the paddock, then a
+    /// parallel return W, until both families are complete. Every family switch is
+    /// a gentle turn of the crossing angle (~90°) instead of a 180° keyhole, and
+    /// the V has no adjacent-pass 2r≤w constraint at all. Legs pair a couple of
+    /// grid slots ahead (the turn needs 2r·sin(X/2) of along-fence advance) —
+    /// later Ws collect the skipped rows. Obstacle fields fall back to the
+    /// sequential cross-drill (the weave's dual-family reroute isn't built).
+    /// </summary>
+    public RoutePlan? GenerateCrossDrillWoven(
+        IReadOnlyList<Vec2> outerBoundary,
+        double swathWidth,
+        double turnRadius,
+        double headlandMargin,
+        double headingRad,
+        double crossAngleRad,
+        int headlandPasses = 0,
+        Vec3? startPos = null,
+        double boundaryClearance = 0,
+        double cornerRadius = 0,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
+        double passEndExtension = 0,
+        double rowSpacing = 0)
+    {
+        if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0)
+            return null;
+
+        // Obstacles interrupt both families at once and couple their reroutes —
+        // out of the weave's scope; the sequential planner handles them per family.
+        if (innerBoundaries is { Count: > 0 })
+            return GenerateCrossDrill(outerBoundary, swathWidth, turnRadius, headlandMargin,
+                headingRad, crossAngleRad, SwathPattern.Boustrophedon, headlandPasses, startPos,
+                0, false, false, boundaryClearance, 0, 0, cornerRadius, innerBoundaries, rowSpacing);
+
+        var boundary = new List<Vec2>(outerBoundary);
+        var cultivated = boundary;
+        if (headlandMargin > 0)
+        {
+            var inset = _offset.CreateInwardOffset(boundary, headlandMargin);
+            if (inset is { Count: >= 3 }) cultivated = inset;
+        }
+
+        // Straighten-up allowance rides in the leg extension (the tool must be
+        // running true behind the tractor before work begins), clamped so the
+        // extended ends stay inside the headland band.
+        double ext = Math.Max(0, passEndExtension);
+        if (headlandMargin > 0) ext = Math.Min(ext, headlandMargin);
+
+        double thetaA = headingRad;
+        double thetaB = headingRad + crossAngleRad;
+        var famA = BuildFamilyPasses(cultivated, thetaA, swathWidth, ext);
+        var famB = BuildFamilyPasses(cultivated, thetaB, swathWidth, ext);
+        if (famA.Count == 0 || famB.Count == 0) return null;
+
+        var legs = WeaveSequence(famA, famB, startPos, turnRadius, crossAngleRad);
+        if (legs.Count == 0) return null;
+
+        var plan = Assemble(legs, boundary, swathWidth, headlandPasses, startPos, false,
+            turnRadius, boundaryClearance, cornerRadius, null, preOriented: true);
+        if (plan == null) return null;
+
+        plan = TagCrossChannels(plan, thetaB);
+        if (rowSpacing > 0.001 && headlandPasses > 0)
+            plan = AppendSecondHeadland(plan, boundary, swathWidth, headlandPasses,
+                rowSpacing / 2.0, turnRadius, cornerRadius);
+        return plan;
+    }
+
+    /// <summary>One family's parallel passes clipped to the cultivated polygon,
+    /// spatial order, both ends extended by <paramref name="ext"/> into the band.</summary>
+    private List<(Vec3 A, Vec3 B)> BuildFamilyPasses(
+        IReadOnlyList<Vec2> cultivated, double theta, double swathWidth, double ext)
+    {
+        double dE = Math.Sin(theta), dN = Math.Cos(theta);
+        double pE = Math.Cos(theta), pN = -Math.Sin(theta);
+        var o = Centroid(cultivated);
+        double pmin = double.MaxValue, pmax = double.MinValue;
+        foreach (var v in cultivated)
+        {
+            double proj = (v.Easting - o.Easting) * pE + (v.Northing - o.Northing) * pN;
+            if (proj < pmin) pmin = proj;
+            if (proj > pmax) pmax = proj;
+        }
+        var result = new List<(Vec3, Vec3)>();
+        if (pmax - pmin <= 0) return result;
+        for (double s = pmin + swathWidth / 2.0; s <= pmax; s += swathWidth)
+        {
+            var lp = new Vec2(o.Easting + s * pE, o.Northing + s * pN);
+            foreach (var seg in ClipSegments(lp, dE, dN, cultivated, null))
+            {
+                double h = Math.Atan2(seg.Exit.Easting - seg.Entry.Easting,
+                                       seg.Exit.Northing - seg.Entry.Northing);
+                result.Add((
+                    new Vec3(seg.Entry.Easting - dE * ext, seg.Entry.Northing - dN * ext, h),
+                    new Vec3(seg.Exit.Easting + dE * ext, seg.Exit.Northing + dN * ext, h)));
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The weave drive order: strictly alternate pass family, choosing the nearest
+    /// unused leg of the OTHER family whose near end is at least a V-turn's chord
+    /// away (2r·sin(X/2) — nearer would demand a tighter-than-minimum arc, so the
+    /// pairing skips a slot or two and later Ws collect the skipped rows). Falls
+    /// back to plain nearest (then to the same family) when the constraint can't
+    /// be met — the endgame stragglers; Dubins connectors absorb those.
+    /// </summary>
+    private static List<List<Vec3>> WeaveSequence(
+        List<(Vec3 A, Vec3 B)> famA, List<(Vec3 A, Vec3 B)> famB,
+        Vec3? startPos, double turnRadius, double crossAngleRad)
+    {
+        int nA = famA.Count, n = nA + famB.Count;
+        var used = new bool[n];
+        (Vec3 A, Vec3 B) Pass(int i) => i < nA ? famA[i] : famB[i - nA];
+        int FamOf(int i) => i < nA ? 0 : 1;
+
+        double minChord = 2.0 * Math.Max(0.5, turnRadius)
+            * Math.Sin(Math.Min(Math.PI, Math.Abs(crossAngleRad)) / 2.0);
+
+        var order = new List<List<Vec3>>(n);
+        var pos = startPos.HasValue
+            ? new Vec2(startPos.Value.Easting, startPos.Value.Northing)
+            : new Vec2(famA[0].A.Easting, famA[0].A.Northing);
+        int lastFam = 1;   // so the first pick prefers family A
+        bool firstLeg = true;
+
+        for (int step = 0; step < n; step++)
+        {
+            int best = -1, bestEnd = 0;
+            double bestD = double.MaxValue;
+
+            void Consider(int i, bool requireChord)
+            {
+                var p = Pass(i);
+                for (int e = 0; e < 2; e++)
+                {
+                    var q = e == 0 ? p.A : p.B;
+                    double dx = q.Easting - pos.Easting, dy = q.Northing - pos.Northing;
+                    double d = Math.Sqrt(dx * dx + dy * dy);
+                    if (requireChord && d < minChord) continue;
+                    if (d < bestD) { bestD = d; best = i; bestEnd = e; }
+                }
+            }
+
+            // 1: other family, V-chord respected (skip only after the first leg —
+            //    the approach to the very first leg has no turn constraint).
+            for (int i = 0; i < n; i++)
+                if (!used[i] && FamOf(i) != lastFam) Consider(i, !firstLeg);
+            // 2: other family, nearest regardless.
+            if (best < 0)
+                for (int i = 0; i < n; i++)
+                    if (!used[i] && FamOf(i) != lastFam) Consider(i, false);
+            // 3: stragglers of the same family.
+            if (best < 0)
+                for (int i = 0; i < n; i++)
+                    if (!used[i]) Consider(i, false);
+            if (best < 0) break;
+
+            used[best] = true;
+            var pk = Pass(best);
+            var from = bestEnd == 0 ? pk.A : pk.B;
+            var to = bestEnd == 0 ? pk.B : pk.A;
+            order.Add(new List<Vec3> { from, to });
+            pos = new Vec2(to.Easting, to.Northing);
+            lastFam = FamOf(best);
+            firstLeg = false;
+        }
+        return order;
+    }
+
+    /// <summary>Tag the woven plan's working legs with their coverage channel by
+    /// heading: legs aligned (mod 180°) with the crossing family are channel 1.</summary>
+    private static RoutePlan TagCrossChannels(RoutePlan plan, double familyBHeading)
+    {
+        double hb = Fold180(familyBHeading);
+        var segs = new List<RouteSegment>(plan.Segments.Count);
+        foreach (var s in plan.Segments)
+        {
+            if (s.Type == RouteSegmentType.Swath && s.Points.Count >= 2)
+            {
+                double h = Fold180(Math.Atan2(
+                    s.Points[1].Easting - s.Points[0].Easting,
+                    s.Points[1].Northing - s.Points[0].Northing));
+                double d = Math.Abs(h - hb);
+                if (d > Math.PI / 2) d = Math.PI - d;
+                segs.Add(d < Math.PI / 4 ? new RouteSegment(s.Type, s.Points, 1) : s);
+            }
+            else segs.Add(s);
+        }
+        return new RoutePlan(segs, plan.Metadata) { MissedRegions = plan.MissedRegions };
+    }
+
+    private static double Fold180(double h)
+    {
+        h %= Math.PI;
+        return h < 0 ? h + Math.PI : h;
+    }
+
+    /// <summary>
+    /// The cross-drill second headland set: the same laps offset inward by
+    /// <paramref name="bias"/> (half a row-unit spacing, so the second set's seed
+    /// rows fall midway between the first set's), appended at the route's end,
+    /// tagged coverage channel 1, linked with a Dubins connector.
+    /// </summary>
+    private RoutePlan AppendSecondHeadland(
+        RoutePlan plan, IReadOnlyList<Vec2> boundary, double width, int passes,
+        double bias, double turnRadius, double cornerRadius)
+    {
+        double cr = cornerRadius > 0.01 ? cornerRadius : turnRadius;
+        Vec3? from = null;
+        for (int i = plan.Segments.Count - 1; i >= 0 && from == null; i--)
+            if (plan.Segments[i].Points.Count > 0) from = plan.Segments[i].Points[^1];
+
+        var rings = BuildHeadlandRings(boundary, width, passes, from, cr, insetBias: bias);
+        if (rings.Count == 0) return plan;
+
+        var boundaryList = boundary as List<Vec2> ?? new List<Vec2>(boundary);
+        var segs = new List<RouteSegment>(plan.Segments);
+        foreach (var ring in rings)
+        {
+            if (from.HasValue)
+            {
+                var link = BuildTurn(from.Value, ring[0], turnRadius, boundaryList, null);
+                if (link.Count < 2) link = new List<Vec3> { from.Value, ring[0] };
+                segs.Add(new RouteSegment(RouteSegmentType.Turn, link, 1));
+            }
+            segs.Add(new RouteSegment(RouteSegmentType.Headland, ring, 1));
+            from = ring[^1];
+        }
+        return new RoutePlan(segs, BuildMeta(segs, width)) { MissedRegions = plan.MissedRegions };
     }
 
     /// <summary>
@@ -1062,7 +1306,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double turnRadius = 0,
         double boundaryClearance = 0,
         double cornerRadius = 0,
-        List<List<Vec2>>? holes = null)
+        List<List<Vec2>>? holes = null,
+        bool preOriented = false)
     {
         if (ordered.Count == 0) return null;
 
@@ -1110,8 +1355,10 @@ public sealed class RoutePlanningService : IRoutePlanningService
         {
             var poly = new List<Vec3>(ordered[k]);
             // Serpentine drive direction; flipStartSide begins the first pass at
-            // the opposite end (route start on the other side).
-            if (((k + (flipStartSide ? 1 : 0)) % 2) == 1) poly.Reverse();
+            // the opposite end (route start on the other side). A pre-oriented
+            // sequence (the cross-drill weave) already encodes drive direction
+            // in the point order, so no alternation is applied.
+            if (!preOriented && ((k + (flipStartSide ? 1 : 0)) % 2) == 1) poly.Reverse();
             if (poly.Count < 2) continue;
 
             // Reversing a pass leaves each point's stored heading pointing the
@@ -1320,13 +1567,14 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// drive-to-start lands at a natural entry point.
     /// </summary>
     private List<List<Vec3>> BuildHeadlandRings(
-        IReadOnlyList<Vec2> boundary, double width, int passes, Vec3? startPos, double turnRadius = 0)
+        IReadOnlyList<Vec2> boundary, double width, int passes, Vec3? startPos, double turnRadius = 0,
+        double insetBias = 0)
     {
         var rings = new List<List<Vec3>>();
         var poly = boundary as List<Vec2> ?? new List<Vec2>(boundary);
         for (int i = 0; i < passes; i++)
         {
-            var ring = _offset.CreateInwardOffset(poly, (i + 0.5) * width);
+            var ring = _offset.CreateInwardOffset(poly, (i + 0.5) * width + insetBias);
             if (ring is not { Count: >= 3 }) continue;
 
             var pts = new List<Vec2>(ring);

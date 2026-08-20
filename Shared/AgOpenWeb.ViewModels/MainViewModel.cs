@@ -651,6 +651,10 @@ public partial class MainViewModel : ObservableObject
             _toolPositionService.Update(
                 new Vec3(p.Position.Easting, p.Position.Northing, p.Heading),
                 p.Heading);
+            // Cross-drill double-coverage: pick the coverage channel BEFORE the
+            // section state machine samples the map, so family B neither reads
+            // nor trips family A's paint.
+            _coverageMapService.ActiveChannel = ResolveCoverageChannel(_toolPositionService.ToolHeading);
             _sectionControlService.Update(
                 _toolPositionService.ToolPosition,
                 _toolPositionService.ToolHeading,

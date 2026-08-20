@@ -131,7 +131,7 @@ public static partial class RemoteServerWiring
                                         vm.TryOpenFieldAtTap(te, tn);
                                     return;
                                 }
-                                case "route.plan": // "pattern,headlandPasses,skip,block,angleDeg[,cornerFill][,hlStyle][,hlFirst][,backCut]"
+                                case "route.plan": // "pattern,headlandPasses,skip,block,angleDeg[,cornerFill][,hlStyle][,hlFirst][,backCut][,rowSpacingCm][,weave]"
                                 {
                                     var rp = arg.Split(',');
                                     var iNum = System.Globalization.NumberStyles.Integer;
@@ -143,10 +143,13 @@ public static partial class RemoteServerWiring
                                         && double.TryParse(rp[4], num, inv, out var rang))
                                     {
                                         int rsty = rp.Length >= 7 && int.TryParse(rp[6], iNum, inv, out var s6) ? s6 : 0;
+                                        double rrow = rp.Length >= 10 && double.TryParse(rp[9], num, inv, out var s9) ? s9 / 100.0 : 0;
                                         vm.PlanRoute(rpat, rhl, rskip, rblk, rang, rp.Length >= 6 && rp[5] == "1",
                                             headlandStyle: rsty,
                                             headlandFirst: rp.Length < 8 || rp[7] != "0",
-                                            headlandBackCut: rp.Length >= 9 && rp[8] == "1");
+                                            headlandBackCut: rp.Length >= 9 && rp[8] == "1",
+                                            rowSpacingM: rrow,
+                                            crossWeave: rp.Length >= 11 && rp[10] == "1");
                                     }
                                     return;
                                 }

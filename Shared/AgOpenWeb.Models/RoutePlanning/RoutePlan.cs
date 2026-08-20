@@ -44,14 +44,24 @@ public enum RouteHeadlandStyle
 /// </summary>
 public sealed class RouteSegment
 {
-    public RouteSegment(RouteSegmentType type, IReadOnlyList<Vec3> points)
+    public RouteSegment(RouteSegmentType type, IReadOnlyList<Vec3> points, int channel = 0)
     {
         Type = type;
         Points = points;
+        Channel = channel;
     }
 
     public RouteSegmentType Type { get; }
     public IReadOnlyList<Vec3> Points { get; }
+
+    /// <summary>
+    /// Coverage channel this segment works (cross-drilling): 0 = first pass
+    /// family, 1 = the deliberate second coverage (crossing family / offset
+    /// second headland set). Drives ICoverageMapService.ActiveChannel while
+    /// the segment is worked, so the two families' paint and "already
+    /// covered" checks stay independent.
+    /// </summary>
+    public int Channel { get; }
 }
 
 /// <summary>Summary stats for a route, for display and quick comparison.</summary>

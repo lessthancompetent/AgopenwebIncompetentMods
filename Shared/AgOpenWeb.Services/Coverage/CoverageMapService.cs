@@ -81,6 +81,35 @@ public class CoverageMapService : ICoverageMapService
     // 582ha @ 0.1m = 582M cells / 8 = 72MB (much better than HashSet at high coverage)
     private byte[]? _detectionBits;
 
+    // Second detection channel for deliberate double-coverage jobs (cross-drilling:
+    // pass family A marks/checks channel 0, family B channel 1 — a B leg crossing A's
+    // paint must NOT read as covered, or the sections cut at every crossing). Lazily
+    // allocated on first channel-1 mark, so ordinary jobs pay nothing.
+    private byte[]? _detectionBits1;
+
+    /// <summary>Coverage channel that marking AND the section-control coverage
+    /// queries operate on. 0 (default) = normal single-coverage behaviour; 1 =
+    /// the second pass family of a cross-drill job. Display rendering shows the
+    /// union (channel 1 painted a darker shade).</summary>
+    public int ActiveChannel { get; set; }
+
+    // Zone values in the new-cell streams carry the channel in a high bit so the
+    // display drains can shade second-channel cells without widening the tuples.
+    private const int CH1_ZONE_FLAG = 1 << 16;
+
+    private byte[]? BitsFor(int channel) => channel == 1 ? _detectionBits1 : _detectionBits;
+
+    /// <summary>The active channel's bit array, allocating channel 1 lazily at
+    /// channel 0's size. Caller must hold _coverageLock (same as all bit access).</summary>
+    private byte[]? EnsureActiveBits()
+    {
+        if (ActiveChannel != 1) return _detectionBits;
+        if (_detectionBits == null) return null;
+        if (_detectionBits1 == null || _detectionBits1.LongLength != _detectionBits.LongLength)
+            _detectionBits1 = new byte[_detectionBits.LongLength];
+        return _detectionBits1;
+    }
+
     // Track newly added cells since last GetNewCoverageBitmapCells call
     // Still use HashSet for new cells (small, cleared frequently)
     private readonly HashSet<(int CellE, int CellN, int Zone)> _newCells = new();
@@ -674,8 +703,10 @@ public class CoverageMapService : ICoverageMapService
     /// </summary>
     private bool MarkCellCovered(int cellE, int cellN, int zone)
     {
-        if (_detectionBits == null || !_fieldBoundsSet)
+        var bits = EnsureActiveBits();
+        if (bits == null || !_fieldBoundsSet)
             return false;
+        if (ActiveChannel == 1) zone |= CH1_ZONE_FLAG;
 
         // Convert to local coordinates
         int localE = cellE - _bitmapOriginE;
@@ -692,7 +723,7 @@ public class CoverageMapService : ICoverageMapService
         byte mask = (byte)(1 << bitOffset);
 
         // Check if already covered using bit array (O(1), no bitmap lock)
-        bool wasAlreadyCovered = (_detectionBits[byteIndex] & mask) != 0;
+        bool wasAlreadyCovered = (bits[byteIndex] & mask) != 0;
 
         // Always paint the display pixel — even if the detection bit was set
         // by an earlier section pass, we want the most recent section color to
@@ -703,7 +734,7 @@ public class CoverageMapService : ICoverageMapService
             return false;
 
         // Mark as covered in detection array
-        _detectionBits[byteIndex] |= mask;
+        bits[byteIndex] |= mask;
 
         // Track for batched write by map control (via GetNewCoverageBitmapCells)
         _newCells.Add((cellE, cellN, zone));
@@ -766,22 +797,46 @@ public class CoverageMapService : ICoverageMapService
         _dirtyValid = _displayWidth > 0 && _displayHeight > 0;
     }
 
-    /// <summary>Compute RGB565 for a zone using the same policy as GetZoneColor (RGB888 → 565).</summary>
+    /// <summary>Compute RGB565 for a zone using the same policy as GetZoneColor (RGB888 → 565).
+    /// A CH1_ZONE_FLAG zone (cross-drill second pass) paints a darker shade of the same
+    /// colour, so double-covered ground is visibly distinct from single-covered.</summary>
     private ushort GetZoneColorRgb565(int zoneIndex)
     {
         var tool = _configStore.Tool;
+        bool ch1 = (zoneIndex & CH1_ZONE_FLAG) != 0;
+        int zone = zoneIndex & ~CH1_ZONE_FLAG;
         uint rgb888 = tool.IsMultiColoredSections
-            ? tool.GetSectionColor(zoneIndex)
+            ? tool.GetSectionColor(zone)
             : tool.SingleCoverageColor;
+        if (ch1) rgb888 = DarkenRgb888(rgb888);
         return Rgb888ToRgb565(rgb888);
     }
 
-    /// <summary>
-    /// Check if a cell is covered.
-    /// </summary>
-    private bool IsCellCovered(int cellE, int cellN)
+    /// <summary>60% brightness of an RGB888 colour — the second-coverage shade.</summary>
+    private static uint DarkenRgb888(uint rgb888)
     {
-        if (_detectionBits == null || !_fieldBoundsSet)
+        uint r = ((rgb888 >> 16) & 0xFF) * 6 / 10;
+        uint g = ((rgb888 >> 8) & 0xFF) * 6 / 10;
+        uint b = (rgb888 & 0xFF) * 6 / 10;
+        return (r << 16) | (g << 8) | b;
+    }
+
+    /// <summary>
+    /// Check if a cell is covered IN THE ACTIVE CHANNEL — the semantic the
+    /// section-control queries need: on a cross-drill second pass (channel 1),
+    /// the first family's paint must not read as covered.
+    /// </summary>
+    private bool IsCellCovered(int cellE, int cellN) =>
+        IsCellCoveredIn(BitsFor(ActiveChannel), cellE, cellN);
+
+    /// <summary>Cell covered in EITHER channel — display/feather semantics.</summary>
+    private bool IsCellCoveredAny(int cellE, int cellN) =>
+        IsCellCoveredIn(_detectionBits, cellE, cellN)
+        || (_detectionBits1 != null && IsCellCoveredIn(_detectionBits1, cellE, cellN));
+
+    private bool IsCellCoveredIn(byte[]? bits, int cellE, int cellN)
+    {
+        if (bits == null || !_fieldBoundsSet)
             return false;
 
         // Convert to local coordinates
@@ -798,7 +853,7 @@ public class CoverageMapService : ICoverageMapService
         int bitOffset = (int)(bitIndex % 8);
         byte mask = (byte)(1 << bitOffset);
 
-        return (_detectionBits[byteIndex] & mask) != 0;
+        return (bits[byteIndex] & mask) != 0;
     }
 
     /// <summary>
@@ -819,7 +874,7 @@ public class CoverageMapService : ICoverageMapService
         int covered = 0, total = span * span;
         for (int j = 0; j < span; j++)
             for (int i = 0; i < span; i++)
-                if (IsCellCovered(ce0 + i, cn0 + j)) covered++;
+                if (IsCellCoveredAny(ce0 + i, cn0 + j)) covered++;
         // Near-full cells snap to opaque: the rasterizer center-samples, so interior cells
         // occasionally miss a stray detection cell at quad seams. A literal fraction would
         // let the (often dark) map fleck through those — the old binary "any → opaque" rule
@@ -1158,6 +1213,8 @@ public class CoverageMapService : ICoverageMapService
         _newCellsServer.Clear();
         if (_detectionBits != null)
             Array.Clear(_detectionBits, 0, _detectionBits.Length);
+        _detectionBits1 = null;   // second channel only exists while a cross-drill job runs
+        ActiveChannel = 0;
         _cellCountPerZone.Clear();
 
         // Reset bounds
@@ -1244,6 +1301,15 @@ public class CoverageMapService : ICoverageMapService
             Array.Clear(_detectionBits, 0, _detectionBits.Length);
         else
             _detectionBits = new byte[totalBytes];
+        // Second channel: keep only when the size still matches (expansion copies
+        // it back afterwards); otherwise drop — it re-allocates lazily on demand.
+        if (_detectionBits1 != null)
+        {
+            if (_detectionBits1.LongLength == totalBytes)
+                Array.Clear(_detectionBits1, 0, _detectionBits1.Length);
+            else
+                _detectionBits1 = null;
+        }
         // New field → drop stale ribbons. Expansion keeps them: edges are absolute-coordinate
         // and CheckAndExpandBounds copies the detection bits across, so the perimeter stays valid.
         if (!_inExpansion) ClearEdges();
@@ -1338,20 +1404,32 @@ public class CoverageMapService : ICoverageMapService
             // Repaint from detection bits (0.1 m, resolution-independent). The 1-bit detection
             // layer carries no per-cell zone, so paint zone 0 — the remote coverage projection
             // is single-colour too (GetCoverageBitmapCells yields the default zone colour).
-            if (_detectionBits != null)
+            // Channel 1 (cross-drill second pass) repaints after, in its darker shade.
+            RepaintChannel(_detectionBits, 0);
+            RepaintChannel(_detectionBits1, CH1_ZONE_FLAG);
+        }
+    }
+
+    /// <summary>Paint every set cell of one detection channel into the display
+    /// buffer with the given zone (carrying the channel flag). Caller holds lock.</summary>
+    private void RepaintChannel(byte[]? bits, int zoneFlag)
+    {
+        if (bits == null) return;
+        for (int byteIdx = 0; byteIdx < bits.Length; byteIdx++)
+        {
+            byte b = bits[byteIdx];
+            if (b == 0) continue; // 8 uncovered cells at once
+            long baseBitIdx = (long)byteIdx * 8;
+            for (int bit = 0; bit < 8; bit++)
             {
-                for (int byteIdx = 0; byteIdx < _detectionBits.Length; byteIdx++)
-                {
-                    byte bits = _detectionBits[byteIdx];
-                    if (bits == 0) continue; // 8 uncovered cells at once
-                    long baseBitIdx = (long)byteIdx * 8;
-                    for (int bit = 0; bit < 8; bit++)
-                    {
-                        if ((bits & (1 << bit)) == 0) continue;
-                        long bitIdx = baseBitIdx + bit;
-                        PaintDisplayPixel((int)(bitIdx % _bitmapWidth), (int)(bitIdx / _bitmapWidth), 0);
-                    }
-                }
+                if ((b & (1 << bit)) == 0) continue;
+                long bitIdx = baseBitIdx + bit;
+                // Detection bits are stored in LOCAL coords; PaintDisplayPixel takes
+                // WORLD cell coords, so add the bitmap origin back on.
+                PaintDisplayPixel(
+                    (int)(bitIdx % _bitmapWidth) + _bitmapOriginE,
+                    (int)(bitIdx / _bitmapWidth) + _bitmapOriginN,
+                    zoneFlag);
             }
         }
     }
@@ -1385,6 +1463,7 @@ public class CoverageMapService : ICoverageMapService
         // _displayCellSize). Detection origin is in 0.1m cells; display origin
         // derives from world bounds since the policy could change cell size.
         var oldBits = _detectionBits;
+        var oldBits1 = _detectionBits1;
         int oldWidth = _bitmapWidth;
         int oldHeight = _bitmapHeight;
         int oldOriginE = _bitmapOriginE;
@@ -1402,26 +1481,33 @@ public class CoverageMapService : ICoverageMapService
         try { SetFieldBounds(newMinE, newMaxE, newMinN, newMaxN); }
         finally { _inExpansion = false; }
 
-        // Copy old detection bits to new array
+        // Copy old detection bits to new array (both channels — the second one is
+        // dropped by SetFieldBounds when the size changed, so re-create it here).
         if (oldBits != null && _detectionBits != null)
         {
             int offsetE = oldOriginE - _bitmapOriginE;
             int offsetN = oldOriginN - _bitmapOriginN;
+            if (oldBits1 != null && (_detectionBits1 == null || _detectionBits1.LongLength != _detectionBits.LongLength))
+                _detectionBits1 = new byte[_detectionBits.LongLength];
 
             for (int y = 0; y < oldHeight; y++)
             {
                 for (int x = 0; x < oldWidth; x++)
                 {
                     long oldIdx = (long)y * oldWidth + x;
-                    if ((oldBits[oldIdx / 8] & (1 << (int)(oldIdx % 8))) != 0)
+                    byte oldMask = (byte)(1 << (int)(oldIdx % 8));
+                    bool set0 = (oldBits[oldIdx / 8] & oldMask) != 0;
+                    bool set1 = oldBits1 != null && (oldBits1[oldIdx / 8] & oldMask) != 0;
+                    if (!set0 && !set1) continue;
+
+                    int newX = x + offsetE;
+                    int newY = y + offsetN;
+                    if (newX >= 0 && newX < _bitmapWidth && newY >= 0 && newY < _bitmapHeight)
                     {
-                        int newX = x + offsetE;
-                        int newY = y + offsetN;
-                        if (newX >= 0 && newX < _bitmapWidth && newY >= 0 && newY < _bitmapHeight)
-                        {
-                            long newIdx = (long)newY * _bitmapWidth + newX;
-                            _detectionBits[newIdx / 8] |= (byte)(1 << (int)(newIdx % 8));
-                        }
+                        long newIdx = (long)newY * _bitmapWidth + newX;
+                        byte newMask = (byte)(1 << (int)(newIdx % 8));
+                        if (set0) _detectionBits[newIdx / 8] |= newMask;
+                        if (set1) _detectionBits1![newIdx / 8] |= newMask;
                     }
                 }
             }
@@ -1511,6 +1597,11 @@ public class CoverageMapService : ICoverageMapService
     {
         // Load detection bits (authoritative coverage data at 0.1m resolution)
         bool hasDetectionBits = LoadDetectionBits(fieldDirectory);
+
+        // Second channel (cross-drill family B), if the job saved one.
+        _detectionBits1 = null;
+        if (hasDetectionBits)
+            LoadDetectionBits1(fieldDirectory);
 
         // Load section display (colors with palette, resolution-independent)
         bool hasSectionDisplay = LoadSectionDisplay(fieldDirectory);
@@ -1683,8 +1774,20 @@ public class CoverageMapService : ICoverageMapService
         if (!_fieldBoundsSet || _detectionBits == null)
             return;
 
-        var filename = Path.Combine(fieldDirectory, "coverage_detect.bin");
+        WriteCovdFile(Path.Combine(fieldDirectory, "coverage_detect.bin"), _detectionBits);
 
+        // Second channel (cross-drill family B) — sibling file, same format. Only
+        // written while it exists; deleted otherwise so a finished/cleared job
+        // doesn't resurrect a stale second layer on reload.
+        var ch1Path = Path.Combine(fieldDirectory, "coverage_detect2.bin");
+        if (_detectionBits1 != null)
+            WriteCovdFile(ch1Path, _detectionBits1);
+        else if (File.Exists(ch1Path))
+            try { File.Delete(ch1Path); } catch { /* stale file cleanup only */ }
+    }
+
+    private void WriteCovdFile(string filename, byte[] bits)
+    {
         using var stream = new FileStream(filename, FileMode.Create);
         using var writer = new BinaryWriter(stream);
 
@@ -1703,14 +1806,14 @@ public class CoverageMapService : ICoverageMapService
         // value is 0x00 (8 zero bits) or 0xFF (8 one bits) or actual mixed byte
         long compressedSize = 0;
         int i = 0;
-        while (i < _detectionBits.Length)
+        while (i < bits.Length)
         {
-            byte value = _detectionBits[i];
+            byte value = bits[i];
             int runLength = 1;
 
             // Only RLE consecutive identical bytes
-            while (i + runLength < _detectionBits.Length &&
-                   _detectionBits[i + runLength] == value &&
+            while (i + runLength < bits.Length &&
+                   bits[i + runLength] == value &&
                    runLength < 65535)
             {
                 runLength++;
@@ -1722,7 +1825,7 @@ public class CoverageMapService : ICoverageMapService
             i += runLength;
         }
 
-        Console.WriteLine($"[Coverage] Saved detection bits: {_detectionBits.Length / 1024}KB -> {compressedSize / 1024}KB compressed to {filename}");
+        Console.WriteLine($"[Coverage] Saved detection bits: {bits.Length / 1024}KB -> {compressedSize / 1024}KB compressed to {filename}");
     }
 
     /// <summary>
@@ -1815,6 +1918,53 @@ public class CoverageMapService : ICoverageMapService
         {
             Console.WriteLine($"[Coverage] Failed to load detection bits: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Load the second-channel detection bits (coverage_detect2.bin) into
+    /// _detectionBits1. Purely additive: never touches totals, bounds, or
+    /// dimensions — the channel-0 load owns those. Dimension mismatch → skip.
+    /// </summary>
+    private void LoadDetectionBits1(string fieldDirectory)
+    {
+        var path = Path.Combine(fieldDirectory, "coverage_detect2.bin");
+        if (!File.Exists(path)) return;
+
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open);
+            using var reader = new BinaryReader(stream);
+
+            var magic = new string(reader.ReadChars(4));
+            if (magic != "COVD") return;
+            reader.ReadByte();                    // version
+            float resolution = reader.ReadSingle();
+            reader.ReadDouble();                  // origin E
+            reader.ReadDouble();                  // origin N
+            uint width = reader.ReadUInt32();
+            uint height = reader.ReadUInt32();
+            reader.ReadDouble();                  // area (channel 0 owns totals)
+
+            if (Math.Abs(resolution - BITMAP_CELL_SIZE) > 0.001) return;
+            if (width != _bitmapWidth || height != _bitmapHeight) return;
+
+            long totalCells = (long)width * height;
+            var bits = new byte[(totalCells + 7) / 8];
+            int destIndex = 0;
+            while (destIndex < bits.Length && stream.Position < stream.Length)
+            {
+                ushort runLength = reader.ReadUInt16();
+                byte value = reader.ReadByte();
+                for (int j = 0; j < runLength && destIndex < bits.Length; j++, destIndex++)
+                    bits[destIndex] = value;
+            }
+            _detectionBits1 = bits;
+            Console.WriteLine("[Coverage] Loaded second-channel detection bits");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Coverage] Failed to load second-channel bits: {ex.Message}");
         }
     }
 
@@ -2219,24 +2369,17 @@ public class CoverageMapService : ICoverageMapService
     private CoverageColor GetZoneColor(int zoneIndex)
     {
         var tool = _configStore.Tool;
+        bool ch1 = (zoneIndex & CH1_ZONE_FLAG) != 0;
+        int zone = zoneIndex & ~CH1_ZONE_FLAG;
 
-        if (!tool.IsMultiColoredSections)
-        {
-            // Use single coverage color
-            uint color = tool.SingleCoverageColor;
-            return new CoverageColor(
-                (byte)((color >> 16) & 0xFF),
-                (byte)((color >> 8) & 0xFF),
-                (byte)(color & 0xFF)
-            );
-        }
-
-        // Use per-section color from configuration
-        uint sectionColor = tool.GetSectionColor(zoneIndex);
+        uint color = tool.IsMultiColoredSections
+            ? tool.GetSectionColor(zone)
+            : tool.SingleCoverageColor;
+        if (ch1) color = DarkenRgb888(color);
         return new CoverageColor(
-            (byte)((sectionColor >> 16) & 0xFF),
-            (byte)((sectionColor >> 8) & 0xFF),
-            (byte)(sectionColor & 0xFF)
+            (byte)((color >> 16) & 0xFF),
+            (byte)((color >> 8) & 0xFF),
+            (byte)(color & 0xFF)
         );
     }
 }

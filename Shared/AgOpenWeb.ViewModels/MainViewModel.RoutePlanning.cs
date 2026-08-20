@@ -54,6 +54,17 @@ public partial class MainViewModel
     /// record/playback feature leaves the user in control of speed, so this is gated).</summary>
     private bool _haltSimAtRouteEnd;
 
+    /// <summary>Crossing-family heading (radians) of the active cross-drill plan —
+    /// the live coverage-channel resolver marks/checks channel 1 while the tool
+    /// runs along this family. Null = not a cross-drill job.</summary>
+    private double? _crossFamilyBHeadingRad;
+
+    /// <summary>Coverage channel per recorded point of the active route drive
+    /// (parallel to State.RecordedPath.RecordedPoints) — carries the plan's
+    /// segment channels through the sim replay, where heading can't tell the
+    /// offset second headland set from the first.</summary>
+    private int[]? _routeDriveChannels;
+
     // ---- Field splitting -----------------------------------------------------
     // Operator-drawn split lines (two map taps each) carve the field into simpler
     // regions the way it would be worked by hand — e.g. an L into a tall and a wide
@@ -349,7 +360,8 @@ public partial class MainViewModel
     /// </summary>
     public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg, bool cornerFill = false,
         double? headingOverrideRad = null, IReadOnlyList<Vec3>? refCurve = null,
-        int headlandStyle = 0, bool headlandFirst = true, bool headlandBackCut = false)
+        int headlandStyle = 0, bool headlandFirst = true, bool headlandBackCut = false,
+        double rowSpacingM = 0, bool crossWeave = false)
     {
         // Clear any prior plan up front so the web client, which polls
         // /api/routeplan for the result, can't pick up a stale plan while this
@@ -499,8 +511,16 @@ public partial class MainViewModel
                 : spiral
                     ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill, inners)
                     : cross
-                        ? RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
-                            SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip, cornerRadius, inners)
+                        ? (crossWeave
+                            // Woven cross-drill: the V-turn needs the drill running true
+                            // behind the tractor before work resumes, so the leg extension
+                            // carries a straighten-up run on top of the trailing offset.
+                            ? RoutePlanner.GenerateCrossDrillWoven(pts, width, turnRadius, headlandMargin,
+                                heading, crossAngleRad, passes, startPos, clearance, cornerRadius, inners,
+                                trailExt + Math.Max(2.0, 2.0 * trailExt), rowSpacingM)
+                            : RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
+                                SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip,
+                                cornerRadius, inners, rowSpacingM))
                         : RoutePlanner.GenerateBoustrophedon(pts, width, turnRadius, headlandMargin, heading,
                             SwathPattern.Boustrophedon, customHl == null ? passes : 0, startPos, 0, false, false,
                             clearance, skipPasses, blkSkip, cornerRadius, inners,
@@ -517,9 +537,20 @@ public partial class MainViewModel
                 else
                 {
                     var (laps, rest, lapsFirst) = SplitLapsAffix(plan);
+                    RoutePlan body = rest;
+                    RoutePlan? tail = null;
+                    if (laps != null && lapsFirst)
+                    {
+                        // A TRAILING lap set can also exist — the cross-drill's
+                        // offset second headland set, or the back-cut. Its own
+                        // layer ("Headland 2") keeps it separately steerable.
+                        var (laps2, rest2, lapsFirst2) = SplitLapsAffix(rest);
+                        if (laps2 != null && !lapsFirst2) { tail = laps2; body = rest2; }
+                    }
                     if (laps != null && lapsFirst) _routeLayers.Add(("Headland", laps));
-                    if (rest.Segments.Count > 0) _routeLayers.Add(("Main", rest));
+                    if (body.Segments.Count > 0) _routeLayers.Add(("Main", body));
                     if (laps != null && !lapsFirst) _routeLayers.Add(("Headland", laps));
+                    if (tail != null) _routeLayers.Add(("Headland 2", tail));
                 }
             }
         }
@@ -530,6 +561,11 @@ public partial class MainViewModel
             StatusMessage = "Route planning produced no plan for this field";
             return;
         }
+
+        // Cross-drill: remember the crossing family's heading so the live
+        // coverage-channel resolver can tell the two families apart while
+        // driving (channel 1 = aligned with family B).
+        _crossFamilyBHeadingRad = cross ? heading + crossAngleRad : (double?)null;
 
         // Auto-headland: demarcate the planned headland band as the native headland
         // line so the native headland toggle / section-in-headland control just works.
@@ -612,6 +648,7 @@ public partial class MainViewModel
         if (State.RecordedPath.IsDrivingRecordedPath) StopRouteDrive();
         _currentRoutePlan = null;
         _routeLayers.Clear();
+        _crossFamilyBHeadingRad = null;
         StatusMessage = "Route cleared";
     }
 
@@ -755,6 +792,31 @@ public partial class MainViewModel
         StatusMessage = $"Block {label}: {m.SwathCount} passes, {m.TurnCount} turns, ~{estMin:F0} min "
             + (manual ? $"@ {angleDeg:F0}° from field default" : "(auto heading)")
             + " — steer via track 'Route " + label + "'";
+    }
+
+    /// <summary>
+    /// The coverage channel the tool is working right now (cross-drill jobs).
+    /// Resolution order: (1) an active route drive uses the plan's own segment
+    /// channels (the only way to tell the offset second headland set from the
+    /// first); (2) steering the "Route Headland 2" track forces channel 1;
+    /// (3) otherwise heading classification — within 45° (mod 180°) of the
+    /// crossing family's heading = channel 1. Not a cross-drill job = 0.
+    /// </summary>
+    private int ResolveCoverageChannel(double toolHeadingRad)
+    {
+        if (State.RecordedPath.IsDrivingRecordedPath && _routeDriveChannels is { Length: > 0 } chans)
+        {
+            int idx = Math.Clamp(State.RecordedPath.CurrentPositionIndex, 0, chans.Length - 1);
+            return chans[idx];
+        }
+        if (_crossFamilyBHeadingRad is not { } famB) return 0;
+        if (SelectedTrack?.Name == "Route Headland 2") return 1;
+
+        double h = ((toolHeadingRad % Math.PI) + Math.PI) % Math.PI;
+        double b = ((famB % Math.PI) + Math.PI) % Math.PI;
+        double d = Math.Abs(h - b);
+        if (d > Math.PI / 2) d = Math.PI - d;
+        return d < Math.PI / 4 ? 1 : 0;
     }
 
     /// <summary>Area centroid of a polygon (falls back to vertex average when degenerate).</summary>
@@ -939,18 +1001,20 @@ public partial class MainViewModel
 
         const double driveSpeedKph = 8.0;
 
-        // Flatten the plan to (E, N, working) — sections ON over worked passes.
-        var raw = new List<(double e, double n, bool work)>();
+        // Flatten the plan to (E, N, working, channel) — sections ON over worked
+        // passes; the channel rides along so the replay can drive the coverage
+        // channel (cross-drill family B / offset second headland = 1).
+        var raw = new List<(double e, double n, bool work, int ch)>();
         foreach (var seg in plan.Segments)
         {
             bool working = seg.Type == RouteSegmentType.Swath || seg.Type == RouteSegmentType.Headland;
             if (seg.Points.Count >= 2 && ContainsReversal(seg.Points))
             {   // forward-only follower: straight join instead of the reverse shunt
-                raw.Add((seg.Points[0].Easting, seg.Points[0].Northing, working));
-                raw.Add((seg.Points[^1].Easting, seg.Points[^1].Northing, working));
+                raw.Add((seg.Points[0].Easting, seg.Points[0].Northing, working, seg.Channel));
+                raw.Add((seg.Points[^1].Easting, seg.Points[^1].Northing, working, seg.Channel));
                 continue;
             }
-            foreach (var p in seg.Points) raw.Add((p.Easting, p.Northing, working));
+            foreach (var p in seg.Points) raw.Add((p.Easting, p.Northing, working, seg.Channel));
         }
         if (raw.Count < 2) { StatusMessage = "Route too short to drive"; return; }
 
@@ -961,7 +1025,9 @@ public partial class MainViewModel
         // Dense points keep the nearest point sequential and the look-ahead ~2-3 m.
         const double step = 1.0;
         var pts = new List<RecPathPoint>(raw.Count * 8);
+        var chans = new List<int>(raw.Count * 8);
         pts.Add(new RecPathPoint(raw[0].e, raw[0].n, 0, driveSpeedKph, raw[0].work));
+        chans.Add(raw[0].ch);
         double carry = 0; // distance already travelled past the last emitted point
         for (int i = 1; i < raw.Count; i++)
         {
@@ -974,6 +1040,7 @@ public partial class MainViewModel
             {
                 double t = d / len;
                 pts.Add(new RecPathPoint(a.e + dE * t, a.n + dN * t, 0, driveSpeedKph, b.work));
+                chans.Add(b.ch);
             }
             carry = len - (d - step);                      // leftover into the next segment
         }
@@ -988,8 +1055,10 @@ public partial class MainViewModel
 
         State.RecordedPath.RecordedPoints = pts;
         State.RecordedPath.CurrentPositionIndex = 0;
+        _routeDriveChannels = chans.ToArray();
         if (!StartDrivingRecordedPath())
         {
+            _routeDriveChannels = null;
             StatusMessage = "Couldn't start driving the route";
             return;
         }
@@ -1002,6 +1071,7 @@ public partial class MainViewModel
     public void StopRouteDrive()
     {
         _haltSimAtRouteEnd = false;
+        _routeDriveChannels = null;
         StopDrivingRecordedPath();
         if (IsSimulatorEnabled) SimulatorSpeedKph = 0;
         StatusMessage = "Route drive stopped";
@@ -1046,7 +1116,9 @@ public partial class MainViewModel
                 if (seg.Points == null || seg.Points.Count == 0) continue;
                 if (!firstSeg) sb.Append(',');
                 firstSeg = false;
-                sb.Append("{\"type\":\"").Append(seg.Type).Append("\",\"pts\":[");
+                sb.Append("{\"type\":\"").Append(seg.Type).Append('"');
+                if (seg.Channel != 0) sb.Append(",\"ch\":").Append(seg.Channel.ToString(inv));
+                sb.Append(",\"pts\":[");
                 bool firstPt = true;
                 foreach (var p in seg.Points)
                 {

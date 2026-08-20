@@ -705,6 +705,10 @@ let rpPattern = 0, rpHeadland = 0, rpSkip = 0, rpBlock = 3, rpAngle = 0, rpCorne
 let rpHlStyle = +(localStorage.rpHlStyle || 0) || 0;   // 0 laps, 1 spiral in, 2 spiral out, 3 none
 let rpHlFirst = localStorage.rpHlOrder !== '0';        // true = laps before the interior fill
 let rpBackCut = localStorage.rpBackCut === '1';        // extra opposite-hand fence lap at the end
+// Cross-drill knobs: row-unit spacing (cm; second headland set offset half a row)
+// and the woven W drive order (V-turns instead of two sequential coverages).
+let rpRowSp = +(localStorage.rpRowSp || 0) || 0;
+let rpWeave = localStorage.rpWeave === '1';
 let rpObsW = 4, rpObsL = 4, rpObsType = 'HOLE';
 const RP_PAINT = { Swath: 'routeSwath', Turn: 'routeTurn', Headland: 'routeHeadland', Approach: 'routeApproach' };
 function drawRoutePlanSk(canvas) {
@@ -779,6 +783,10 @@ function rpRender() {
   show('rp-backcut-row', rpPattern !== 3);
   show('rp-skip-row', rpPattern === 1);        // Skip
   show('rp-block-row', rpPattern === 4);       // Block
+  show('rp-rowsp-row', rpPattern === 2);       // Cross: double headland offset
+  show('rp-weave-row', rpPattern === 2);       // Cross: woven drive order
+  document.getElementById('rp-rowsp').textContent = rpRowSp ? rpRowSp : 'Off';
+  document.getElementById('rp-weave').classList.toggle('on', rpWeave);
   show('rp-angle-row', rpPattern !== 3);       // every pattern but spiral
   show('rp-cornerfill-row', rpPattern === 3);  // Spiral
   document.getElementById('rp-obsw').textContent = rpObsW;
@@ -1150,7 +1158,7 @@ document.getElementById('ft-exportcov').addEventListener('pointerdown', e => {
 });
 function planRoute() {
   transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0,
-    rpHlStyle, rpHlFirst ? 1 : 0, rpBackCut ? 1 : 0].join(','));
+    rpHlStyle, rpHlFirst ? 1 : 0, rpBackCut ? 1 : 0, rpRowSp, rpWeave ? 1 : 0].join(','));
   document.getElementById('rp-stats').textContent = 'Planning…';
   // The command runs on the backend dispatcher and can take a while on big fields
   // (obstacle-aware Dubins turns). The backend clears the plan first, so poll
@@ -2074,6 +2082,11 @@ document.getElementById('rp-backcut').addEventListener('pointerdown', e => {
   rpBackCut = !rpBackCut; localStorage.rpBackCut = rpBackCut ? '1' : '0';
   rpRender();
 });
+document.getElementById('rp-weave').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  rpWeave = !rpWeave; localStorage.rpWeave = rpWeave ? '1' : '0';
+  rpRender();
+});
 for (const b of document.querySelectorAll('#routeplan .rp-sb, #obstacles .rp-sb'))
   b.addEventListener('pointerdown', e => {
     e.stopPropagation();
@@ -2082,6 +2095,7 @@ for (const b of document.querySelectorAll('#routeplan .rp-sb, #obstacles .rp-sb'
       case 'hl': rpHeadland = Math.max(0, Math.min(5, rpHeadland + d)); break;
       case 'skip': rpSkip = Math.max(0, Math.min(8, rpSkip + d)); break;
       case 'block': rpBlock = Math.max(1, Math.min(8, rpBlock + d)); break;
+      case 'rowsp': rpRowSp = Math.max(0, Math.min(50, Math.round((rpRowSp + d) * 10) / 10)); localStorage.rpRowSp = rpRowSp; break;
       case 'angle': rpAngle = ((rpAngle + d) % 360 + 360) % 360; break;
       case 'obsw': rpObsW = Math.max(1, Math.min(60, rpObsW + d)); break;
       case 'obsl': rpObsL = Math.max(1, Math.min(60, rpObsL + d)); break;

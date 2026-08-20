@@ -122,7 +122,31 @@ public interface IRoutePlanningService
         int skipPasses = 0,
         int blockSkip = 0,
         double cornerRadius = 0,
-        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null);
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
+        double rowSpacing = 0);
+
+    /// <summary>
+    /// Cross-drill driven as an interleaved weave: family A and B legs alternate
+    /// with V-turns (the crossing angle, ~90°) in the side headlands — a W
+    /// marching down the paddock with parallel return Ws — instead of two
+    /// complete sequential coverages. Second-family legs and the offset second
+    /// headland set are tagged coverage channel 1. Falls back to the sequential
+    /// planner when the field has obstacles.
+    /// </summary>
+    RoutePlan? GenerateCrossDrillWoven(
+        IReadOnlyList<Vec2> outerBoundary,
+        double swathWidth,
+        double turnRadius,
+        double headlandMargin,
+        double headingRad,
+        double crossAngleRad,
+        int headlandPasses = 0,
+        Vec3? startPos = null,
+        double boundaryClearance = 0,
+        double cornerRadius = 0,
+        IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
+        double passEndExtension = 0,
+        double rowSpacing = 0);
 
     /// <summary>
     /// A simple spiral-in route: concentric inward laps at <paramref name="swathWidth"/>

@@ -28,6 +28,16 @@ namespace AgOpenWeb.Services.Interfaces;
 public interface ICoverageMapService
 {
     /// <summary>
+    /// Coverage channel that marking AND the coverage queries operate on.
+    /// 0 (default) = normal single-coverage behaviour; 1 = the second pass
+    /// family of a deliberate double-coverage job (cross-drilling) — its
+    /// paint and its "already covered" checks are independent of channel 0,
+    /// so the crossing family neither reads nor trips the other's coverage.
+    /// Display rendering shows the union (channel 1 in a darker shade).
+    /// </summary>
+    int ActiveChannel { get; set; }
+
+    /// <summary>
     /// Total worked area in square meters
     /// </summary>
     double TotalWorkedArea { get; }
