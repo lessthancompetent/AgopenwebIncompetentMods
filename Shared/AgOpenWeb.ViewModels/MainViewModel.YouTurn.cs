@@ -213,11 +213,16 @@ public partial class MainViewModel
         }
 
         // Current displayed direction:
-        //   - When armed, the arrow binds to State.YouTurn.IsTurnLeft.
+        //   - When a turn is ARMED (path rendered — triggered or merely
+        //     pending), the arrow shows State.YouTurn.IsTurnLeft, so the
+        //     toggle must flip THAT. Reading the override here instead made
+        //     the first tap on an armed LEFT turn set override=LEFT — a
+        //     visible no-op, and the operator stayed stuck in the loop.
         //   - When idle, it binds to NextUTurnDirectionLeftOverride; null
         //     means "no preference" — treat as right (false) so the first
         //     tap produces a left toggle.
-        bool currentDisplayLeft = State.YouTurn.IsTriggered
+        bool turnArmed = State.YouTurn.IsTriggered || State.YouTurn.TurnPath is { Count: > 2 };
+        bool currentDisplayLeft = turnArmed
             ? State.YouTurn.IsTurnLeft
             : (NextUTurnDirectionLeftOverride ?? false);
 

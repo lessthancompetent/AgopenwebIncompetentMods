@@ -438,7 +438,19 @@ public partial class MainViewModel : ObservableObject
             // TickHz is on the concrete SectionControlService, not the
             // interface (it's an internal-tuning concern, not a contract).
             if (_sectionControlService is Services.Section.SectionControlService scsConcrete)
+            {
                 scsConcrete.TickHz = _controlLoop.FrequencyHz;
+                // Path-aware look-ahead: during an armed/executing U-turn the
+                // future path is exactly known — anticipate along it instead of
+                // projecting the (crabbed) tool heading.
+                scsConcrete.PlannedPathProvider = () =>
+                {
+                    var tp = State.YouTurn.TurnPath;
+                    return tp is { Count: >= 2 }
+                        ? (tp, State.YouTurn.PathIndex)
+                        : null;
+                };
+            }
             _controlLoop.Ticked += OnControlLoopTicked;
             _controlLoop.Start();
         }

@@ -65,6 +65,14 @@ public class SectionControlService : ISectionControlService
     /// </summary>
     public double TickHz { get; set; } = 10.0;
 
+    /// <summary>When a planned path is known ahead (an armed/executing U-turn),
+    /// look-ahead anticipation walks the PLAN instead of dead-reckoning from
+    /// tool heading — the trailing tool crabs through a turn, so heading
+    /// projection points the sample sideways and anticipation collapses to ~0
+    /// exactly when the valve-open lead matters most. Returns (path, progress
+    /// index) or null when no plan is active.</summary>
+    public Func<(IReadOnlyList<Vec3> Path, int Index)?>? PlannedPathProvider { get; set; }
+
     // Section ON/OFF phase ticks are derived from turnOnPhaseSec /
     // turnOffPhaseSec (which already include the SECTION_ON_DELAY_SECONDS /
     // 0.1 s minimum floors for debounce); see UpdateSection. Mapping
@@ -361,11 +369,12 @@ public class SectionControlService : ISectionControlService
         double coverageMargin = tool.CoverageMarginMeters > 0 ? tool.CoverageMarginMeters : 0;
         double halfWidthWithMargin = halfWidth + coverageMargin;
 
-        // Project forward for ON check - use curved projection to "look around the corner"
-        var onCheckPoint = ProjectForwardCurved(sectionCenter, toolHeading, lookAheadOnDist, speed);
+        double sectionLateral = (section.PositionLeft + section.PositionRight) / 2.0;
 
-        // Project forward for OFF check - use curved projection
-        var offCheckPoint = ProjectForwardCurved(sectionCenter, toolHeading, lookAheadOffDist, speed);
+        // Look-ahead samples: along the planned turn path when one is active
+        // (see LookAheadPoint), else curved projection from tool heading.
+        var onCheckPoint = LookAheadPoint(sectionCenter, toolHeading, lookAheadOnDist, speed, sectionLateral);
+        var offCheckPoint = LookAheadPoint(sectionCenter, toolHeading, lookAheadOffDist, speed, sectionLateral);
 
         // Check boundary conditions using segment-based detection
         // Use halfWidthWithMargin for current position to prevent coverage outside boundary
@@ -394,8 +403,8 @@ public class SectionControlService : ISectionControlService
         // overspray when all timings are 0.
         double headlandOnLookAhead = speed * turnOnPhaseSec;
         double headlandOffLookAhead = speed * turnOffPhaseSec;
-        var headlandOnCheckPoint = ProjectForwardCurved(sectionCenter, toolHeading, headlandOnLookAhead, speed);
-        var headlandOffCheckPoint = ProjectForwardCurved(sectionCenter, toolHeading, headlandOffLookAhead, speed);
+        var headlandOnCheckPoint = LookAheadPoint(sectionCenter, toolHeading, headlandOnLookAhead, speed, sectionLateral);
+        var headlandOffCheckPoint = LookAheadPoint(sectionCenter, toolHeading, headlandOffLookAhead, speed, sectionLateral);
 
         _sectionSw.Restart();
         bool isInHeadland = IsPointInHeadland(sectionCenter);
@@ -829,6 +838,59 @@ public class SectionControlService : ISectionControlService
     /// <param name="distance">Distance to project forward</param>
     /// <param name="speed">Current speed in m/s</param>
     /// <returns>Projected point along the curved path</returns>
+    /// <summary>Look-ahead sample point: along the planned path when one is
+    /// active, else dead-reckoned projection. lateralOffset is the section
+    /// centre's offset from the tool centreline (right positive), applied
+    /// perpendicular to the local path heading.</summary>
+    private Vec2 LookAheadPoint(Vec2 sectionCenter, double toolHeading, double distance,
+        double speed, double lateralOffset)
+    {
+        if (PlannedPathProvider?.Invoke() is { } plan && plan.Path is { Count: >= 2 })
+        {
+            var pt = WalkPlannedPath(plan.Path, plan.Index, distance, lateralOffset);
+            if (pt.HasValue) return pt.Value;
+        }
+        return ProjectForwardCurved(sectionCenter, toolHeading, distance, speed);
+    }
+
+    /// <summary>Walk the planned path from the progress index by arc length,
+    /// extend past its end along the final segment, then offset laterally.</summary>
+    private static Vec2? WalkPlannedPath(IReadOnlyList<Vec3> path, int index, double distance,
+        double lateralOffset)
+    {
+        int i = Math.Clamp(index, 0, path.Count - 2);
+        double remaining = distance;
+        for (; i < path.Count - 1; i++)
+        {
+            double dx = path[i + 1].Easting - path[i].Easting;
+            double dy = path[i + 1].Northing - path[i].Northing;
+            double seg = Math.Sqrt(dx * dx + dy * dy);
+            if (seg < 1e-6) continue;
+            if (remaining <= seg)
+            {
+                double t = remaining / seg;
+                double e = path[i].Easting + dx * t;
+                double n = path[i].Northing + dy * t;
+                double h = Math.Atan2(dx, dy);
+                return Offset(e, n, h, lateralOffset);
+            }
+            remaining -= seg;
+        }
+        // Past the end: extend along the last segment's heading.
+        var a = path[path.Count - 2];
+        var b = path[path.Count - 1];
+        double ldx = b.Easting - a.Easting, ldy = b.Northing - a.Northing;
+        double len = Math.Sqrt(ldx * ldx + ldy * ldy);
+        if (len < 1e-6) return null;
+        double lh = Math.Atan2(ldx, ldy);
+        double ee = b.Easting + Math.Sin(lh) * remaining;
+        double nn = b.Northing + Math.Cos(lh) * remaining;
+        return Offset(ee, nn, lh, lateralOffset);
+
+        static Vec2 Offset(double e, double n, double h, double lat) =>
+            new(e + Math.Sin(h + Math.PI / 2) * lat, n + Math.Cos(h + Math.PI / 2) * lat);
+    }
+
     private Vec2 ProjectForwardCurved(Vec2 point, double heading, double distance, double speed)
     {
         // For very slow speeds or no turn, use straight projection
