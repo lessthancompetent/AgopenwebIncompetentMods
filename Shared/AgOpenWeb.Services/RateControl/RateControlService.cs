@@ -75,6 +75,10 @@ public interface IRateControlService
     // Virtual switchbox — stands in for the physical AOG_RC box (PGN 32618).
     bool MasterOn { get; }
     void SetMaster(bool on);
+    /// <summary>A physical switchbox's auto-section toggle moved (value = its
+    /// new position). Raised on the RC receive thread — the wiring marshals it
+    /// onto the section auto-master command.</summary>
+    event Action<bool>? PhysicalAutoSectionChanged;
     void BumpRate(int index, double percent);
     void ResetRate(int index);
     /// <summary>Behaviour of the switches (master mode, auto rate, section
@@ -135,6 +139,10 @@ public sealed class RateControlService : IRateControlService, IDisposable
     private RcPrimedSettings _primed = new();
     private string? _switchboxToolKey;
     private DateTime _primedUntilUtc = DateTime.MinValue;
+
+    // Physical switchbox (PGN 32618) — same step the on-screen box's ± buttons send.
+    private readonly RcPhysicalSwitchbox _physBox = new();
+    private const double SwitchboxRateStepPercent = 5;
 
     /// <summary><paramref name="autoSteer"/> is optional so tests and headless
     /// hosts can build the service without the steering stack; without it the
@@ -291,6 +299,10 @@ public sealed class RateControlService : IRateControlService, IDisposable
                     if (from is IPEndPoint ip2)
                         lock (_ioLock) _moduleAddresses[mf.ModuleId] = (ip2.Address, DateTime.UtcNow);
                 }
+                else if (pgn == RcPgn.PGN_SWITCHBOX && RcPgn.TryParseSwitchbox(buf.AsSpan(0, n), out var swf))
+                {
+                    OnSwitchboxFrame(swf);
+                }
                 // 32401 module status: liveness rides the sensor frames; nothing
                 // further needed for Phase 1 (pressure/wifi diagnostics later).
             }
@@ -298,6 +310,36 @@ public sealed class RateControlService : IRateControlService, IDisposable
             catch (SocketException) { if (!_running) break; }
             catch { }
         }
+    }
+
+    public event Action<bool>? PhysicalAutoSectionChanged;
+
+    /// <summary>A physical AOG_RC switchbox (PGN 32618) drives the SAME paths
+    /// the on-screen box does: master on/off, ±5% rate nudge on every enabled
+    /// channel, the auto-rate gate, auto section (via the wiring event), the
+    /// work switch and the 16 section switches. The buttons are momentary, so
+    /// only 0→1 edges act — a held or stuck button does its thing once.</summary>
+    private void OnSwitchboxFrame(in RcSwitchboxFrame f)
+    {
+        EnsureToolChannels();
+        EnsureSwitchboxLoaded();
+        RcSwitchboxActions act;
+        lock (_ioLock) act = _physBox.Apply(f, DateTime.UtcNow, _switchbox.SwitchType == 1);
+
+        if (act.SetMaster is bool m) SetMaster(m);
+        if (act.RateUpEdge || act.RateDownEdge)
+        {
+            // RateUp wins a simultaneous press, like the reference parser.
+            double pct = act.RateUpEdge ? SwitchboxRateStepPercent : -SwitchboxRateStepPercent;
+            for (int i = 0; i < _products.Count; i++)
+                if (_products[i].Enabled) BumpRate(i, pct);
+        }
+        if (act.SetAutoRate is bool ar && ar != _switchbox.AutoRate)
+        {
+            _switchbox.AutoRate = ar;
+            SaveSwitchbox();
+        }
+        if (act.SetAutoSection is bool asw) PhysicalAutoSectionChanged?.Invoke(asw);
     }
 
     // ---- outbound: 4 Hz settings/target to each enabled product's module ----
@@ -374,6 +416,12 @@ public sealed class RateControlService : IRateControlService, IDisposable
             // firmware's auto-PID gate requires nonzero relay bits, and modules
             // with relay outputs switch their sections from this.
             ushort secBits = _sections.GetSectionBits();
+            // A connected physical switchbox puts its 16 maintained section
+            // switches in SERIES with the app's section state: a section only
+            // runs while its allocated switch is up. The switch can veto, never
+            // force on — coverage/auto stays authoritative.
+            if (_physBox.Connected(now))
+                secBits &= RcPhysicalSwitchbox.SectionGateMask(_switchbox, _physBox.SectionBits);
             var sentModules = new HashSet<int>();
             foreach (var p in _products)
             {
@@ -465,7 +513,9 @@ public sealed class RateControlService : IRateControlService, IDisposable
             Moving = PrimedActive || Math.Abs(_state.Vehicle.Speed) * 3.6 > 0.1,
             Calibrating = _products.Exists(p => p.CalActive),
             SectionBits = sectionBits,
-            SwitchBits = sectionBits,        // the virtual switchbox has no switches of its own yet
+            // Switch-type relays follow the physical box's real switches when
+            // one is talking; the virtual switchbox has none of its own.
+            SwitchBits = _physBox.Connected(DateTime.UtcNow) ? _physBox.SectionBits : sectionBits,
             TramRight = (tram & 1) != 0,
             TramLeft = (tram & 2) != 0,
             GeoStop = (snap?.GeoStopState ?? 0) != 0,
@@ -667,6 +717,15 @@ public sealed class RateControlService : IRateControlService, IDisposable
           .Append(",\"autoRate\":").Append(_switchbox.AutoRate ? "true" : "false")
           .Append(",\"workGate\":").Append(_switchbox.WorkSwitchGate ? "true" : "false")
           .Append(",\"workSwitchOn\":").Append(WorkSwitchOn() ? "true" : "false")
+          // Physical PGN 32618 box: connected + its maintained switch levels.
+          .Append(",\"physical\":{\"connected\":")
+          .Append(_physBox.Connected(DateTime.UtcNow) ? "true" : "false")
+          .Append(",\"work\":").Append(_physBox.WorkSwitchOn ? "true" : "false")
+          .Append(",\"autoSection\":").Append(_physBox.AutoSectionOn ? "true" : "false")
+          .Append(",\"autoRate\":").Append(_physBox.AutoRateOn ? "true" : "false")
+          .Append(",\"sections\":").Append(_physBox.SectionBits)
+          .Append(",\"inoId\":").Append(_physBox.InoId)
+          .Append('}')
           .Append(",\"sectionSwitch\":[");
         // The section service keeps its full slot table; the tool knows how
         // many sections actually exist on the implement.
@@ -988,9 +1047,14 @@ public sealed class RateControlService : IRateControlService, IDisposable
     public void CancelPrimed() => _primedUntilUtc = DateTime.MinValue;
 
     /// <summary>Work switch reads "on" (implement down) — polarity and
-    /// momentary-latch resolution live in the snapshot.</summary>
+    /// momentary-latch resolution live in the snapshot. A connected physical
+    /// switchbox's maintained work switch ORs in, like the reference's WorkOn
+    /// (box OR modules).</summary>
     private bool WorkSwitchOn()
-        => _autoSteer?.LatestSnapshot?.WorkSwitchOn ?? false;
+    {
+        if (_physBox.Connected(DateTime.UtcNow) && _physBox.WorkSwitchOn) return true;
+        return _autoSteer?.LatestSnapshot?.WorkSwitchOn ?? false;
+    }
 
     /// <summary>Master as the machine should see it: the raw switch filtered
     /// through the master mode, the work-switch gate and a primed run.</summary>
@@ -1000,9 +1064,12 @@ public sealed class RateControlService : IRateControlService, IDisposable
         if (PrimedActive) return true;
         if (_switchbox.MasterMode == RcMasterMode.Override) return true;
         // Work-switch gate: master only engages while the implement is down.
-        // Only meaningful when the vehicle settings enable a work switch at all —
-        // a gate on a switch that doesn't exist would latch the master off.
-        if (_switchbox.WorkSwitchGate && _configStore.Tool.IsWorkSwitchEnabled
+        // Only meaningful when a work switch actually exists — a gate on a
+        // switch that doesn't would latch the master off. It exists when the
+        // tool has one wired, or when a physical switchbox (which carries its
+        // own) is talking.
+        if (_switchbox.WorkSwitchGate
+            && (_configStore.Tool.IsWorkSwitchEnabled || _physBox.Connected(DateTime.UtcNow))
             && !WorkSwitchOn())
         {
             return false;

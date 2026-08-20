@@ -41,6 +41,26 @@ public readonly struct RcModuleStatusFrame
     public bool GoodPinConfig { get; init; }
 }
 
+/// <summary>Parsed PGN 32618 — physical switchbox → host. Master, rate up/down
+/// and prime are MOMENTARY buttons (the bit is the level while held); auto
+/// section, auto rate, work and the 16 section switches are maintained toggle
+/// positions.</summary>
+public readonly struct RcSwitchboxFrame
+{
+    public bool MasterOnPressed { get; init; }   // status bit 1, momentary
+    public bool MasterOffPressed { get; init; }  // status bit 2, momentary
+    public bool RateUpPressed { get; init; }     // status bit 3, momentary
+    public bool RateDownPressed { get; init; }   // status bit 4, momentary
+    public bool AutoSectionOn { get; init; }     // status bit 5, maintained
+    public bool AutoRateOn { get; init; }        // status bit 6, maintained
+    public bool WorkSwitchOn { get; init; }      // status bit 7, maintained
+    /// <summary>16 maintained section switches; bit 0 = switch 1 (byte 3
+    /// carries switches 1-8, byte 4 switches 9-16).</summary>
+    public ushort SectionBits { get; init; }
+    /// <summary>Module identity from the longer frame format; 0 on the 6-byte one.</summary>
+    public int InoId { get; init; }
+}
+
 /// <summary>PGN 32502 payload — one sensor's valve/PID tuning, held in module EEPROM.
 ///
 /// Fields are the ON-WIRE values, exactly as AOG_RC stores and displays them, so
@@ -143,6 +163,7 @@ public static class RcPgn
     // Little-endian ids in bytes 0-1.
     public const ushort PGN_SENSOR = 32400;        // 0x90 0x7E module → host
     public const ushort PGN_MODULE_STATUS = 32401; // 0x91 0x7E module → host
+    public const ushort PGN_SWITCHBOX = 32618;     // 0x6A 0x7F switchbox → host
     public const ushort PGN_RATE_SETTINGS = 32500; // 0xF4 0x7E host → module
     // Module SETUP packets. These carry settings the module keeps in EEPROM and
     // that nothing else can write: its own web page is only WiFi + a master
@@ -210,6 +231,31 @@ public static class RcPgn
             WorkSwitch = (d[13] & 0x01) != 0,
             EthernetConnected = (d[13] & 0x10) != 0,
             GoodPinConfig = (d[13] & 0x20) != 0,
+        };
+        return true;
+    }
+
+    /// <summary>Parse PGN 32618 (physical switchbox). 6 bytes, or longer with the
+    /// InoID trailer (bytes 5-6); the CRC is the LAST byte either way, exactly as
+    /// AOG_RC's PGN32618.ParseByteData checks the whole received datagram.</summary>
+    public static bool TryParseSwitchbox(ReadOnlySpan<byte> d, out RcSwitchboxFrame frame)
+    {
+        frame = default;
+        if (d.Length < 6 || d[0] != 0x6A || d[1] != 0x7F) return false;
+        if (!GoodCrc(d)) return false;
+
+        byte st = d[2];
+        frame = new RcSwitchboxFrame
+        {
+            MasterOnPressed = (st & 1 << 1) != 0,
+            MasterOffPressed = (st & 1 << 2) != 0,
+            RateUpPressed = (st & 1 << 3) != 0,
+            RateDownPressed = (st & 1 << 4) != 0,
+            AutoSectionOn = (st & 1 << 5) != 0,
+            AutoRateOn = (st & 1 << 6) != 0,
+            WorkSwitchOn = (st & 1 << 7) != 0,
+            SectionBits = (ushort)(d[3] | d[4] << 8),
+            InoId = d.Length > 6 ? d[5] | d[6] << 8 : 0,
         };
         return true;
     }
