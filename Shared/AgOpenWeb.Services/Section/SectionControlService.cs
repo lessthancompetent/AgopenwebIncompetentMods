@@ -544,7 +544,18 @@ public class SectionControlService : ISectionControlService
             // tick-period of late spray at any tick rate).
             int turnOnPhaseTicks = Math.Max(1, (int)Math.Round(turnOnPhaseSec * TickHz));
 
-            if (section.SectionOnTimer >= turnOnPhaseTicks)
+            // Turn-exit override: the phase timer times the landing from the
+            // arming moment, but arming converts the time-lead to distance at
+            // the TURN-SLOWED speed - accelerating out of the arc leaves the
+            // lead short and the paint started seconds past the line. During a
+            // turn, the physical exit is authoritative: the section has left
+            // the headland onto uncovered ground, so paint NOW. Normal driving
+            // (no active plan) keeps the pure timer semantics.
+            bool turnExitArrived = planRemaining.HasValue
+                && !isInHeadland
+                && currentCoverage.CoveragePercent < coverageOnThreshold;
+
+            if (section.SectionOnTimer >= turnOnPhaseTicks || turnExitArrived)
             {
                 section.IsOn = true;
                 section.SectionOnRequest = false;
