@@ -30,6 +30,12 @@ public interface IRoutePlanningService
     /// opposite way round (mower back-cut).</summary>
     bool HeadlandBackCut { get; set; }
 
+    /// <summary>Outermost headland laps to leave OUT of the route because they
+    /// are already worked — e.g. the boundary-recording lap driven with the
+    /// tool on. The band geometry (interior inset) is unchanged; only the lap
+    /// paths are dropped. Set per plan from the coverage map.</summary>
+    int HeadlandSkipOuterLaps { get; set; }
+
     /// <summary>
     /// Build a back-and-forth coverage route inside <paramref name="outerBoundary"/>
     /// (local-plane meters). Swaths are spaced by <paramref name="swathWidth"/>,

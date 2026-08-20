@@ -65,6 +65,118 @@ public partial class MainViewModel
     /// offset second headland set from the first.</summary>
     private int[]? _routeDriveChannels;
 
+    // ---- Plan persistence (pause / resume) -----------------------------------
+    // The planned route saves with the FIELD and reloads on open, so a job
+    // interrupted by rain / refill / breakdown resumes on the SAME paths:
+    // replanning from the shed would rebuild from a different start position
+    // (different approach, ordering, weave rotation) and no longer line up
+    // with the half-driven coverage.
+    private const string RoutePlanFileName = "routeplan.json";
+    private string? _routePlanLoadedFieldDir;
+
+    private void SaveRoutePlanToField()
+    {
+        string? dir = ActiveField?.DirectoryPath;
+        if (string.IsNullOrWhiteSpace(dir)) return;
+        _routePlanLoadedFieldDir = dir;
+        try
+        {
+            string path = System.IO.Path.Combine(dir, RoutePlanFileName);
+            if (_routeLayers.Count == 0)
+            {
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                return;
+            }
+            var layersOut = new List<object>(_routeLayers.Count);
+            foreach (var (name, p) in _routeLayers)
+            {
+                var segsOut = new List<object>(p.Segments.Count);
+                foreach (var s in p.Segments)
+                {
+                    var pts = new List<double>(s.Points.Count * 3);
+                    foreach (var pt in s.Points)
+                    {
+                        pts.Add(Math.Round(pt.Easting, 2));
+                        pts.Add(Math.Round(pt.Northing, 2));
+                        pts.Add(Math.Round(pt.Heading, 3));
+                    }
+                    segsOut.Add(new Dictionary<string, object>
+                    { ["t"] = (int)s.Type, ["ch"] = s.Channel, ["pts"] = pts });
+                }
+                layersOut.Add(new Dictionary<string, object> { ["name"] = name, ["segs"] = segsOut });
+            }
+            var root = new Dictionary<string, object?>
+            {
+                ["w"] = _currentRoutePlan?.Metadata.ToolWidthMeters ?? 0,
+                ["famB"] = _crossFamilyBHeadingRad,
+                ["layers"] = layersOut,
+            };
+            System.IO.File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(root));
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Couldn't save route plan: {ex.Message}";
+        }
+    }
+
+    /// <summary>Rehydrate the saved plan when the active field changes (lazy —
+    /// every plan entry point calls this first, like the split lines).</summary>
+    private void EnsureRoutePlanLoaded()
+    {
+        string? dir = ActiveField?.DirectoryPath;
+        if (dir == _routePlanLoadedFieldDir) return;
+        _routePlanLoadedFieldDir = dir;
+        _routeLayers.Clear();
+        _currentRoutePlan = null;
+        _crossFamilyBHeadingRad = null;
+        if (string.IsNullOrWhiteSpace(dir)) return;
+        try
+        {
+            string path = System.IO.Path.Combine(dir, RoutePlanFileName);
+            if (!System.IO.File.Exists(path)) return;
+            using var doc = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(path));
+            var root = doc.RootElement;
+            double toolW = root.TryGetProperty("w", out var w) ? w.GetDouble() : 0;
+            if (root.TryGetProperty("famB", out var fb)
+                && fb.ValueKind == System.Text.Json.JsonValueKind.Number)
+                _crossFamilyBHeadingRad = fb.GetDouble();
+            if (!root.TryGetProperty("layers", out var layers)
+                || layers.ValueKind != System.Text.Json.JsonValueKind.Array) return;
+            foreach (var layer in layers.EnumerateArray())
+            {
+                string name = layer.GetProperty("name").GetString() ?? "Main";
+                var segs = new List<RouteSegment>();
+                foreach (var seg in layer.GetProperty("segs").EnumerateArray())
+                {
+                    var pts = seg.GetProperty("pts");
+                    int count = pts.GetArrayLength() / 3;
+                    var list = new List<Vec3>(count);
+                    for (int i = 0; i < count; i++)
+                        list.Add(new Vec3(
+                            pts[i * 3].GetDouble(), pts[i * 3 + 1].GetDouble(), pts[i * 3 + 2].GetDouble()));
+                    if (list.Count < 2) continue;
+                    segs.Add(new RouteSegment(
+                        (RouteSegmentType)seg.GetProperty("t").GetInt32(), list,
+                        seg.TryGetProperty("ch", out var ch) ? ch.GetInt32() : 0));
+                }
+                if (segs.Count == 0) continue;
+                var raw = new RoutePlan(segs, new RoutePlanMetadata(0, 0, 0, 0, 0, 0, toolW));
+                _routeLayers.Add((name, Subplan(raw, 0, segs.Count)));
+            }
+            if (_routeLayers.Count > 0)
+            {
+                ComposeRouteLayers();
+                RegisterRouteSteerTracks();
+                StatusMessage = "Saved route plan restored — steer a Route track or Drive to continue";
+            }
+        }
+        catch
+        {
+            _routeLayers.Clear();
+            _currentRoutePlan = null;
+        }
+    }
+
     // ---- Field splitting -----------------------------------------------------
     // Operator-drawn split lines (two map taps each) carve the field into simpler
     // regions the way it would be worked by hand — e.g. an L into a tall and a wide
@@ -382,6 +494,12 @@ public partial class MainViewModel
             (Models.RoutePlanning.RouteHeadlandStyle)Math.Clamp(headlandStyle, 0, 3);
         RoutePlanner.HeadlandFirstPhase = headlandFirst;
         RoutePlanner.HeadlandBackCut = headlandBackCut;
+
+        // Already-worked outer laps drop out of the plan: the boundary-recording
+        // lap driven with the tool on (or any lap finished before a replan) shows
+        // as coverage along the lap line, so the route doesn't ask for it again.
+        // Band geometry is untouched — only the drive paths are skipped.
+        RoutePlanner.HeadlandSkipOuterLaps = CountWorkedOuterLaps(ctx);
         var pts = ctx.Pts;
         var inners = ctx.Inners;
         double edgeOff = ctx.EdgeOff, width = ctx.Width, physWidth = ctx.PhysWidth,
@@ -590,8 +708,11 @@ public partial class MainViewModel
             catch { /* headland is a convenience here — never fail the plan on it */ }
         }
 
-        // Make the plan's paths available as native guidance lines immediately.
+        // Make the plan's paths available as native guidance lines immediately,
+        // and persist the plan with the field so an interrupted job resumes on
+        // the SAME paths after a restart.
         RegisterRouteSteerTracks();
+        SaveRoutePlanToField();
 
         var m = _currentRoutePlan.Metadata;
         double areaHa = m.WorkDistanceMeters * m.ToolWidthMeters / 10000.0;
@@ -603,9 +724,11 @@ public partial class MainViewModel
         string hdgTxt = splitApplied
             ? (manualAngle ? $"{blockCount} blocks @ {hdgDeg:F0}°" : $"{blockCount} blocks, per-block headings")
             : $"@ {hdgDeg:F0}°";
+        int skippedLaps = RoutePlanner.HeadlandSkipOuterLaps;
         string hlTxt = customHl != null
             ? $"(hand-built headland, {customLaps} laps)"
-            : $"(headland {headlandMargin:F1} m, {passes} laps)";
+            : $"(headland {headlandMargin:F1} m, {passes} laps"
+              + (skippedLaps > 0 ? $", {skippedLaps} already worked — skipped)" : ")");
         StatusMessage = $"Route: {m.SwathCount} passes, {m.TurnCount} turns, " +
             $"{m.TotalDistanceMeters / 1000.0:F2} km, {areaHa:F1} ha, ~{estMin:F0} min {hdgTxt} {hlTxt}";
     }
@@ -654,6 +777,7 @@ public partial class MainViewModel
         _currentRoutePlan = null;
         _routeLayers.Clear();
         _crossFamilyBHeadingRad = null;
+        SaveRoutePlanToField();   // empty layers → deletes the saved plan
         StatusMessage = "Route cleared";
     }
 
@@ -790,6 +914,7 @@ public partial class MainViewModel
         _routeLayers.Insert(ins, (label, bp));
         ComposeRouteLayers();
         RegisterRouteSteerTracks();
+        SaveRoutePlanToField();
 
         var m = bp.Metadata;
         double estMin = RoutePlanningService.EstimateWorkSeconds(
@@ -797,6 +922,47 @@ public partial class MainViewModel
         StatusMessage = $"Block {label}: {m.SwathCount} passes, {m.TurnCount} turns, ~{estMin:F0} min "
             + (manual ? $"@ {angleDeg:F0}° from field default" : "(auto heading)")
             + " — steer via track 'Route " + label + "'";
+    }
+
+    /// <summary>
+    /// How many OUTERMOST headland laps are already worked, sampled from the
+    /// coverage map along each lap's centre line (channel 0, ≥80% covered,
+    /// consecutive from the fence inward). This is what lets "drive the first
+    /// lap while recording the boundary" just work: that lap's paint is on the
+    /// map, so the next plan leaves the lap out.
+    /// </summary>
+    private int CountWorkedOuterLaps(RouteCtx ctx)
+    {
+        if (!_coverageMapService.IsFieldBoundsSet || ctx.Passes <= 0) return 0;
+        var offset = new PolygonOffsetService();
+        int worked = 0;
+        for (int k = 0; k < ctx.Passes; k++)
+        {
+            var ring = offset.CreateInwardOffset(ctx.Pts, (k + 0.5) * ctx.Width);
+            if (ring is not { Count: >= 3 }) break;
+            int total = 0, covered = 0;
+            for (int i = 0; i < ring.Count; i++)
+            {
+                var a = ring[i];
+                var b = ring[(i + 1) % ring.Count];
+                double len = Math.Sqrt(
+                    (b.Easting - a.Easting) * (b.Easting - a.Easting)
+                    + (b.Northing - a.Northing) * (b.Northing - a.Northing));
+                int steps = Math.Max(1, (int)(len / 3.0));
+                for (int s = 0; s < steps; s++)
+                {
+                    double t = (s + 0.5) / steps;
+                    total++;
+                    if (_coverageMapService.IsPointCoveredInChannel(
+                        a.Easting + (b.Easting - a.Easting) * t,
+                        a.Northing + (b.Northing - a.Northing) * t, 0))
+                        covered++;
+                }
+            }
+            if (total == 0 || covered < total * 0.8) break;
+            worked++;
+        }
+        return worked;
     }
 
     /// <summary>
@@ -986,6 +1152,7 @@ public partial class MainViewModel
 
     public void ActivateRouteSteerPath(bool headland)
     {
+        EnsureRoutePlanLoaded();
         if (_routeLayers.Count == 0) { StatusMessage = "Plan a route first"; return; }
         string name = headland ? "Route Headland" : "Route Main";
         Models.Track.Track? track = null;
@@ -1001,6 +1168,7 @@ public partial class MainViewModel
 
     public void DriveRoute()
     {
+        EnsureRoutePlanLoaded();
         var plan = _currentRoutePlan;
         if (plan == null) { StatusMessage = "Plan a route first"; return; }
 
@@ -1092,6 +1260,7 @@ public partial class MainViewModel
     {
         var inv = CultureInfo.InvariantCulture;
         EnsureRouteSplitsLoaded();
+        EnsureRoutePlanLoaded();
         var splits = new StringBuilder("[");
         for (int i = 0; i < _routeSplitLines.Count; i++)
         {

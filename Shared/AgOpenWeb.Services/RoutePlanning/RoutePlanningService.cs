@@ -32,6 +32,9 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// <inheritdoc />
     public bool HeadlandBackCut { get; set; }
 
+    /// <inheritdoc />
+    public int HeadlandSkipOuterLaps { get; set; }
+
     public RoutePlanningService(IPolygonOffsetService offset)
     {
         _offset = offset;
@@ -1533,14 +1536,17 @@ public sealed class RoutePlanningService : IRoutePlanningService
         var lapPaths = new List<List<Vec3>>();
         if (headlandPasses > 0 && HeadlandStyle != RouteHeadlandStyle.None)
         {
+            int skipOuter = Math.Clamp(HeadlandSkipOuterLaps, 0, headlandPasses);
             if (HeadlandStyle == RouteHeadlandStyle.Laps)
-                lapPaths = BuildHeadlandRings(boundary, swathWidth, headlandPasses, startPos, cr);
+                lapPaths = BuildHeadlandRings(boundary, swathWidth, headlandPasses, startPos, cr,
+                    skipOuter: skipOuter);
             else
             {
                 var spiralHl = BuildHeadlandSpiral(boundary, swathWidth, headlandPasses, startPos, cr,
-                    outward: HeadlandStyle == RouteHeadlandStyle.SpiralOut);
+                    outward: HeadlandStyle == RouteHeadlandStyle.SpiralOut, skipOuter: skipOuter);
                 if (spiralHl != null) lapPaths.Add(spiralHl);
-                else lapPaths = BuildHeadlandRings(boundary, swathWidth, headlandPasses, startPos, cr);
+                else lapPaths = BuildHeadlandRings(boundary, swathWidth, headlandPasses, startPos, cr,
+                    skipOuter: skipOuter);
             }
         }
         var headland = new List<RouteSegment>();
@@ -1798,11 +1804,11 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// </summary>
     private List<List<Vec3>> BuildHeadlandRings(
         IReadOnlyList<Vec2> boundary, double width, int passes, Vec3? startPos, double turnRadius = 0,
-        double insetBias = 0)
+        double insetBias = 0, int skipOuter = 0)
     {
         var rings = new List<List<Vec3>>();
         var poly = boundary as List<Vec2> ?? new List<Vec2>(boundary);
-        for (int i = 0; i < passes; i++)
+        for (int i = Math.Clamp(skipOuter, 0, passes); i < passes; i++)
         {
             var ring = _offset.CreateInwardOffset(poly, (i + 0.5) * width + insetBias);
             if (ring is not { Count: >= 3 }) continue;
@@ -1842,7 +1848,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// </summary>
     private List<Vec3>? BuildHeadlandSpiral(
         IReadOnlyList<Vec2> boundary, double width, int passes, Vec3? startPos,
-        double turnRadius, bool outward = false)
+        double turnRadius, bool outward = false, int skipOuter = 0)
     {
         if (passes <= 0 || width <= 0.01) return null;
         var poly = boundary as List<Vec2> ?? new List<Vec2>(boundary);
@@ -1869,7 +1875,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         var path = new List<Vec2>();
         double advance = 0;
         int laps = 0;
-        for (int k = 0; k < passes; k++)
+        for (int k = Math.Clamp(skipOuter, 0, passes); k < passes; k++)
         {
             var ring = _offset.CreateInwardOffset(poly, (k + 0.5) * width);
             if (ring is not { Count: >= 3 }) break;

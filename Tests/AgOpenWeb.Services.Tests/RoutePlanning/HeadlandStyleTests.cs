@@ -161,6 +161,22 @@ public class HeadlandStyleTests
     }
 
     [Test]
+    public void SkipOuterLaps_DropsWorkedLapsKeepsInteriorAndDepth()
+    {
+        var full = Plan(NewPlanner());
+        var svc = NewPlanner();
+        svc.HeadlandSkipOuterLaps = 1;   // e.g. the boundary-recording lap, already worked
+        var plan = Plan(svc);
+
+        Assert.That(Laps(plan), Has.Count.EqualTo(Passes - 1), "outermost lap left out");
+        Assert.That(plan.Metadata.SwathCount, Is.EqualTo(full.Metadata.SwathCount),
+            "interior fill unchanged — the band is still reserved");
+        // The remaining lap is the ORIGINAL second ring, not a re-spaced one.
+        double d = Laps(plan)[0].Points.Min(p => MinDistToBoundary(p));
+        Assert.That(d, Is.GreaterThan(Width), "remaining lap keeps its original inset");
+    }
+
+    [Test]
     public void BackCut_AppendsOneOppositeHandFenceLapAtTheEnd()
     {
         var svc = NewPlanner();

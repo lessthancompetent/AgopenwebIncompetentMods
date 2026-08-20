@@ -613,6 +613,13 @@ public class CoverageMapService : ICoverageMapService
         return IsCellCovered(cellE, cellN);
     }
 
+    public bool IsPointCoveredInChannel(double easting, double northing, int channel)
+    {
+        int cellE = (int)Math.Floor(easting / BITMAP_CELL_SIZE);
+        int cellN = (int)Math.Floor(northing / BITMAP_CELL_SIZE);
+        return IsCellCoveredIn(BitsFor(channel), cellE, cellN);
+    }
+
     public CoverageResult GetSegmentCoverage(Vec2 sectionCenter, double heading, double halfWidth, double lookAheadDistance = 0)
     {
         // Adjust center for look-ahead

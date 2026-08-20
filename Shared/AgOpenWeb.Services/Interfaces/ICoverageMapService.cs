@@ -106,6 +106,14 @@ public interface ICoverageMapService
     bool IsPointCovered(double easting, double northing);
 
     /// <summary>
+    /// Point-covered check against an EXPLICIT channel, independent of
+    /// <see cref="ActiveChannel"/> — for callers off the control loop (the
+    /// route planner sampling which headland laps are already worked) that
+    /// must not race the per-tick channel resolver.
+    /// </summary>
+    bool IsPointCoveredInChannel(double easting, double northing, int channel);
+
+    /// <summary>
     /// Calculate coverage for a section segment using coordinate transform method.
     /// More accurate than point-based check as it detects partial overlaps and gaps.
     /// </summary>
