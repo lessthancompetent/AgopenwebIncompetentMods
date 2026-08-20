@@ -371,9 +371,21 @@ public class SectionControlService : ISectionControlService
 
         double sectionLateral = (section.PositionLeft + section.PositionRight) / 2.0;
 
+        // Planned turn path (armed only while a turn is executing). Invoked once
+        // per section eval; remaining arc length gates the ON arming below and
+        // pushes the ON ground-samples past the exit so they don't slide across
+        // the headland edge with speed changes mid-arc.
+        var plan = PlannedPathProvider?.Invoke();
+        double? planRemaining = null;
+        if (plan is { Path.Count: >= 2 } p2)
+            planRemaining = RemainingPlannedPath(p2.Path, p2.Index);
+        double onSampleDist = planRemaining is { } r
+            ? Math.Max(lookAheadOnDist, r + 2.0)
+            : lookAheadOnDist;
+
         // Look-ahead samples: along the planned turn path when one is active
         // (see LookAheadPoint), else curved projection from tool heading.
-        var onCheckPoint = LookAheadPoint(sectionCenter, toolHeading, lookAheadOnDist, speed, sectionLateral);
+        var onCheckPoint = LookAheadPoint(sectionCenter, toolHeading, onSampleDist, speed, sectionLateral);
         var offCheckPoint = LookAheadPoint(sectionCenter, toolHeading, lookAheadOffDist, speed, sectionLateral);
 
         // Check boundary conditions using segment-based detection
@@ -401,7 +413,9 @@ public class SectionControlService : ISectionControlService
         // With MAPPING_ON_DELAY = 0, the TURNING phases are the only wait,
         // so this gives strip start/end at the line with no gap and no
         // overspray when all timings are 0.
-        double headlandOnLookAhead = speed * turnOnPhaseSec;
+        double headlandOnLookAhead = planRemaining is { } r2
+            ? Math.Max(speed * turnOnPhaseSec, r2 + 2.0)
+            : speed * turnOnPhaseSec;
         double headlandOffLookAhead = speed * turnOffPhaseSec;
         var headlandOnCheckPoint = LookAheadPoint(sectionCenter, toolHeading, headlandOnLookAhead, speed, sectionLateral);
         var headlandOffCheckPoint = LookAheadPoint(sectionCenter, toolHeading, headlandOffLookAhead, speed, sectionLateral);
@@ -484,15 +498,17 @@ public class SectionControlService : ISectionControlService
                        && lookOnInBoundary    // Inside boundary at look-ahead
                        && !lookOnInHeadland;  // Not in headland
 
-        // While a U-turn is executing, the walked look-ahead sample slides with
-        // speed changes through the arc and can flicker across the headland /
-        // coverage edges near the exit. The steady-off branch hard-resets the
-        // ON phase on any flicker (correct for normal driving - see its note),
-        // which kept restarting the 3s phase and landed the paint start seconds
-        // past the exit line. Once the request is armed during a turn, hold it:
-        // the phase timer itself still times the landing on the exit edge.
-        bool planActive = PlannedPathProvider?.Invoke() is { Path.Count: >= 2 };
-        if (!shouldBeOn && planActive && section.SectionOnRequest && !section.IsOn)
+        // While a U-turn is executing the arming must be monotonic: gate the ON
+        // request on the REMAINING planned-path length (relay leads the exit by
+        // exactly the configured look-ahead time), with the ground check taken
+        // at a stable point past the exit. The raw walked sample slides with
+        // speed changes and flickered across the headland edge, restarting the
+        // phase and landing the paint seconds late.
+        if (planRemaining is { } rem)
+            shouldBeOn = shouldBeOn && rem <= lookAheadOnDist;
+        // Belt: once armed during a turn, hold the request through residual
+        // flickers - the phase timer still times the landing on the exit edge.
+        if (!shouldBeOn && planRemaining.HasValue && section.SectionOnRequest && !section.IsOn)
             shouldBeOn = true;
 
         // Determine if section should be off
@@ -583,6 +599,14 @@ public class SectionControlService : ISectionControlService
         }
         else
         {
+            // Drive the mapping-off debounce to completion. The phase machine
+            // calls StopMapping ONCE at the IsOn drop, but the 0.2s mapping-off
+            // debounce needs repeated ticks - the strip never actually closed,
+            // its stale last-edge pair survived the whole U-turn, and the first
+            // paint after re-green drew a straight band from the pre-turn edge
+            // to the resume point (the "shortcut" chord across the turn).
+            if (section.IsMappingOn) StopMapping(index);
+
             // Section is off and should stay off. Same reasoning as the
             // steady-on branch: clear any stale SectionOnRequest from a
             // transient shouldBeOn flicker so the section doesn't render
@@ -909,6 +933,20 @@ public class SectionControlService : ISectionControlService
 
         static Vec2 Offset(double e, double n, double h, double lat) =>
             new(e + Math.Sin(h + Math.PI / 2) * lat, n + Math.Cos(h + Math.PI / 2) * lat);
+    }
+
+    /// <summary>Arc length of the planned path from the progress index to its end.</summary>
+    private static double RemainingPlannedPath(IReadOnlyList<Vec3> path, int index)
+    {
+        int i = Math.Clamp(index, 0, path.Count - 1);
+        double total = 0;
+        for (; i < path.Count - 1; i++)
+        {
+            double dx = path[i + 1].Easting - path[i].Easting;
+            double dy = path[i + 1].Northing - path[i].Northing;
+            total += Math.Sqrt(dx * dx + dy * dy);
+        }
+        return total;
     }
 
     private Vec2 ProjectForwardCurved(Vec2 point, double heading, double distance, double speed)
