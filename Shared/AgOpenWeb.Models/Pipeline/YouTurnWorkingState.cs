@@ -76,6 +76,23 @@ public class YouTurnWorkingState
     // snake sequence on a mode edge so toggling the mode rebuilds it fresh.
     public bool? LastSkipWorkedMode { get; set; }
 
+    // Lateral progression sign of the last completed normal turn (true = pass
+    // number increased). Normal turns alternate physical direction so the
+    // progression CONTINUES across the field; without this memory the side
+    // preference flip-flopped and the tractor ping-ponged between two passes.
+    public bool? LastOffsetPositive { get; set; }
+
+    // World anchor the snake pass-range walk starts from (the tractor's
+    // position when the sequence was built) — the reference line's midpoint
+    // may be far outside the worked area.
+    public double SnakeAnchorE { get; set; }
+    public double SnakeAnchorN { get; set; }
+
+    // Pass number at which the stale-cursor self-heal last rebuilt the snake
+    // sequence — prevents a rebuild-every-tick loop when the rebuilt plan is
+    // still exhausted (single-pass strip).
+    public int? SnakeRebuiltAtPath { get; set; }
+
     // Zone the tractor is in — source of truth for turn creation gating.
     public TractorZone CurrentZone { get; set; } = TractorZone.OutsideBoundary;
 
@@ -113,6 +130,10 @@ public class YouTurnWorkingState
         SnakeSequence = null;
         SnakeIndex = -1;
         LastSkipWorkedMode = null;
+        LastOffsetPositive = null;
+        SnakeAnchorE = 0;
+        SnakeAnchorN = 0;
+        SnakeRebuiltAtPath = null;
         CurrentZone = TractorZone.OutsideBoundary;
         NextUTurnDirectionLeftOverride = null;
     }

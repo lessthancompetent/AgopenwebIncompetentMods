@@ -155,7 +155,8 @@ public sealed class YouTurnPathingService
         GuidanceWorkingState guidance,
         Boundary? boundary,
         IReadOnlyList<Vec3>? headlandLine,
-        int uTurnSkipRows)
+        int uTurnSkipRows,
+        bool? lastOffsetPositive = null)
     {
         if (boundary?.OuterBoundary == null || !boundary.OuterBoundary.IsValid)
             return (true, false);
@@ -174,10 +175,11 @@ public sealed class YouTurnPathingService
 
         if (negInside && posInside)
         {
-            // Both directions work — prefer the one that continues advancing
-            // (same direction as the current pass offset from 0).
-            // If on pass 0, prefer negative (original convention).
-            bool preferPositive = guidance.HowManyPathsAway > 0;
+            // Both directions open — CONTINUE the previous progression (classic
+            // alternating turns march one way across the field; only the fence
+            // folds the pattern back). The old pass-number heuristic flipped
+            // sides every turn past pass 0 and ping-ponged between two passes.
+            bool preferPositive = lastOffsetPositive ?? guidance.HowManyPathsAway > 0;
             return (true, preferPositive);
         }
         if (negInside) return (true, false);
@@ -269,30 +271,34 @@ public sealed class YouTurnPathingService
         double widthMinusOverlap = config.ActualToolWidth - config.Tool.Overlap;
         if (widthMinusOverlap < 0.5) return;
 
-        // Walk outwards perpendicular to the reference track to find the pass-number range
-        // that fits inside the cultivated area.
-        var pointA = referenceTrack.Points[0];
-        var pointB = referenceTrack.Points[referenceTrack.Points.Count - 1];
+        // Walk outwards perpendicular from the TRACTOR'S CURRENT POSITION to find
+        // the pass-number range that fits inside the cultivated area. Anchoring at
+        // the reference line's midpoint (the old approach) collapses to a single
+        // pass whenever the reference line sits outside the worked area — the
+        // field may be dozens of passes away from pass 0, and the walk broke on
+        // its very first sample. The tractor is inside the field by definition,
+        // so pass offsets are taken relative to its own pass number.
         double perpAngle = abHeading + Math.PI / 2;
-        double midE = (pointA.Easting + pointB.Easting) / 2;
-        double midN = (pointA.Northing + pointB.Northing) / 2;
+        double baseE = turn.SnakeAnchorE;
+        double baseN = turn.SnakeAnchorN;
+        int currentPass = guidance.HowManyPathsAway;
 
-        int minPath = 0, maxPath = 0;
+        int minPath = currentPass, maxPath = currentPass;
 
-        for (int p = 0; p <= 200; p++)
+        for (int p = currentPass; p <= currentPass + 200; p++)
         {
-            double offsetDist = widthMinusOverlap * p;
-            double testE = midE + Math.Sin(perpAngle) * offsetDist;
-            double testN = midN + Math.Cos(perpAngle) * offsetDist;
+            double offsetDist = widthMinusOverlap * (p - currentPass);
+            double testE = baseE + Math.Sin(perpAngle) * offsetDist;
+            double testN = baseN + Math.Cos(perpAngle) * offsetDist;
             if (!IsPointInsideCultivatedArea(testE, testN, boundary, headlandLine)) break;
             maxPath = p;
         }
 
-        for (int p = -1; p >= -200; p--)
+        for (int p = currentPass - 1; p >= currentPass - 200; p--)
         {
-            double offsetDist = widthMinusOverlap * p;
-            double testE = midE + Math.Sin(perpAngle) * offsetDist;
-            double testN = midN + Math.Cos(perpAngle) * offsetDist;
+            double offsetDist = widthMinusOverlap * (p - currentPass);
+            double testE = baseE + Math.Sin(perpAngle) * offsetDist;
+            double testN = baseN + Math.Cos(perpAngle) * offsetDist;
             if (!IsPointInsideCultivatedArea(testE, testN, boundary, headlandLine)) break;
             minPath = p;
         }

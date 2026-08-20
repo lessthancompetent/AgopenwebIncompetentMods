@@ -178,6 +178,7 @@ public sealed class YouTurnStateMachine
                 _logger.LogDebug("[YouTurn] Skip-worked mode changed - clearing snake sequence");
                 turn.SnakeSequence = null;
                 turn.SnakeIndex = -1;
+                turn.SnakeRebuiltAtPath = null;
             }
             turn.LastSkipWorkedMode = ctx.IsSkipWorkedMode;
         }
@@ -577,6 +578,8 @@ public sealed class YouTurnStateMachine
         // Build the rotated snake sequence lazily on first turn.
         if (turn.SnakeSequence == null)
         {
+            turn.SnakeAnchorE = currentPosition.Easting;
+            turn.SnakeAnchorN = currentPosition.Northing;
             _pathing.BuildSnakeSequence(track, abHeading, guidance, turn, ctx.Boundary, ctx.HeadlandLine);
         }
 
@@ -587,10 +590,14 @@ public sealed class YouTurnStateMachine
             // cursor is lying (aborted turn, manual repositioning) — rebuild the
             // plan from where the tractor actually is instead of latching "done".
             var seq = turn.SnakeSequence;
-            if (seq is { Count: > 0 } && guidance.HowManyPathsAway != seq[seq.Count - 1])
+            if (seq is { Count: > 0 } && guidance.HowManyPathsAway != seq[seq.Count - 1]
+                && turn.SnakeRebuiltAtPath != guidance.HowManyPathsAway)
             {
                 _logger.LogDebug("[YouTurn] Snake cursor stale (on path {Cur}, sequence ends at {Last}) - rebuilding",
                     guidance.HowManyPathsAway, seq[seq.Count - 1]);
+                turn.SnakeRebuiltAtPath = guidance.HowManyPathsAway;
+                turn.SnakeAnchorE = currentPosition.Easting;
+                turn.SnakeAnchorN = currentPosition.Northing;
                 _pathing.BuildSnakeSequence(track, abHeading, guidance, turn, ctx.Boundary, ctx.HeadlandLine);
                 nextPath = _pathing.GetNextSnakePath(turn);
             }
@@ -668,7 +675,8 @@ public sealed class YouTurnStateMachine
         YouTurnEffects effects)
     {
         var (nextLineInside, positiveDirection) = _pathing.WouldNextLineBeInsideBoundary(
-            track, abHeading, guidance, ctx.Boundary, ctx.HeadlandLine, ctx.UTurnSkipRows);
+            track, abHeading, guidance, ctx.Boundary, ctx.HeadlandLine, ctx.UTurnSkipRows,
+            turn.LastOffsetPositive);
 
         _logger.LogDebug("[YouTurn] Creating turn? nextLineInside={Inside} positiveDir={Dir}", nextLineInside, positiveDirection);
         if (!nextLineInside)
@@ -773,6 +781,7 @@ public sealed class YouTurnStateMachine
 
             int offsetChange = positiveOffset ? pathsToMove : -pathsToMove;
             guidance.HowManyPathsAway += offsetChange;
+            turn.LastOffsetPositive = positiveOffset;
 
             _logger.LogDebug("[YouTurn] Turn complete! Normal: offset {Sign} by {Change}",
                 positiveOffset ? "positive" : "negative", offsetChange);
