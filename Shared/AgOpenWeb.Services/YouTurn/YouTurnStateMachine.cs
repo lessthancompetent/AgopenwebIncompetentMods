@@ -168,6 +168,20 @@ public sealed class YouTurnStateMachine
 
         turn.CurrentZone = DetermineZone(currentPosition.Easting, currentPosition.Northing, ctx.Boundary, ctx.HeadlandLine);
 
+        // Toggling skip-worked mode invalidates the snake plan: rebuild it fresh
+        // next time it's needed instead of resuming a cursor built under the
+        // old mode (a stale cursor reads as "field done" forever).
+        if (turn.LastSkipWorkedMode != ctx.IsSkipWorkedMode)
+        {
+            if (turn.LastSkipWorkedMode.HasValue && turn.SnakeSequence != null)
+            {
+                _logger.LogDebug("[YouTurn] Skip-worked mode changed - clearing snake sequence");
+                turn.SnakeSequence = null;
+                turn.SnakeIndex = -1;
+            }
+            turn.LastSkipWorkedMode = ctx.IsSkipWorkedMode;
+        }
+
         bool isInCultivatedArea = turn.CurrentZone == TractorZone.InCultivatedArea;
         bool isInHeadlandZone = turn.CurrentZone == TractorZone.InHeadland;
 
@@ -569,9 +583,23 @@ public sealed class YouTurnStateMachine
         int? nextPath = _pathing.GetNextSnakePath(turn);
         if (nextPath == null)
         {
-            _logger.LogDebug("[YouTurn] Snake sequence complete — field done");
-            effects.StatusMessage = "Field complete — all tracks worked";
-            return;
+            // Exhausted. If the tractor is NOT on the sequence's final pass, the
+            // cursor is lying (aborted turn, manual repositioning) — rebuild the
+            // plan from where the tractor actually is instead of latching "done".
+            var seq = turn.SnakeSequence;
+            if (seq is { Count: > 0 } && guidance.HowManyPathsAway != seq[seq.Count - 1])
+            {
+                _logger.LogDebug("[YouTurn] Snake cursor stale (on path {Cur}, sequence ends at {Last}) - rebuilding",
+                    guidance.HowManyPathsAway, seq[seq.Count - 1]);
+                _pathing.BuildSnakeSequence(track, abHeading, guidance, turn, ctx.Boundary, ctx.HeadlandLine);
+                nextPath = _pathing.GetNextSnakePath(turn);
+            }
+            if (nextPath == null)
+            {
+                _logger.LogDebug("[YouTurn] Snake sequence complete — field done");
+                effects.StatusMessage = "Field complete — all tracks worked";
+                return;
+            }
         }
 
         var config = _configStore;

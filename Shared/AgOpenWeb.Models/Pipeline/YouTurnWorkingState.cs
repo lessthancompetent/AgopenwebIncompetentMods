@@ -72,6 +72,10 @@ public class YouTurnWorkingState
 
     public int SnakeIndex { get; set; } = -1;
 
+    // Skip-worked mode as of the previous tick — the state machine clears the
+    // snake sequence on a mode edge so toggling the mode rebuilds it fresh.
+    public bool? LastSkipWorkedMode { get; set; }
+
     // Zone the tractor is in — source of truth for turn creation gating.
     public TractorZone CurrentZone { get; set; } = TractorZone.OutsideBoundary;
 
@@ -108,6 +112,7 @@ public class YouTurnWorkingState
         ReturnPassTargetPath = null;
         SnakeSequence = null;
         SnakeIndex = -1;
+        LastSkipWorkedMode = null;
         CurrentZone = TractorZone.OutsideBoundary;
         NextUTurnDirectionLeftOverride = null;
     }
