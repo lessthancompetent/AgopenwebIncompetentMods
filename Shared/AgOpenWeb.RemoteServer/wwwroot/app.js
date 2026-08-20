@@ -914,7 +914,7 @@ function applyPlanPayload(d) {
   routePlan = {
     layers: d.layers.map(L => ({
       name: L.name,
-      segments: L.segments.map(s => ({ type: s.type, pts: s.pts.map(p => ({ e: p[0], n: p[1] })) })),
+      segments: L.segments.map(s => ({ type: s.type, ch: s.ch || 0, pts: s.pts.map(p => ({ e: p[0], n: p[1] })) })),
     })),
     meta: d.meta,
   };
