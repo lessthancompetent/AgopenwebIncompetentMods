@@ -1434,8 +1434,13 @@
       <div class="rp-pats" id="rp-applyblock-row" style="grid-template-columns:1fr;display:none">
         <button id="rp-applyblock" title="Plan ONLY the selected block (no headland laps) with the current Angle — 0 keeps auto heading for its shape. The angle is remembered per block; other blocks' paths are untouched, so block B can change after block A is planned or driven.">Select a block above</button>
       </div>
-      <div class="rp-pats" style="grid-template-columns:1fr">
-        <button id="rp-plantrack" title="Plan referenced to the track selected in the Tracks manager: an AB line fixes the pass direction, a curve makes every pass follow its shape. Bypasses split blocks.">⇉ Along selected track</button>
+      <div class="cfg-label">Reference track</div>
+      <div class="rp-row" id="rp-track-row" title="An AB line fixes the pass direction; a curve makes every pass follow its shape. Pick one here, plot a fresh A–B with two taps, or build curves in the Field Builder.">
+        <select id="rp-tracksel" class="cfg-sel" style="flex:1;min-width:0"></select>
+      </div>
+      <div class="rp-btns">
+        <button class="cfg-act" id="rp-plotab" title="Tap two points on the map — an AB line is created, selected, and the route plans along it">✏ Plot A–B</button>
+        <button class="cfg-act" id="rp-plantrack" title="Plan referenced to the chosen track. Bypasses split blocks.">⇉ Plan along it</button>
       </div>
     </div>
     <div id="rpt-headland" class="cfg-body" data-strip="rp-top" hidden>

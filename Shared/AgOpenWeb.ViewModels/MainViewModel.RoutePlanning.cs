@@ -770,6 +770,36 @@ public partial class MainViewModel
         }
     }
 
+    /// <summary>
+    /// Two map taps → a real AB line track, added to the field's tracks and
+    /// selected — the Route Planner's "plot the reference right here" shortcut
+    /// (the client follows up with route.planTrack). Reusable afterwards like
+    /// any hand-built AB line.
+    /// </summary>
+    public void CreateAbTrackFromPoints(double aE, double aN, double bE, double bN)
+    {
+        double dE = bE - aE, dN = bN - aN;
+        if (Math.Sqrt(dE * dE + dN * dN) < 2.0)
+        {
+            StatusMessage = "Points too close together — tap two points a few metres apart";
+            return;
+        }
+        double h = Math.Atan2(dE, dN);
+        int n = 1;
+        foreach (var t in SavedTracks)
+            if (t.Name.StartsWith("AB ", StringComparison.Ordinal)) n++;
+        var track = new Models.Track.Track
+        {
+            Name = $"AB {n}",
+            Points = new List<Vec3> { new(aE, aN, h), new(bE, bN, h) },
+            Type = Models.Track.TrackType.ABLine,
+            IsVisible = true,
+        };
+        SavedTracks.Add(track);
+        SelectedTrack = track;
+        StatusMessage = $"'{track.Name}' plotted and selected";
+    }
+
     /// <summary>Discard the current route preview.</summary>
     public void ClearRoutePlan()
     {

@@ -624,6 +624,17 @@ public static partial class RemoteServerWiring
                                     }
                                     return;
                                 }
+                                case "track.abFromPoints": // Route Planner quick-plot: two map taps → AB track.
+                                {                          // arg = "aE,aN,bE,bN" (m, from s2w). Tier-1.
+                                    var ap = arg.Split(',');
+                                    if (ap.Length >= 4
+                                        && double.TryParse(ap[0], num, inv, out var pae)
+                                        && double.TryParse(ap[1], num, inv, out var pan)
+                                        && double.TryParse(ap[2], num, inv, out var pbe)
+                                        && double.TryParse(ap[3], num, inv, out var pbn))
+                                        vm.CreateAbTrackFromPoints(pae, pan, pbe, pbn);
+                                    return;
+                                }
                                 case "track.boundaryCurveSeg": // "Bnd. Curve": tap A + B on the boundary.
                                 {                              // arg = "aE,aN,bE,bN" (m, from s2w). Tier-1.
                                     var bc = arg.Split(',');

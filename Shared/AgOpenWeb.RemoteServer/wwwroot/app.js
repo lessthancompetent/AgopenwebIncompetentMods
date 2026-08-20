@@ -215,6 +215,9 @@ const transport = RemoteTransport.create({
     }
     // Keep the Tracks manager list live (activate/add/delete/hide change the Scene).
     if (document.getElementById('dlg-tracks').classList.contains('open')) renderTracksList();
+    // Keep the Route Planner's reference-track picker in step with the field's
+    // tracks (a freshly plotted AB appears without reopening the panel).
+    if (document.getElementById('routeplan').classList.contains('open')) rpRender();
     if (document.getElementById('fieldbuilder').classList.contains('open') && fbTab === 'tracks'
         && !document.querySelector('#fb-tracklist .flg-nameedit')) renderFbTracks();
     if (document.getElementById('fieldbuilder').classList.contains('open') && fbTab === 'headland'
@@ -759,6 +762,28 @@ function rpRender() {
   document.getElementById('rp-block').textContent = rpBlock;
   document.getElementById('rp-angle').textContent = rpAngle;
   document.getElementById('rp-cornerfill').classList.toggle('on', rpCornerFill);
+  // Reference-track picker: the field's hand-built tracks (planned "Route …"
+  // paths excluded — planning along a plan is circular). Selection mirrors the
+  // active track; changing it activates that track server-side.
+  const sel = document.getElementById('rp-tracksel');
+  const tl = (scene && scene.trackList) || [];
+  const opts = [];
+  for (const t of tl)
+    if (!(t.name || '').startsWith('Route ')) opts.push(t);
+  const sig = opts.map(t => t.index + ':' + t.name + (t.active ? '*' : '')).join('|');
+  if (sel.dataset.sig !== sig) {
+    sel.dataset.sig = sig;
+    sel.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = '-1'; none.textContent = opts.length ? '— pick a track —' : 'No tracks yet';
+    sel.appendChild(none);
+    for (const t of opts) {
+      const o = document.createElement('option');
+      o.value = t.index; o.textContent = t.name + (t.type ? ' (' + t.type + ')' : '');
+      if (t.active) o.selected = true;
+      sel.appendChild(o);
+    }
+  }
   // Headland tab: style / order / back-cut selections.
   for (const b of document.querySelectorAll('#routeplan [data-hlstyle]'))
     b.classList.toggle('on', +b.dataset.hlstyle === rpHlStyle);
@@ -2005,8 +2030,9 @@ document.getElementById('dlg-tracks-close').addEventListener('pointerdown', e =>
 const LN_NAV_PANELS = ['routeplan', 'ratecontrol', 'modulesetup', 'obstacles', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
 // Watch-the-tractor panels opt OUT of the light-dismiss scrim — the map must stay
 // interactive (pan/zoom to follow the tractor while capturing). They close only via
-// the header (Back / ✕).
-const NO_SCRIM = new Set(['smartwas', 'recpath', 'boundaryplayer', 'fieldbuilder']);
+// the header (Back / ✕). The Route Planner joined them: the operator pans/inspects
+// the planned paths while adjusting knobs, so a map tap must not dismiss the panel.
+const NO_SCRIM = new Set(['smartwas', 'recpath', 'boundaryplayer', 'fieldbuilder', 'routeplan']);
 const lnScrim = document.getElementById('ln-scrim');
 function lnCloseAll() {
   for (const id of LN_NAV_PANELS) document.getElementById(id).classList.remove('open');
@@ -2131,6 +2157,29 @@ document.getElementById('rp-obsalarm').addEventListener('pointerdown', e => {
 document.getElementById('rp-splitdraw').addEventListener('pointerdown', e => { e.stopPropagation(); lnCloseAll(); drawSplitLine(); });
 document.getElementById('rp-splitclear').addEventListener('pointerdown', e => { e.stopPropagation(); clearSplitLines(); rpBlocksRefresh(); });
 document.getElementById('rp-applyblock').addEventListener('pointerdown', e => { e.stopPropagation(); applyBlockPath(); });
+document.getElementById('rp-tracksel').addEventListener('change', e => {
+  const idx = +e.target.value;
+  if (idx >= 0) transport.send('track.select|' + idx);
+});
+// Plot A–B: two taps make a real AB track (server names it "AB n" and selects
+// it), then the plan-along flow fires automatically.
+document.getElementById('rp-plotab').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  startMapTap({
+    hint: 'Tap point A',
+    onTap: (ae, an) => {
+      startMapTap({
+        hint: 'Tap point B',
+        onTap: (be, bn) => {
+          endMapTap();
+          transport.send('track.abFromPoints|' + [ae, an, be, bn].join(','));
+          setTimeout(() => document.getElementById('rp-plantrack')
+            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })), 400);
+        },
+      });
+    },
+  });
+});
 document.getElementById('rp-plantrack').addEventListener('pointerdown', e => {
   e.stopPropagation();
   transport.send('route.planTrack|' + [rpHeadland, rpSkip, rpBlock,
