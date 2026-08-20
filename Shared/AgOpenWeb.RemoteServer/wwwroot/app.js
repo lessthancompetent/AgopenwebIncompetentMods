@@ -5458,12 +5458,20 @@ const UTI = {
   dist: document.getElementById('uti-distval'),
   typePath: document.getElementById('uti-typepath'),
 };
-// Tapping the indicator flips the pending turn's direction (Tier-2; host
-// re-arms the rendered path with the new direction). Escape hatch for the
-// fixed-skip ping-pong: the operator redirects the pattern by hand.
+// Two tap zones, mirroring old AgOpenGPS's pair of AB-driving buttons:
+// the ARROW side flips the pending turn's direction (Tier-2; host re-arms
+// the rendered path), the TYPE glyph toggles U (sagitta) ↔ K turn — the
+// K needs a reverse leg, so it's the pick for linkage-mounted tools on
+// narrow headlands. Config applies live; the next armed turn uses it.
 if (UTI.root) UTI.root.addEventListener('pointerdown', e => {
   e.stopPropagation();
   rnSend('youturn.direction');
+});
+const utiType = document.getElementById('uti-type');
+if (utiType) utiType.addEventListener('pointerdown', e => {
+  e.stopPropagation();   // don't also flip direction
+  const cur = (config && config.uturn && config.uturn.style) || 0;
+  cfgSend('uturn.style', cur === 1 ? 0 : 1);
 });
 const UTURN_GLYPH = {
   0: 'M7 34 Q7 20 20 20 Q33 20 33 34',         // Sagitta (default) — flatter rounded arch
@@ -5481,6 +5489,8 @@ function renderUTurnIndicator() {
   UTI.arrow.classList.toggle('left', !!op.turnLeft);
   const style = (config && config.uturn && config.uturn.style) || 0;
   UTI.typePath.setAttribute('d', UTURN_GLYPH[style] || UTURN_GLYPH[0]);
+  const tl = document.getElementById('uti-typelabel');
+  if (tl) tl.textContent = style === 1 ? 'K' : 'U';
 }
 // ---- Lower-right cluster (Phase 4): roll gauge + camera/mode pad + clock ----
 const rollBar = document.getElementById('roll-bar');
