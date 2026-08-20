@@ -2684,26 +2684,13 @@ function rtRefresh() {
     rtSensorCounts = (d && d.moduleSensorCounts) || {};
     rtStatus = d;
     rtRenderSwitches();
-    const mb = document.getElementById('rt-master');
-    if (mb) {
-      const on = !!(d && d.masterOn);
-      mb.classList.toggle('active', on);
-      mb.textContent = on ? 'On' : 'OFF';
-      mb.style.background = on ? '' : 'rgba(231,76,60,0.35)';   // OFF must be obvious
-    }
     rtRender();
   }).catch(() => {});
 }
 function rtSend(key, value) { transport.send('rate.set|' + rtSel + ',' + key + ',' + value); setTimeout(rtRefresh, 250); }
-// Virtual switchbox. Master gates every product at the module; rate up/down
-// nudges the selected channel's target, and Reset returns it to the catalogue
-// rate — the "what was it supposed to be" after a few nudges.
-document.getElementById('rt-master').addEventListener('pointerdown', e => {
-  e.stopPropagation();
-  const on = !document.getElementById('rt-master').classList.contains('active');
-  transport.send('rate.master|' + (on ? '1' : '0'));
-  setTimeout(rtRefresh, 250);
-});
+// Rate up/down nudges the selected channel's target, and Reset returns it to
+// the catalogue rate — the "what was it supposed to be" after a few nudges.
+// (Master moved to the on-screen switchbox; swbSend owns it.)
 document.getElementById('rt-rateup').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('rate.bump|' + rtSel + ',5'); setTimeout(rtRefresh, 250);
 });
