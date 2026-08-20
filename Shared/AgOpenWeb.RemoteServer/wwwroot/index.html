@@ -1256,10 +1256,15 @@
   <div id="ab-dot-labels"></div>
   <div id="block-labels"></div>
   <!-- Phase MT — draw-track toolbar. Shown while drawing an AB/curve on the map.
-       Undo/Finish appear only in curve mode; Cancel always. -->
+       Undo/Finish appear only in curve mode; Cancel always. The .draw-ext row appears
+       only after a Bnd. Curve is created: walk each end along the boundary, 5 m/tap. -->
   <div id="draw-toolbar">
     <button id="draw-setpoint">Set Point</button>
     <button id="draw-undo">Undo</button>
+    <button class="draw-ext" id="draw-exta-plus" title="Extend the A end along the boundary, 5 m per tap">A++</button>
+    <button class="draw-ext" id="draw-exta-minus" title="Shorten the A end along the boundary, 5 m per tap">A−−</button>
+    <button class="draw-ext" id="draw-extb-minus" title="Shorten the B end along the boundary, 5 m per tap">B−−</button>
+    <button class="draw-ext" id="draw-extb-plus" title="Extend the B end along the boundary, 5 m per tap">B++</button>
     <button id="draw-finish">Finish</button>
     <button id="draw-cancel">Cancel</button>
   </div>
@@ -3375,7 +3380,7 @@
       <div class="dlg-sub">From Field Boundary</div>
       <div class="dlg-modes">
         <button class="dlg-mode" data-qab="boundaryEdge" title="AB line along the longest boundary edge"><span class="dlg-bigtxt">AB</span><span>Longest Edge</span></button>
-        <button class="dlg-mode" data-qab="boundaryCurve" title="Curve following the whole boundary"><img src="/icons/ABTrackCurve.png" alt=""><span>Bnd. Curve</span></button>
+        <button class="dlg-mode" data-qab="boundaryCurve" title="Curve along the boundary between two tapped points; then A++/B++ to extend"><img src="/icons/ABTrackCurve.png" alt=""><span>Bnd. Curve</span></button>
         <button class="dlg-mode" data-qab="allEdges" title="AB line for every boundary edge"><span class="dlg-bigtxt">All</span><span>All Edges</span></button>
       </div>
       <div class="dlg-sub">Draw on Map</div>

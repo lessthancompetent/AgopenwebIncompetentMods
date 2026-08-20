@@ -1643,11 +1643,15 @@ function renderAbDotLabels() {
     span.style.display = 'block';
   }
 }
-// Configure the bottom toolbar buttons for the active flow.
-function showAbBar(setPoint, undo, finish) {
+// Configure the bottom toolbar buttons for the active flow. ext = the A++/A−−/B−−/B++
+// boundary-curve trim row (replaces Cancel — the curve already exists, Done closes).
+function showAbBar(setPoint, undo, finish, ext) {
   drawBar.querySelector('#draw-setpoint').style.display = setPoint ? '' : 'none';
   drawBar.querySelector('#draw-undo').style.display = undo ? '' : 'none';
   drawBar.querySelector('#draw-finish').style.display = finish ? '' : 'none';
+  drawBar.querySelector('#draw-finish').textContent = 'Finish'; // callers wanting Save/Done set it after
+  for (const b of drawBar.querySelectorAll('.draw-ext')) b.style.display = ext ? '' : 'none';
+  drawBar.querySelector('#draw-cancel').style.display = ext ? 'none' : '';
   drawBar.classList.add('show');
 }
 function startDrawTrack(mode) {           // map-tap straight/curve (ungated — creating data)
@@ -1693,7 +1697,13 @@ function boundaryCurveTap(e, n) {
   if (drawPts.length < 2) { hintEl.textContent = 'Tap point B on the boundary'; return; }
   const a = drawPts[0], b = drawPts[1];
   transport.send('track.boundaryCurveSeg|' + a.e.toFixed(3) + ',' + a.n.toFixed(3) + ',' + b.e.toFixed(3) + ',' + b.n.toFixed(3));
-  endAbFlow();
+  // Curve created — stay open in a trim phase: A++/A−−/B−−/B++ walk each end along the
+  // boundary (5 m per tap, host-clamped), Done closes. Mirrors old AgOpenGPS FormABDraw.
+  abFlow = 'bndSegExtend'; drawPts = [];
+  endMapTap();                             // taps done — the buttons drive the rest
+  showAbBar(false, false, true, true);
+  document.getElementById('draw-finish').textContent = 'Done';
+  hintEl.textContent = 'Extend or shorten each end, then Done'; hintEl.classList.add('show');
 }
 function drawTap(e, n) {                    // map-tap point captured (straight/curve)
   drawPts.push({ e, n });
@@ -1741,15 +1751,18 @@ function abUndo() {
 function abFinish() {
   if (abFlow === 'curve') transport.send('track.drawFinish');
   else if (abFlow === 'recordCurve') transport.send('track.finishCurve');
+  else if (abFlow === 'bndSegExtend') { endAbFlow(); return; } // Done — curve already committed
   else return;
   endAbFlow();
 }
 function abCancel() {
   if (!abFlow) return;
+  if (abFlow === 'bndSegExtend') { endAbFlow(); return; } // nothing to cancel host-side
   transport.send('track.drawCancel'); // CancelABCreationCommand — universal (all modes)
   endAbFlow();
 }
 function endAbFlow() {
+  if (abFlow === 'bndSegExtend') document.getElementById('draw-finish').textContent = 'Finish';
   abFlow = null; drawMode = null; drawPts = []; driveStep = 0;
   curveMarks = []; _lastCurveMark = null; // clear record-curve path dots
   drawBar.classList.remove('show');
@@ -1922,6 +1935,9 @@ document.getElementById('draw-setpoint').addEventListener('pointerdown', e => { 
 document.getElementById('draw-undo').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); hlFlow ? hlUndo() : satBnd ? satUndo() : abUndo(); });
 document.getElementById('draw-finish').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); editSession ? saveEdit() : hlFlow ? endHeadlandDraw() : satBnd ? satFinish() : abFinish(); });
 document.getElementById('draw-cancel').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); editSession ? endEdit() : hlFlow ? endHeadlandDraw() : satBnd ? satCancel() : abCancel(); });
+// Bnd. Curve trim row — one 5 m step per tap (repeat-tap friendly; the host clamps the ends).
+for (const [id, arg] of [['draw-exta-plus', 'A,1'], ['draw-exta-minus', 'A,-1'], ['draw-extb-minus', 'B,-1'], ['draw-extb-plus', 'B,1']])
+  document.getElementById(id).addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); transport.send('track.boundarySegExtend|' + arg); });
 // Touch cancel for bare map-tap flows (flag). stopPropagation so the pill isn't taken as a map tap.
 document.getElementById('maptap-cancel').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (mapTap && mapTap.onCancel) mapTap.onCancel(); else endMapTap(); });
 

@@ -635,6 +635,13 @@ public static partial class RemoteServerWiring
                                         vm.RemoteCreateBoundaryCurveSegment(caE, caN, cbE, cbN);
                                     return;
                                 }
+                                case "track.boundarySegExtend": // A++/A−−/B++/B−− after a Bnd. Curve:
+                                {                               // arg = "A,1"|"A,-1"|"B,1"|"B,-1". Tier-1.
+                                    var bs = arg.Split(',');
+                                    if (bs.Length == 2 && int.TryParse(bs[1], out var bsd))
+                                        vm.RemoteBoundarySegExtend(bs[0], bsd);
+                                    return;
+                                }
                                 case "flag.placeAt": // Phase MT map-tap. arg = "easting,northing"
                                 {                     // (m, field-local, from s2w). Tier-1 marker.
                                     var fp = arg.Split(',');
