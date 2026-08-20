@@ -445,6 +445,12 @@ public partial class MainViewModel : ObservableObject
                 // projecting the (crabbed) tool heading.
                 scsConcrete.PlannedPathProvider = () =>
                 {
+                    // ONLY while the turn is executing: an armed-but-pending
+                    // turn's path starts at the headland ahead and its progress
+                    // index is stale — walking it from mid-pass put the
+                    // look-ahead samples beyond the turn, blinding the headland
+                    // checks (sections painted straight through the headland).
+                    if (!State.YouTurn.IsExecuting) return null;
                     var tp = State.YouTurn.TurnPath;
                     return tp is { Count: >= 2 }
                         ? (tp, State.YouTurn.PathIndex)
