@@ -68,6 +68,13 @@ public partial class MainViewModel
         StatusMessage = "Applied area deleted";
     }
 
+    // Last boundary-segment curve, remembered so the A++/A−−/B++/B−− buttons can walk its
+    // ends along the ring after creation. Invalidated by SavedTracks membership (track
+    // deleted, or another field opened → SavedTracks reloads with fresh Track objects).
+    private Models.Track.Track? _bndSegTrack;
+    private System.Collections.Generic.List<Models.Base.Vec2>? _bndSegRing;
+    private int _bndSegAi, _bndSegBi, _bndSegStep;
+
     /// <summary>
     /// Boundary curve from two tapped points (remote/web "Bnd. Curve"): snap A and B to the
     /// nearest outer-boundary vertices, walk the shorter arc between them, and create an OPEN
@@ -113,24 +120,8 @@ public partial class MainViewModel
         // Walk the SHORTER arc A→B around the closed ring (mirrors FormABDraw's wrap check).
         int forward = (bi - ai + n) % n;
         int step = forward <= n - forward ? 1 : -1;
-        var seg = new System.Collections.Generic.List<Models.Base.Vec3>();
-        for (int i = ai; ; i = (i + step + n) % n)
-        {
-            seg.Add(new Models.Base.Vec3(ring[i].Easting, ring[i].Northing, 0));
-            if (i == bi) break;
-        }
-
-        if (seg.Count < 3) { StatusMessage = "Segment too short for a curve"; return; }
-
-        // Round the boundary's sharp corners so the tractor can actually drive it (Chaikin
-        // corner-cutting), then heading per point (guidance's forward test keys off it).
-        var smoothed = Models.Guidance.CurveProcessing.ChaikinsSmooth(seg, 3);
-        var headed = Models.Guidance.CurveProcessing.CalculateHeadings(smoothed);
-        // Extend both ends past the field boundary along their tangents — exactly like the
-        // hand-drawn curve tool (ExtendCurvePastBoundary) and an AB line. Without this the curve
-        // stops inside the field and the U-turn generator has no boundary crossing to anchor the
-        // turn at each pass end; with it, the ends run past the fence and turns fire normally.
-        var curvePoints = ExtendCurvePastBoundary(headed);
+        var curvePoints = BuildBoundarySegmentCurve(ring, ai, bi, step);
+        if (curvePoints == null) { StatusMessage = "Segment too short for a curve"; return; }
         var track = new Models.Track.Track
         {
             Name = "Boundary Curve",
@@ -145,7 +136,111 @@ public partial class MainViewModel
         SavedTracks.Add(track);
         SelectedTrack = track;
         SaveTracksToFile();
+        _bndSegTrack = track;
+        _bndSegRing = ring;
+        _bndSegAi = ai;
+        _bndSegBi = bi;
+        _bndSegStep = step;
         StatusMessage = $"Created boundary curve ({curvePoints.Count} points, {insetDistance:F1} m inside fence)";
+    }
+
+    /// <summary>
+    /// A++/A−−/B++/B−− for the last boundary-segment curve: walk one end ±5 m along the
+    /// boundary ring (wrapping around it) and rebuild the SAME track in place so the map
+    /// shows it grow/shrink. end = "A"/"B"; dir = +1 extend, −1 shorten. Clamped so the
+    /// ends can't cross and the arc can't collapse below ~2 m.
+    /// </summary>
+    public void RemoteBoundarySegExtend(string end, int dir)
+    {
+        const double stepMeters = 5.0;
+        const double minCurveMeters = 2.0;
+        var track = _bndSegTrack;
+        var ring = _bndSegRing;
+        if (track == null || ring == null || !SavedTracks.Contains(track))
+        {
+            StatusMessage = "Create a boundary curve first (tap two boundary points)";
+            return;
+        }
+        bool isA = end == "A";
+        if ((!isA && end != "B") || (dir != 1 && dir != -1)) return;
+
+        int n = ring.Count;
+        double Seg(int i, int j)
+        {
+            double dx = ring[j].Easting - ring[i].Easting, dy = ring[j].Northing - ring[i].Northing;
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+        double ArcLen(int a, int b) // ring distance a→b walking by _bndSegStep
+        {
+            double len = 0;
+            for (int i = a; i != b;)
+            {
+                int j = (i + _bndSegStep + n) % n;
+                len += Seg(i, j);
+                i = j;
+            }
+            return len;
+        }
+        double arc = ArcLen(_bndSegAi, _bndSegBi);
+        double perimeter = arc + ArcLen(_bndSegBi, _bndSegAi);
+        // Budget the walk so the ends can neither cross (extending leaves ≥ ~2 m of ring
+        // between them) nor eat the curve below ~2 m (shortening).
+        double budget = dir > 0
+            ? Math.Min(stepMeters, perimeter - minCurveMeters - arc)
+            : Math.Min(stepMeters, arc - minCurveMeters);
+        // A extends against the arc's walk direction, B with it; shortening is the reverse.
+        int walkDir = (isA ? -_bndSegStep : _bndSegStep) * dir;
+        int idx = isA ? _bndSegAi : _bndSegBi;
+        double moved = 0;
+        for (int guard = 0; guard < n; guard++)
+        {
+            int next = (idx + walkDir + n) % n;
+            double s = Seg(idx, next);
+            if (moved + s > budget) break;
+            moved += s;
+            idx = next;
+        }
+        if (moved <= 0)
+        {
+            StatusMessage = dir > 0 ? "Boundary curve at maximum length" : "Boundary curve at minimum length";
+            return;
+        }
+        int nai = isA ? idx : _bndSegAi;
+        int nbi = isA ? _bndSegBi : idx;
+        var curvePoints = BuildBoundarySegmentCurve(ring, nai, nbi, _bndSegStep);
+        if (curvePoints == null) { StatusMessage = "Boundary curve at minimum length"; return; }
+        _bndSegAi = nai;
+        _bndSegBi = nbi;
+        track.Points = curvePoints;
+        SaveTracksToFile();
+        // Re-select to refresh nudge/guidance state for the (possibly active) rebuilt track.
+        SelectedTrack = track;
+        OnTrackVisibilityChanged();
+        double newArc = dir > 0 ? arc + moved : arc - moved;
+        StatusMessage = $"{end} end {(dir > 0 ? "extended" : "shortened")} {moved:F0} m ({newArc:F0} m along boundary)";
+    }
+
+    /// <summary>Ring arc ai→bi (walking by step) → drivable open curve. Rounds the boundary's
+    /// sharp corners so the tractor can actually drive it (Chaikin corner-cutting), computes
+    /// heading per point (guidance's forward test keys off it), then extends both ends past
+    /// the field boundary along their tangents — exactly like the hand-drawn curve tool and
+    /// an AB line; without that the curve stops inside the field and the U-turn generator has
+    /// no boundary crossing to anchor the turn at each pass end. Null when the arc has fewer
+    /// than 3 vertices.</summary>
+    private List<Vec3>? BuildBoundarySegmentCurve(
+        System.Collections.Generic.List<Models.Base.Vec2> ring, int ai, int bi, int step)
+    {
+        int n = ring.Count;
+        var seg = new System.Collections.Generic.List<Models.Base.Vec3>();
+        for (int i = ai; ; i = (i + step + n) % n)
+        {
+            seg.Add(new Models.Base.Vec3(ring[i].Easting, ring[i].Northing, 0));
+            if (i == bi) break;
+        }
+        if (seg.Count < 3) return null;
+        var smoothed = Models.Guidance.CurveProcessing.ChaikinsSmooth(seg, 3);
+        var headed = Models.Guidance.CurveProcessing.CalculateHeadings(smoothed);
+        return ExtendCurvePastBoundary(headed);
     }
 
     private void InitializeTrackCommands()
