@@ -797,6 +797,7 @@ public partial class MainViewModel
         };
         SavedTracks.Add(track);
         SelectedTrack = track;
+        SaveTracksToFile();   // a plotted AB is a real field track — survives reopen
         StatusMessage = $"'{track.Name}' plotted and selected";
     }
 
