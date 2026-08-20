@@ -348,7 +348,8 @@ public partial class MainViewModel
     /// the skip/cross/block patterns; angleDeg rotates the field-aligned passes.
     /// </summary>
     public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg, bool cornerFill = false,
-        double? headingOverrideRad = null, IReadOnlyList<Vec3>? refCurve = null)
+        double? headingOverrideRad = null, IReadOnlyList<Vec3>? refCurve = null,
+        int headlandStyle = 0, bool headlandFirst = true, bool headlandBackCut = false)
     {
         // Clear any prior plan up front so the web client, which polls
         // /api/routeplan for the result, can't pick up a stale plan while this
@@ -362,6 +363,13 @@ public partial class MainViewModel
             StatusMessage = "Open a field with a boundary to plan a route";
             return;
         }
+
+        // Operator's headland style — picked up by every plan assembly below
+        // (including the auto-orientation trials and split-field blocks).
+        RoutePlanner.HeadlandStyle =
+            (Models.RoutePlanning.RouteHeadlandStyle)Math.Clamp(headlandStyle, 0, 3);
+        RoutePlanner.HeadlandFirstPhase = headlandFirst;
+        RoutePlanner.HeadlandBackCut = headlandBackCut;
         var pts = ctx.Pts;
         var inners = ctx.Inners;
         double edgeOff = ctx.EdgeOff, width = ctx.Width, physWidth = ctx.PhysWidth,
@@ -465,9 +473,10 @@ public partial class MainViewModel
                     if (bp == null || bp.Segments.Count == 0) continue;
                     if (customHl == null && i == 0 && passes > 0)
                     {
-                        var (laps, rest) = SplitLapsPrefix(bp);
-                        if (laps != null) _routeLayers.Add(("Headland", laps));
+                        var (laps, rest, lapsFirst) = SplitLapsAffix(bp);
+                        if (laps != null && lapsFirst) _routeLayers.Add(("Headland", laps));
                         if (rest.Segments.Count > 0) _routeLayers.Add((label, rest));
+                        if (laps != null && !lapsFirst) _routeLayers.Add(("Headland", laps));
                     }
                     else
                     {
@@ -507,9 +516,10 @@ public partial class MainViewModel
                 }
                 else
                 {
-                    var (laps, rest) = SplitLapsPrefix(plan);
-                    if (laps != null) _routeLayers.Add(("Headland", laps));
+                    var (laps, rest, lapsFirst) = SplitLapsAffix(plan);
+                    if (laps != null && lapsFirst) _routeLayers.Add(("Headland", laps));
                     if (rest.Segments.Count > 0) _routeLayers.Add(("Main", rest));
+                    if (laps != null && !lapsFirst) _routeLayers.Add(("Headland", laps));
                 }
             }
         }
@@ -565,7 +575,8 @@ public partial class MainViewModel
     /// the passes follow its shape (offset copies clipped to the field). Splits
     /// are bypassed — the track IS the reference.
     /// </summary>
-    public void PlanRouteAlongSelectedTrack(int headlandPasses, int skipCount, int blockSkip)
+    public void PlanRouteAlongSelectedTrack(int headlandPasses, int skipCount, int blockSkip,
+        int headlandStyle = 0, bool headlandFirst = true, bool headlandBackCut = false)
     {
         var track = SelectedTrack;
         if (track?.Points is not { Count: >= 2 } tp)
@@ -581,13 +592,15 @@ public partial class MainViewModel
         if (tp.Count == 2)
         {
             double hdg = Math.Atan2(tp[1].Easting - tp[0].Easting, tp[1].Northing - tp[0].Northing);
-            PlanRoute(0, headlandPasses, skipCount, blockSkip, 0, false, headingOverrideRad: hdg);
+            PlanRoute(0, headlandPasses, skipCount, blockSkip, 0, false, headingOverrideRad: hdg,
+                headlandStyle: headlandStyle, headlandFirst: headlandFirst, headlandBackCut: headlandBackCut);
             if (_currentRoutePlan != null)
                 StatusMessage = $"Route aligned to '{track.Name}' — " + StatusMessage;
         }
         else
         {
-            PlanRoute(0, headlandPasses, skipCount, blockSkip, 0, false, refCurve: tp);
+            PlanRoute(0, headlandPasses, skipCount, blockSkip, 0, false, refCurve: tp,
+                headlandStyle: headlandStyle, headlandFirst: headlandFirst, headlandBackCut: headlandBackCut);
             if (_currentRoutePlan != null)
                 StatusMessage = $"Route follows curve '{track.Name}' — " + StatusMessage;
         }
@@ -634,19 +647,35 @@ public partial class MainViewModel
         return new RoutePlan(segs, new RoutePlanMetadata(swaths, tot, 0, work, turnM, turns, src.Metadata.ToolWidthMeters));
     }
 
-    /// <summary>Slice a plan at its first interior pass: the headland-lap prefix
-    /// (drive-to-start + laps) versus the interior fill. Laps side is null when
-    /// the plan has no lap segments before the first pass.</summary>
-    private static (RoutePlan? Laps, RoutePlan Body) SplitLapsPrefix(RoutePlan plan)
+    /// <summary>Slice a plan at the interior fill: the headland laps (plus their
+    /// drive-to-start / connector) versus the interior body. Headland-first
+    /// plans carry the laps as a PREFIX before the first pass; headland-last
+    /// (mow-style) plans carry them as a SUFFIX after the last pass —
+    /// <c>LapsFirst</c> says which, so callers keep the drive order when they
+    /// register the layers. Laps side is null when the plan has no laps.</summary>
+    private static (RoutePlan? Laps, RoutePlan Body, bool LapsFirst) SplitLapsAffix(RoutePlan plan)
     {
-        int firstSwath = -1; bool lapsBefore = false;
+        int firstSwath = -1, lastSwath = -1;
+        bool lapsBefore = false, lapsAfter = false;
         for (int i = 0; i < plan.Segments.Count; i++)
         {
-            if (plan.Segments[i].Type == RouteSegmentType.Swath) { firstSwath = i; break; }
-            if (plan.Segments[i].Type == RouteSegmentType.Headland) lapsBefore = true;
+            var t = plan.Segments[i].Type;
+            if (t == RouteSegmentType.Swath)
+            {
+                if (firstSwath < 0) firstSwath = i;
+                lastSwath = i;
+            }
+            else if (t == RouteSegmentType.Headland)
+            {
+                if (firstSwath < 0) lapsBefore = true;
+                else lapsAfter = true;
+            }
         }
-        if (firstSwath <= 0 || !lapsBefore) return (null, plan);
-        return (Subplan(plan, 0, firstSwath), Subplan(plan, firstSwath, plan.Segments.Count));
+        if (firstSwath > 0 && lapsBefore)
+            return (Subplan(plan, 0, firstSwath), Subplan(plan, firstSwath, plan.Segments.Count), true);
+        if (lastSwath >= 0 && lapsAfter)
+            return (Subplan(plan, lastSwath + 1, plan.Segments.Count), Subplan(plan, 0, lastSwath + 1), false);
+        return (null, plan, true);
     }
 
     /// <summary>Rebuild the composite plan (what Drive and the stats read) from the
@@ -711,7 +740,9 @@ public partial class MainViewModel
         for (int i = 0; i < _routeLayers.Count; i++)
         {
             string n = _routeLayers[i].Name;
-            if (n == "Headland") continue;
+            // A leading Headland layer stays first; a trailing one (headland-last
+            // style) stays last — blocks slot in between, in label order.
+            if (n == "Headland") { if (i == 0) continue; ins = i; break; }
             if (n == "Main" || string.CompareOrdinal(n, label) > 0) { ins = i; break; }
         }
         _routeLayers.Insert(ins, (label, bp));

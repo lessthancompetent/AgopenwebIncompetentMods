@@ -17,6 +17,19 @@ namespace AgOpenWeb.Services.RoutePlanning;
 /// </summary>
 public interface IRoutePlanningService
 {
+    /// <summary>How the headland laps are emitted (classic laps, one continuous
+    /// spiral in/out, or none). Operator's choice — set before Generate*.</summary>
+    RouteHeadlandStyle HeadlandStyle { get; set; }
+
+    /// <summary>True (default): headland laps drive before the interior fill.
+    /// False: interior first, laps last (mow-style ordering — the headland
+    /// stays clean for turning and is cut on the way out).</summary>
+    bool HeadlandFirstPhase { get; set; }
+
+    /// <summary>Finish the route with one extra fence-tight lap driven the
+    /// opposite way round (mower back-cut).</summary>
+    bool HeadlandBackCut { get; set; }
+
     /// <summary>
     /// Build a back-and-forth coverage route inside <paramref name="outerBoundary"/>
     /// (local-plane meters). Swaths are spaced by <paramref name="swathWidth"/>,

@@ -700,6 +700,11 @@ let rpLayerVis = {};  // layer name -> false when hidden (anything else = visibl
 let rpBlocks = [];    // split blocks: [{label,'e','n',angle?}] from /api/routeblocks
 let rpSelBlock = null; // selected block label (Apply path targets it)
 let rpPattern = 0, rpHeadland = 0, rpSkip = 0, rpBlock = 3, rpAngle = 0, rpCornerFill = false;
+// Headland style knobs (Headland tab) — the operator's choice per tool/field/job,
+// remembered per device so the mower keeps "spiral out + last + back-cut".
+let rpHlStyle = +(localStorage.rpHlStyle || 0) || 0;   // 0 laps, 1 spiral in, 2 spiral out, 3 none
+let rpHlFirst = localStorage.rpHlOrder !== '0';        // true = laps before the interior fill
+let rpBackCut = localStorage.rpBackCut === '1';        // extra opposite-hand fence lap at the end
 let rpObsW = 4, rpObsL = 4, rpObsType = 'HOLE';
 const RP_PAINT = { Swath: 'routeSwath', Turn: 'routeTurn', Headland: 'routeHeadland', Approach: 'routeApproach' };
 function drawRoutePlanSk(canvas) {
@@ -750,9 +755,28 @@ function rpRender() {
   document.getElementById('rp-block').textContent = rpBlock;
   document.getElementById('rp-angle').textContent = rpAngle;
   document.getElementById('rp-cornerfill').classList.toggle('on', rpCornerFill);
+  // Headland tab: style / order / back-cut selections.
+  for (const b of document.querySelectorAll('#routeplan [data-hlstyle]'))
+    b.classList.toggle('on', +b.dataset.hlstyle === rpHlStyle);
+  for (const b of document.querySelectorAll('#routeplan [data-hlorder]'))
+    b.classList.toggle('on', (b.dataset.hlorder === '1') === rpHlFirst);
+  document.getElementById('rp-backcut').classList.toggle('on', rpBackCut);
+  const hlHints = [
+    'Separate laps, outer to inner, then the interior fill.',
+    'One continuous spiral inward — each lap closes, then a smooth lane change onto the next.',
+    'Spiral driven inside-out, finishing on the fence lap — best with "Headland last" to end at the gate.',
+    'No laps in this route — the headland is left for a separate pass (turn room is still kept).',
+  ];
+  document.getElementById('rp-hlhint').textContent =
+    rpPattern === 3 ? 'The whole-field Spiral pattern has no separate headland.' : hlHints[rpHlStyle] || '';
   // Show only the controls relevant to the selected pattern (0 Auto,1 Skip,2 Cross,3 Spiral,4 Block).
   const show = (id, on) => { document.getElementById(id).style.display = on ? '' : 'none'; };
   show('rp-hl-row', rpPattern !== 3);          // spiral has no headland laps
+  show('rp-hlstyle-label', rpPattern !== 3);
+  show('rp-hlstyle-row', rpPattern !== 3);
+  show('rp-hlorder-label', rpPattern !== 3);
+  show('rp-hlorder-row', rpPattern !== 3);
+  show('rp-backcut-row', rpPattern !== 3);
   show('rp-skip-row', rpPattern === 1);        // Skip
   show('rp-block-row', rpPattern === 4);       // Block
   show('rp-angle-row', rpPattern !== 3);       // every pattern but spiral
@@ -1125,7 +1149,8 @@ document.getElementById('ft-exportcov').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('job.exportCoverage');
 });
 function planRoute() {
-  transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0].join(','));
+  transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0,
+    rpHlStyle, rpHlFirst ? 1 : 0, rpBackCut ? 1 : 0].join(','));
   document.getElementById('rp-stats').textContent = 'Planning…';
   // The command runs on the backend dispatcher and can take a while on big fields
   // (obstacle-aware Dubins turns). The backend clears the plan first, so poll
@@ -2031,6 +2056,24 @@ document.getElementById('ln-network').addEventListener('pointerdown', e => {
 for (const b of document.querySelectorAll('#routeplan .rp-pat[data-pat]'))
   b.addEventListener('pointerdown', e => { e.stopPropagation(); rpPattern = +b.dataset.pat; rpRender(); });
 document.getElementById('rp-cornerfill').addEventListener('pointerdown', e => { e.stopPropagation(); rpCornerFill = !rpCornerFill; rpRender(); });
+wireTabStrip(document.getElementById('routeplan'), 'rp-top');
+for (const b of document.querySelectorAll('#routeplan [data-hlstyle]'))
+  b.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    rpHlStyle = +b.dataset.hlstyle; localStorage.rpHlStyle = rpHlStyle;
+    rpRender();
+  });
+for (const b of document.querySelectorAll('#routeplan [data-hlorder]'))
+  b.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    rpHlFirst = b.dataset.hlorder === '1'; localStorage.rpHlOrder = rpHlFirst ? '1' : '0';
+    rpRender();
+  });
+document.getElementById('rp-backcut').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  rpBackCut = !rpBackCut; localStorage.rpBackCut = rpBackCut ? '1' : '0';
+  rpRender();
+});
 for (const b of document.querySelectorAll('#routeplan .rp-sb, #obstacles .rp-sb'))
   b.addEventListener('pointerdown', e => {
     e.stopPropagation();
@@ -2076,7 +2119,8 @@ document.getElementById('rp-splitclear').addEventListener('pointerdown', e => { 
 document.getElementById('rp-applyblock').addEventListener('pointerdown', e => { e.stopPropagation(); applyBlockPath(); });
 document.getElementById('rp-plantrack').addEventListener('pointerdown', e => {
   e.stopPropagation();
-  transport.send('route.planTrack|' + [rpHeadland, rpSkip, rpBlock].join(','));
+  transport.send('route.planTrack|' + [rpHeadland, rpSkip, rpBlock,
+    rpHlStyle, rpHlFirst ? 1 : 0, rpBackCut ? 1 : 0].join(','));
   document.getElementById('rp-stats').textContent = 'Planning along selected track…';
   let tries = 0;
   const poll = () => {

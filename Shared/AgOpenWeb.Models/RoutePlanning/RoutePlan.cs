@@ -21,6 +21,23 @@ public enum RouteSegmentType
     Approach
 }
 
+/// <summary>How the headland laps are driven. Operator's choice, to suit the
+/// tool, field and job — see the Route Planner's Headland tab.</summary>
+public enum RouteHeadlandStyle
+{
+    /// <summary>Separate closed laps, outermost first (classic).</summary>
+    Laps = 0,
+    /// <summary>One continuous spiral from the fence inward: each lap closes at
+    /// its own start then lane-changes one width in onto the next lap.</summary>
+    SpiralIn = 1,
+    /// <summary>The same spiral driven inside-out, finishing on the fence lap —
+    /// pairs with headland-last so the route ends at the field entry.</summary>
+    SpiralOut = 2,
+    /// <summary>No headland laps in the route (the margin is still reserved for
+    /// turns) — for working the headland separately or by hand.</summary>
+    None = 3,
+}
+
 /// <summary>
 /// One leg of a route: a worked swath or the turn that links two swaths.
 /// Points are in the field's local plane (meters, with heading).

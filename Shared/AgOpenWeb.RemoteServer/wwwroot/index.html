@@ -1365,54 +1365,84 @@
        result is fetched from /api/routeplan and drawn client-side (drawRoutePlanSk). -->
   <div id="routeplan" class="ln-panel rp-panel">
     <div class="ln-hdr"><span class="ln-hdr-title">Route Planner</span><button class="ln-x ln-closex" title="Close">✕</button></div>
-    <div class="cfg-label">Pattern</div>
-    <div class="rp-pats">
-      <button class="rp-pat" data-pat="0">Auto</button>
-      <button class="rp-pat" data-pat="1">Skip</button>
-      <button class="rp-pat" data-pat="2">Cross</button>
-      <button class="rp-pat" data-pat="3">Spiral</button>
-      <button class="rp-pat" data-pat="4">Block</button>
+    <div class="cfg-tabs">
+      <button class="cfg-tab active" data-strip="rp-top" data-tab="rpt-pattern">Pattern</button>
+      <button class="cfg-tab" data-strip="rp-top" data-tab="rpt-headland">Headland</button>
+      <button class="cfg-tab" data-strip="rp-top" data-tab="rpt-drive">Drive</button>
+      <button class="cfg-tab" data-strip="rp-top" data-tab="rpt-check">Check</button>
     </div>
-    <div class="rp-row" id="rp-hl-row"><span class="cfg-label">Headland laps</span>
-      <div class="rp-step"><button class="rp-sb" data-rp="hl" data-d="-1">−</button><span id="rp-hl">Auto</span><button class="rp-sb" data-rp="hl" data-d="1">+</button></div></div>
-    <div class="rp-row" id="rp-skip-row"><span class="cfg-label">Skip rows</span>
-      <div class="rp-step"><button class="rp-sb" data-rp="skip" data-d="-1">−</button><span id="rp-skip">0</span><button class="rp-sb" data-rp="skip" data-d="1">+</button></div></div>
-    <div class="rp-row" id="rp-block-row"><span class="cfg-label">Block skip</span>
-      <div class="rp-step"><button class="rp-sb" data-rp="block" data-d="-1">−</button><span id="rp-block">3</span><button class="rp-sb" data-rp="block" data-d="1">+</button></div></div>
-    <div class="rp-row" id="rp-angle-row"><span class="cfg-label">Angle °</span>
-      <div class="rp-step"><button class="rp-sb" data-rp="angle" data-d="-5">−</button><span id="rp-angle">0</span><button class="rp-sb" data-rp="angle" data-d="5">+</button></div></div>
-    <div class="rp-row" id="rp-speeds-row" title="Machine speed model for route comparison and ETA: work km/h, turn km/h, seconds lost per turn"><span class="cfg-label">Spd W/T · s/turn · edge m</span>
-      <input id="rp-wspd" type="number" step="0.5" min="0.5" style="width:40px"><input id="rp-tspd" type="number" step="0.5" min="0.5" style="width:40px"><input id="rp-tovh" type="number" step="0.5" min="0" style="width:40px"><input id="rp-edgeoff" type="number" step="0.25" min="0" style="width:40px" title="First-pass edge offset: pulls the whole plan this far in from the mapped boundary (fence-on-the-line paddocks). 0 when the boundary was driven as the first working pass."></div>
-    <div id="rp-eta" class="rp-stats" title="Live time remaining: learned work/turn speeds x remaining plan distance"></div>
-    <div class="rp-pats" id="rp-missed-row" style="grid-template-columns:1fr"><button id="rp-missed" title="Tint unworked ground red under the coverage so missed spots stand out">Show missed spots</button></div>
-    <div class="rp-pats" id="rp-cornerfill-row" style="grid-template-columns:1fr">
-      <button class="rp-pat" id="rp-cornerfill">Corner fill (spiral)</button>
+    <div id="rpt-pattern" class="cfg-body" data-strip="rp-top">
+      <div class="cfg-label">Pattern</div>
+      <div class="rp-pats">
+        <button class="rp-pat" data-pat="0" title="Straight passes, best direction picked automatically (fastest of several trial headings)">Auto</button>
+        <button class="rp-pat" data-pat="1" title="Leap-frog row order — every turn is a wide easy U-turn">Skip</button>
+        <button class="rp-pat" data-pat="2" title="Two full coverages at right angles (seed drilling)">Cross</button>
+        <button class="rp-pat" data-pat="3" title="One continuous spiral over the whole field, fence to centre">Spiral</button>
+        <button class="rp-pat" data-pat="4" title="Work rows in blocks a set number apart">Block</button>
+      </div>
+      <div class="rp-row" id="rp-skip-row"><span class="cfg-label">Skip rows</span>
+        <div class="rp-step"><button class="rp-sb" data-rp="skip" data-d="-1">−</button><span id="rp-skip">0</span><button class="rp-sb" data-rp="skip" data-d="1">+</button></div></div>
+      <div class="rp-row" id="rp-block-row"><span class="cfg-label">Block skip</span>
+        <div class="rp-step"><button class="rp-sb" data-rp="block" data-d="-1">−</button><span id="rp-block">3</span><button class="rp-sb" data-rp="block" data-d="1">+</button></div></div>
+      <div class="rp-row" id="rp-angle-row"><span class="cfg-label">Angle °</span>
+        <div class="rp-step"><button class="rp-sb" data-rp="angle" data-d="-5">−</button><span id="rp-angle">0</span><button class="rp-sb" data-rp="angle" data-d="5">+</button></div></div>
+      <div class="rp-pats" id="rp-cornerfill-row" style="grid-template-columns:1fr">
+        <button class="rp-pat" id="rp-cornerfill">Corner fill (spiral)</button>
+      </div>
+      <div class="rp-btns" title="Split the field into simpler regions worked separately, each with its own straight-pass direction — e.g. cut an L into a tall and a wide rectangle. Draw: tap two points across the field; the line extends to the boundary.">
+        <button class="cfg-act" id="rp-splitdraw">✂ Draw split</button>
+        <button class="cfg-act" id="rp-splitclear">Clear splits<span id="rp-splitcount"></span></button>
+      </div>
+      <div class="cfg-label" id="rp-blocks-label" style="display:none">Blocks (tap to select)</div>
+      <div class="rp-pats" id="rp-blocks" style="display:none"></div>
+      <div class="rp-pats" id="rp-applyblock-row" style="grid-template-columns:1fr;display:none">
+        <button id="rp-applyblock" title="Plan ONLY the selected block (no headland laps) with the current Angle — 0 keeps auto heading for its shape. The angle is remembered per block; other blocks' paths are untouched, so block B can change after block A is planned or driven.">Select a block above</button>
+      </div>
+      <div class="rp-pats" style="grid-template-columns:1fr">
+        <button id="rp-plantrack" title="Plan referenced to the track selected in the Tracks manager: an AB line fixes the pass direction, a curve makes every pass follow its shape. Bypasses split blocks.">⇉ Along selected track</button>
+      </div>
     </div>
-    <div class="rp-btns" title="Split the field into simpler regions worked separately, each with its own straight-pass direction — e.g. cut an L into a tall and a wide rectangle. Draw: tap two points across the field; the line extends to the boundary.">
-      <button class="cfg-act" id="rp-splitdraw">✂ Draw split</button>
-      <button class="cfg-act" id="rp-splitclear">Clear splits<span id="rp-splitcount"></span></button>
+    <div id="rpt-headland" class="cfg-body" data-strip="rp-top" hidden>
+      <div class="rp-row" id="rp-hl-row"><span class="cfg-label">Headland laps</span>
+        <div class="rp-step"><button class="rp-sb" data-rp="hl" data-d="-1">−</button><span id="rp-hl">Auto</span><button class="rp-sb" data-rp="hl" data-d="1">+</button></div></div>
+      <div class="cfg-label" id="rp-hlstyle-label">Style</div>
+      <div class="rp-pats" id="rp-hlstyle-row" style="grid-template-columns:1fr 1fr">
+        <button class="rp-pat" data-hlstyle="0" title="Separate closed laps, outermost first — the familiar way">Classic laps</button>
+        <button class="rp-pat" data-hlstyle="1" title="One continuous path from the fence inward: each lap closes at its own start, then a smooth lane change one width in — no stop-start between laps">Spiral in</button>
+        <button class="rp-pat" data-hlstyle="2" title="The same spiral driven inside-out, finishing on the fence lap — pair with 'Headland last' to end the job at the gate">Spiral out</button>
+        <button class="rp-pat" data-hlstyle="3" title="Leave the headland out of the route (room is still kept for turns) — work it separately or by hand">None</button>
+      </div>
+      <div class="cfg-label" id="rp-hlorder-label">Order</div>
+      <div class="rp-pats" id="rp-hlorder-row" style="grid-template-columns:1fr 1fr">
+        <button class="rp-pat" data-hlorder="1" title="Laps before the interior fill — spraying, seeding: turns run on worked ground">Headland first</button>
+        <button class="rp-pat" data-hlorder="0" title="Interior first, laps on the way out — mowing: the headland stays clean for turning and is cut last">Headland last</button>
+      </div>
+      <div class="rp-pats" id="rp-backcut-row" style="grid-template-columns:1fr">
+        <button class="rp-pat" id="rp-backcut" title="Finish with one extra fence-tight lap driven the opposite way round, so the tool's other side dresses the fence line (one-sided mowers)">Back-cut finish lap</button>
+      </div>
+      <div class="rp-stats" id="rp-hlhint"></div>
     </div>
-    <div class="cfg-label" id="rp-blocks-label" style="display:none">Blocks (tap to select)</div>
-    <div class="rp-pats" id="rp-blocks" style="display:none"></div>
-    <div class="rp-pats" id="rp-applyblock-row" style="grid-template-columns:1fr;display:none">
-      <button id="rp-applyblock" title="Plan ONLY the selected block (no headland laps) with the current Angle — 0 keeps auto heading for its shape. The angle is remembered per block; other blocks' paths are untouched, so block B can change after block A is planned or driven.">Select a block above</button>
+    <div id="rpt-drive" class="cfg-body" data-strip="rp-top" hidden>
+      <div class="cfg-label" id="rp-layers-label" style="display:none">Show paths</div>
+      <div class="rp-pats" id="rp-layers" style="display:none"></div>
+      <div class="rp-btns">
+        <button class="cfg-act fj-primary" id="rp-steermain">Steer: Main</button>
+        <button class="cfg-act" id="rp-steerhead">Steer: Headland</button>
+      </div>
+      <div class="rp-btns">
+        <button class="cfg-act" id="rp-drive">▶ Drive (sim)</button>
+        <button class="cfg-act fj-danger" id="rp-stop">■ Stop</button>
+      </div>
+      <div id="rp-eta" class="rp-stats" title="Live time remaining: learned work/turn speeds x remaining plan distance"></div>
     </div>
-    <div class="cfg-label" id="rp-layers-label" style="display:none">Show paths</div>
-    <div class="rp-pats" id="rp-layers" style="display:none"></div>
+    <div id="rpt-check" class="cfg-body" data-strip="rp-top" hidden>
+      <div class="rp-row" id="rp-speeds-row" title="Machine speed model for route comparison and ETA: work km/h, turn km/h, seconds lost per turn"><span class="cfg-label">Spd W/T · s/turn · edge m</span>
+        <input id="rp-wspd" type="number" step="0.5" min="0.5" style="width:40px"><input id="rp-tspd" type="number" step="0.5" min="0.5" style="width:40px"><input id="rp-tovh" type="number" step="0.5" min="0" style="width:40px"><input id="rp-edgeoff" type="number" step="0.25" min="0" style="width:40px" title="First-pass edge offset: pulls the whole plan this far in from the mapped boundary (fence-on-the-line paddocks). 0 when the boundary was driven as the first working pass."></div>
+      <div class="rp-pats" id="rp-missed-row" style="grid-template-columns:1fr"><button id="rp-missed" title="Tint unworked ground red under the coverage so missed spots stand out">Show missed spots</button></div>
+    </div>
     <div class="rp-btns">
       <button class="cfg-act fj-primary" id="rp-plan">Plan Route</button>
       <button class="cfg-act fj-danger" id="rp-clear">Clear</button>
-    </div>
-    <div class="rp-pats" style="grid-template-columns:1fr">
-      <button id="rp-plantrack" title="Plan referenced to the track selected in the Tracks manager: an AB line fixes the pass direction, a curve makes every pass follow its shape. Bypasses split blocks.">⇉ Along selected track</button>
-    </div>
-    <div class="rp-btns">
-      <button class="cfg-act fj-primary" id="rp-steermain">Steer: Main</button>
-      <button class="cfg-act" id="rp-steerhead">Steer: Headland</button>
-    </div>
-    <div class="rp-btns">
-      <button class="cfg-act" id="rp-drive">▶ Drive (sim)</button>
-      <button class="cfg-act fj-danger" id="rp-stop">■ Stop</button>
     </div>
     <div class="rp-stats" id="rp-stats">No route planned.</div>
   </div>

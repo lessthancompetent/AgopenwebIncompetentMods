@@ -23,6 +23,15 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
     private readonly IPolygonOffsetService _offset;
 
+    /// <inheritdoc />
+    public RouteHeadlandStyle HeadlandStyle { get; set; } = RouteHeadlandStyle.Laps;
+
+    /// <inheritdoc />
+    public bool HeadlandFirstPhase { get; set; } = true;
+
+    /// <inheritdoc />
+    public bool HeadlandBackCut { get; set; }
+
     public RoutePlanningService(IPolygonOffsetService offset)
     {
         _offset = offset;
@@ -1060,17 +1069,33 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // Headland-lap corners are filleted to the tractor's real turning circle
         // (cornerRadius, from the vehicle setup); fall back to the U-turn radius.
         double cr = cornerRadius > 0.01 ? cornerRadius : turnRadius;
+
+        // Headland laps in drive order, shaped by the operator's style choice:
+        // classic separate laps, one continuous spiral (in or out), or none at
+        // all — the margin is still reserved, the laps are just worked separately.
+        var lapPaths = new List<List<Vec3>>();
+        if (headlandPasses > 0 && HeadlandStyle != RouteHeadlandStyle.None)
+        {
+            if (HeadlandStyle == RouteHeadlandStyle.Laps)
+                lapPaths = BuildHeadlandRings(boundary, swathWidth, headlandPasses, startPos, cr);
+            else
+            {
+                var spiralHl = BuildHeadlandSpiral(boundary, swathWidth, headlandPasses, startPos, cr,
+                    outward: HeadlandStyle == RouteHeadlandStyle.SpiralOut);
+                if (spiralHl != null) lapPaths.Add(spiralHl);
+                else lapPaths = BuildHeadlandRings(boundary, swathWidth, headlandPasses, startPos, cr);
+            }
+        }
         var headland = new List<RouteSegment>();
-        var rings = BuildHeadlandRings(boundary, swathWidth, headlandPasses, startPos, cr);
-        foreach (var ring in rings)
-            headland.Add(new RouteSegment(RouteSegmentType.Headland, ring));
+        foreach (var lap in lapPaths)
+            headland.Add(new RouteSegment(RouteSegmentType.Headland, lap));
 
         var interior = new List<RouteSegment>();
         double totalDist = 0;
         Vec3? prevExit = null;
         int swathCount = 0;
 
-        foreach (var ring in rings) totalDist += PolylineLength(ring);
+        foreach (var lap in lapPaths) totalDist += PolylineLength(lap);
 
         // Containment ring for turn validation: the outer boundary, pulled in by
         // the clearance if one is configured. Turns must stay inside this so a
@@ -1119,46 +1144,67 @@ public sealed class RoutePlanningService : IRoutePlanningService
         }
 
         var segments = new List<RouteSegment>();
+        bool headlandFirst = HeadlandFirstPhase || interior.Count == 0;
+        Vec3? firstInterior = interior.Count > 0 ? FirstSwathPoint(interior) : null;
 
-        // Route start = first thing actually driven (outer headland lap if any,
-        // else the first interior pass). The approach connects the machine to it.
-        Vec3? routeStart =
-            rings.Count > 0 ? rings[0][0] :
-            interior.Count > 0 ? FirstSwathPoint(interior) : null;
-
-        if (startPos.HasValue && routeStart.HasValue)
+        // Entry/exit poses of the headland block, for the connectors in and out.
+        Vec3? hlStart = lapPaths.Count > 0 ? lapPaths[0][0] : (Vec3?)null;
+        Vec3? hlExit = null;
+        if (lapPaths.Count > 0)
         {
-            var approach = new List<Vec3> { startPos.Value, routeStart.Value };
-            segments.Add(new RouteSegment(RouteSegmentType.Approach, approach));
-            totalDist += PolylineLength(approach);
+            var lastLap = lapPaths[^1];
+            var e = lastLap[^1];
+            double hOut = lastLap.Count >= 2
+                ? Math.Atan2(e.Easting - lastLap[^2].Easting, e.Northing - lastLap[^2].Northing)
+                : e.Heading;
+            hlExit = new Vec3(e.Easting, e.Northing, hOut);
         }
 
-        segments.AddRange(headland);
+        // Route start = first thing actually driven; the approach connects the
+        // machine to it. Headland-last (mow-style) starts on the interior fill.
+        Vec3? routeStart = headlandFirst ? (hlStart ?? firstInterior) : (firstInterior ?? hlStart);
+        if (startPos.HasValue && routeStart.HasValue)
+            segments.Add(new RouteSegment(RouteSegmentType.Approach,
+                new List<Vec3> { startPos.Value, routeStart.Value }));
 
-        // Connector from the innermost headland lap into the first interior pass — a
-        // tangent Dubins link between the two poses (leave the lap along its own heading,
-        // arrive lined up with the pass), not a straight jump the tractor can't pivot onto.
-        if (rings.Count > 0 && interior.Count > 0)
+        // Block-to-block connector: a tangent Dubins link between the two poses
+        // (leave along the exit heading, arrive lined up with the target), not a
+        // straight jump the tractor can't pivot onto.
+        void Link(Vec3 from, Vec3 to)
         {
-            var innerRing = rings[^1];
-            var innerEnd = innerRing[^1];
-            var firstInterior = FirstSwathPoint(interior);
-            if (firstInterior.HasValue)
+            var connector = BuildTurn(from, to, turnRadius, turnLimit, holes);
+            if (connector.Count < 2) connector = new List<Vec3> { from, to };
+            segments.Add(new RouteSegment(RouteSegmentType.Turn, connector));
+        }
+
+        Vec3? routeEnd;
+        if (headlandFirst)
+        {
+            segments.AddRange(headland);
+            if (hlExit.HasValue && firstInterior.HasValue) Link(hlExit.Value, firstInterior.Value);
+            segments.AddRange(interior);
+            routeEnd = prevExit ?? hlExit;
+        }
+        else
+        {
+            segments.AddRange(interior);
+            if (prevExit.HasValue && hlStart.HasValue) Link(prevExit.Value, hlStart.Value);
+            segments.AddRange(headland);
+            routeEnd = hlExit ?? prevExit;
+        }
+
+        // Mower back-cut: one final fence-tight lap driven the opposite way
+        // round, so the tool's other side dresses the fence line. Always the
+        // very last thing driven.
+        if (HeadlandBackCut && headlandPasses > 0)
+        {
+            var back = BuildBackCutLap(boundary, swathWidth, routeEnd ?? startPos, cr);
+            if (back != null)
             {
-                double hFrom = innerRing.Count >= 2
-                    ? Math.Atan2(innerEnd.Easting - innerRing[^2].Easting, innerEnd.Northing - innerRing[^2].Northing)
-                    : innerEnd.Heading;
-                var connector = BuildTurn(
-                    new Vec3(innerEnd.Easting, innerEnd.Northing, hFrom),
-                    firstInterior.Value, turnRadius, turnLimit, holes);
-                if (connector.Count < 2)
-                    connector = new List<Vec3> { innerEnd, firstInterior.Value };
-                segments.Add(new RouteSegment(RouteSegmentType.Turn, connector));
-                totalDist += PolylineLength(connector);
+                if (routeEnd.HasValue) Link(routeEnd.Value, back[0]);
+                segments.Add(new RouteSegment(RouteSegmentType.Headland, back));
             }
         }
-
-        segments.AddRange(interior);
 
 
         // Route the non-working pieces (turns, connectors, approach, headland laps) around
@@ -1303,6 +1349,134 @@ public sealed class RoutePlanningService : IRoutePlanningService
             rings.Add(loop);
         }
         return rings;
+    }
+
+    /// <summary>
+    /// The headland driven as ONE continuous spiral instead of separate closed
+    /// laps: each lap winds the full ring back to its own start (so its band is
+    /// completely covered), then lane-changes one working width inward over a
+    /// few turn radii onto the next lap — that transition driven over the
+    /// already-worked start of the lap it just closed, so nothing is missed.
+    /// Anchored at the boundary vertex nearest the machine (the field entry),
+    /// the way an operator spirals in from the gate. <paramref name="outward"/>
+    /// reverses the traversal (innermost lap first, finishing on the fence lap
+    /// at the entry) for headland-last routes. Null when no ring fits.
+    /// </summary>
+    private List<Vec3>? BuildHeadlandSpiral(
+        IReadOnlyList<Vec2> boundary, double width, int passes, Vec3? startPos,
+        double turnRadius, bool outward = false)
+    {
+        if (passes <= 0 || width <= 0.01) return null;
+        var poly = boundary as List<Vec2> ?? new List<Vec2>(boundary);
+        if (poly.Count < 3) return null;
+
+        // Seam pinned to the boundary vertex nearest the entry point (same rule
+        // as the whole-field spiral) so the lane changes cluster at the gate.
+        var entry = startPos.HasValue
+            ? new Vec2(startPos.Value.Easting, startPos.Value.Northing)
+            : poly[0];
+        var seam = poly[0];
+        double seamD = double.MaxValue;
+        foreach (var v in poly)
+        {
+            double d = Distance(v, entry);
+            if (d < seamD) { seamD = d; seam = v; }
+        }
+
+        // Lane change: one width sideways over a few turn radii forward. Each
+        // lap starts where the previous transition lands, so the seam walks
+        // forward along the boundary lap by lap.
+        double lane = Math.Max(2.5 * Math.Max(turnRadius, 0.5), width);
+
+        var path = new List<Vec2>();
+        double advance = 0;
+        int laps = 0;
+        for (int k = 0; k < passes; k++)
+        {
+            var ring = _offset.CreateInwardOffset(poly, (k + 0.5) * width);
+            if (ring is not { Count: >= 3 }) break;
+            var pts = new List<Vec2>(ring);
+            RotateToNearest(pts, seam);
+            path.AddRange(WalkRingFrom(pts, advance));
+            advance += lane;
+            laps++;
+        }
+        if (laps == 0) return null;
+
+        // One open-polyline smoothing pass rounds the lap corners AND the
+        // lane-change kinks to the turning circle.
+        var smooth = RoundCorners(path, turnRadius, closed: false);
+        if (outward) smooth.Reverse();
+
+        var spiral = new List<Vec3>(smooth.Count);
+        for (int i = 0; i < smooth.Count; i++)
+        {
+            var a = smooth[i];
+            var b = smooth[Math.Min(i + 1, smooth.Count - 1)];
+            spiral.Add(new Vec3(a.Easting, a.Northing,
+                Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
+        }
+        if (spiral.Count >= 2)
+            spiral[^1] = new Vec3(spiral[^1].Easting, spiral[^1].Northing, spiral[^2].Heading);
+        return spiral;
+    }
+
+    /// <summary>One full circuit of a closed ring, re-based to start
+    /// <paramref name="startDist"/> metres along it (interpolated on the edge)
+    /// and ending back at that same point.</summary>
+    private static List<Vec2> WalkRingFrom(IReadOnlyList<Vec2> ring, double startDist)
+    {
+        int n = ring.Count;
+        double per = 0;
+        for (int i = 0; i < n; i++) per += Distance(ring[i], ring[(i + 1) % n]);
+        if (per < 1e-6) return new List<Vec2>(ring);
+        startDist %= per;
+
+        double acc = 0; int i0 = 0; double t0 = 0;
+        for (int i = 0; i < n; i++)
+        {
+            double len = Distance(ring[i], ring[(i + 1) % n]);
+            if (acc + len >= startDist) { i0 = i; t0 = len > 1e-9 ? (startDist - acc) / len : 0; break; }
+            acc += len;
+        }
+        t0 = Math.Clamp(t0, 0, 1);
+        var a0 = ring[i0];
+        var b0 = ring[(i0 + 1) % n];
+        var start = new Vec2(a0.Easting + (b0.Easting - a0.Easting) * t0,
+                             a0.Northing + (b0.Northing - a0.Northing) * t0);
+        var walk = new List<Vec2>(n + 2) { start };
+        for (int i = 1; i <= n; i++) walk.Add(ring[(i0 + i) % n]);
+        walk.Add(start);
+        for (int i = walk.Count - 1; i > 0; i--)
+            if (Distance(walk[i], walk[i - 1]) < 1e-6) walk.RemoveAt(i);
+        return walk;
+    }
+
+    /// <summary>
+    /// The mower back-cut: one last fence-tight lap (the outer ring's geometry)
+    /// driven the OPPOSITE way round, so the tool's other side dresses the
+    /// fence line. Started at the vertex nearest <paramref name="from"/>.
+    /// </summary>
+    private List<Vec3>? BuildBackCutLap(
+        IReadOnlyList<Vec2> boundary, double width, Vec3? from, double turnRadius)
+    {
+        var poly = boundary as List<Vec2> ?? new List<Vec2>(boundary);
+        var ring = _offset.CreateInwardOffset(poly, 0.5 * width);
+        if (ring is not { Count: >= 3 }) return null;
+        var pts = new List<Vec2>(ring);
+        pts.Reverse();   // opposite-hand traversal
+        if (from.HasValue) RotateToNearest(pts, new Vec2(from.Value.Easting, from.Value.Northing));
+        pts = RoundCorners(pts, turnRadius);
+        var loop = new List<Vec3>(pts.Count + 1);
+        for (int j = 0; j < pts.Count; j++)
+        {
+            var a = pts[j];
+            var b = pts[(j + 1) % pts.Count];
+            loop.Add(new Vec3(a.Easting, a.Northing,
+                Math.Atan2(b.Easting - a.Easting, b.Northing - a.Northing)));
+        }
+        loop.Add(loop[0]);
+        return loop;
     }
 
     /// <summary>
