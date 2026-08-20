@@ -581,6 +581,18 @@
     .fo-btn:hover { background: rgba(var(--ov),0.14); }
     .fo-btn.disabled { opacity: 0.4; pointer-events: none; }
     .fo-ic { width: 22px; height: 22px; object-fit: contain; flex: none; }
+    /* Shared accent palette for the inline diagram icons (.rp-ic / .ft-ic).
+       Two-tone rule: structural outlines (mini field rect, clipboard, gauge body,
+       vertex dots) stay on currentColor so hover/selected states still tint the
+       frame; only the meaningful content strokes take an accent — green = working
+       pass / guidance line (the app's guidance green, same as the U-turn
+       indicator), blue = water/product, amber = warning/needle, red = destructive
+       (and the field boundary, matching the map's boundary render), cyan =
+       arrows/direction cues. Hues are bright on purpose: like the app's other
+       literal accent colours they must read on the grey button, the purple
+       selected (.on) state, and both day/night themes. Retune here for themes. */
+    :root { --ic-green: #5FE85A; --ic-blue: #4FC3F7; --ic-amber: #FFC24B;
+      --ic-red: #FF6B6B; --ic-cyan: #6BE1D8; }
     /* Field Tools inline diagram icons — same line-art family as .rp-ic (34x26
        viewBox, stroke-width 2 so the drawn weight matches rp's 1.5 at this size). */
     .ft-ic { width: 26px; height: 20px; flex: none; pointer-events: none; }
@@ -1400,30 +1412,30 @@
         <button class="rp-pat has-ic" data-pat="0" title="Straight passes, best direction picked automatically (fastest of several trial headings)">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <path d="M8 5v13a3 3 0 0 0 6 0V8a3 3 0 0 1 6 0v10a3 3 0 0 0 6 0V5"/>
+            <path d="M8 5v13a3 3 0 0 0 6 0V8a3 3 0 0 1 6 0v10a3 3 0 0 0 6 0V5" stroke="var(--ic-green)"/>
           </svg><span>Auto</span></button>
         <button class="rp-pat has-ic" data-pat="1" title="Leap-frog row order — every turn is a wide easy U-turn">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <path d="M8 20V8M14 20V8M20 20V8M26 20V8"/>
-            <path d="M8 8a6 4.5 0 0 1 12 0"/>
+            <path d="M8 20V8M14 20V8M20 20V8M26 20V8" stroke="var(--ic-green)"/>
+            <path d="M8 8a6 4.5 0 0 1 12 0" stroke="var(--ic-cyan)"/>
           </svg><span>Skip</span></button>
         <button class="rp-pat has-ic" data-pat="2" title="Two full coverages at right angles (seed drilling)">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <path d="M9 5v16M17 5v16M25 5v16"/>
-            <path d="M5 9h24M5 17h24"/>
+            <path d="M9 5v16M17 5v16M25 5v16" stroke="var(--ic-green)"/>
+            <path d="M5 9h24M5 17h24" stroke="var(--ic-cyan)"/>
           </svg><span>Cross</span></button>
         <button class="rp-pat has-ic" data-pat="3" title="One continuous spiral over the whole field, fence to centre">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <path d="M6 13a11 8 0 0 1 22 0 8.5 6 0 0 1-17 0 6 4 0 0 1 12 0 3.5 2.5 0 0 1-7 0"/>
+            <path d="M6 13a11 8 0 0 1 22 0 8.5 6 0 0 1-17 0 6 4 0 0 1 12 0 3.5 2.5 0 0 1-7 0" stroke="var(--ic-green)"/>
           </svg><span>Spiral</span></button>
         <button class="rp-pat has-ic" data-pat="4" title="Work rows in blocks a set number apart">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <path d="M6 6v12M9.5 6v12M13 6v12M21 6v12M24.5 6v12M28 6v12"/>
-            <path d="M11 21.5h10.5m-2.2-2.1 2.2 2.1-2.2 2.1" opacity=".7"/>
+            <path d="M6 6v12M9.5 6v12M13 6v12M21 6v12M24.5 6v12M28 6v12" stroke="var(--ic-green)"/>
+            <path d="M11 21.5h10.5m-2.2-2.1 2.2 2.1-2.2 2.1" opacity=".7" stroke="var(--ic-cyan)"/>
           </svg><span>Block</span></button>
       </div>
       <div class="rp-row" id="rp-skip-row"><span class="cfg-label">Skip rows</span>
@@ -1436,7 +1448,7 @@
         <button class="rp-pat has-ic" id="rp-weave" title="Drive both crossing directions together: one leg each way with a gentle V-turn in the side headland, forming a W down the paddock, then parallel return Ws. Gentler turns than the 180° keyholes and no skip pattern needed. Paddocks with obstacles fall back to the normal two-coverage order.">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <path d="M6 6.5l5 13 5-13 5 13 5-13"/>
+            <path d="M6 6.5l5 13 5-13 5 13 5-13" stroke="var(--ic-cyan)"/>
           </svg><span>Weave (V-turns)</span></button>
       </div>
       <div class="rp-row" id="rp-angle-row"><span class="cfg-label">Angle °</span>
@@ -1470,46 +1482,46 @@
         <button class="rp-pat has-ic" data-hlstyle="0" title="Separate closed laps, outermost first — the familiar way">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <rect x="5.5" y="5.5" width="23" height="15" rx="2.5"/>
-            <rect x="9.5" y="9.5" width="15" height="7" rx="2"/>
+            <rect x="5.5" y="5.5" width="23" height="15" rx="2.5" stroke="var(--ic-green)"/>
+            <rect x="9.5" y="9.5" width="15" height="7" rx="2" stroke="var(--ic-green)"/>
           </svg><span>Classic laps</span></button>
         <button class="rp-pat has-ic" data-hlstyle="1" title="One continuous path from the fence inward: each lap closes at its own start, then a smooth lane change one width in — no stop-start between laps">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <path d="M6 13a11 8 0 0 1 22 0 8.5 6 0 0 1-17 0 6 4 0 0 1 12 0 3.5 2.5 0 0 1-7 0"/>
-            <path d="M13.9 15.4 16 13l2.1 2.4"/>
+            <path d="M6 13a11 8 0 0 1 22 0 8.5 6 0 0 1-17 0 6 4 0 0 1 12 0 3.5 2.5 0 0 1-7 0" stroke="var(--ic-green)"/>
+            <path d="M13.9 15.4 16 13l2.1 2.4" stroke="var(--ic-cyan)"/>
           </svg><span>Spiral in</span></button>
         <button class="rp-pat has-ic" data-hlstyle="2" title="The same spiral driven inside-out, finishing on the fence lap — pair with 'Headland last' to end the job at the gate">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <path d="M16 13a3.5 2.5 0 0 0 7 0 6 4 0 0 0-12 0 8.5 6 0 0 0 17 0 11 8 0 0 0-22 0"/>
-            <path d="M3.9 10.8 6 13l2.1-2.2"/>
+            <path d="M16 13a3.5 2.5 0 0 0 7 0 6 4 0 0 0-12 0 8.5 6 0 0 0 17 0 11 8 0 0 0-22 0" stroke="var(--ic-green)"/>
+            <path d="M3.9 10.8 6 13l2.1-2.2" stroke="var(--ic-cyan)"/>
           </svg><span>Spiral out</span></button>
         <button class="rp-pat has-ic" data-hlstyle="3" title="Leave the headland out of the route (room is still kept for turns) — work it separately or by hand">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-            <path d="M7 19.5 27 6.5"/>
+            <path d="M7 19.5 27 6.5" stroke="var(--ic-red)"/>
           </svg><span>None</span></button>
       </div>
       <div class="cfg-label" id="rp-hlorder-label">Order</div>
       <div class="rp-pats" id="rp-hlorder-row" style="grid-template-columns:1fr 1fr">
         <button class="rp-pat has-ic" data-hlorder="1" title="Laps before the interior fill — spraying, seeding: turns run on worked ground">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="1.5" y="1.5" width="31" height="23" rx="3" stroke-width="2"/>
+            <rect x="1.5" y="1.5" width="31" height="23" rx="3" stroke-width="2" stroke="var(--ic-green)"/>
             <path d="M9.5 7.5v11M14.5 7.5v11M19.5 7.5v11M24.5 7.5v11" stroke-opacity=".35"/>
           </svg><span>Headland first</span></button>
         <button class="rp-pat has-ic" data-hlorder="0" title="Interior first, laps on the way out — mowing: the headland stays clean for turning and is cut last">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3" stroke-opacity=".35"/>
-            <path d="M9.5 7.5v11M14.5 7.5v11M19.5 7.5v11M24.5 7.5v11" stroke-width="2"/>
+            <path d="M9.5 7.5v11M14.5 7.5v11M19.5 7.5v11M24.5 7.5v11" stroke-width="2" stroke="var(--ic-green)"/>
           </svg><span>Headland last</span></button>
       </div>
       <div class="rp-pats" id="rp-backcut-row" style="grid-template-columns:1fr">
         <button class="rp-pat has-ic" id="rp-backcut" title="Finish with one extra fence-tight lap driven the opposite way round, so the tool's other side dresses the fence line (one-sided mowers)">
           <svg class="rp-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.5" y="1.5" width="31" height="23" rx="3" stroke-opacity=".4"/>
-            <path d="M14 20.5h10.5a4 4 0 0 0 4-4v-7a4 4 0 0 0-4-4h-15a4 4 0 0 0-4 4v7a4 4 0 0 0 4 4h1.5"/>
-            <path d="M8.9 18.4 11 20.5 8.9 22.6"/>
+            <path d="M14 20.5h10.5a4 4 0 0 0 4-4v-7a4 4 0 0 0-4-4h-15a4 4 0 0 0-4 4v7a4 4 0 0 0 4 4h1.5" stroke="var(--ic-green)"/>
+            <path d="M8.9 18.4 11 20.5 8.9 22.6" stroke="var(--ic-cyan)"/>
           </svg><span>Back-cut finish lap</span></button>
       </div>
       <div class="rp-stats" id="rp-hlhint"></div>
@@ -2480,74 +2492,74 @@
       <button class="fo-btn" id="ft-fieldbuilder" title="On-map track / headland / tram editor">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-          <path d="M9.3 21.2l1-3.8L20.9 6.8a2.4 2.4 0 0 1 3.4 3.4L13.7 20.8z"/>
+          <path d="M9.3 21.2l1-3.8L20.9 6.8a2.4 2.4 0 0 1 3.4 3.4L13.7 20.8z" stroke="var(--ic-amber)"/>
         </svg>Field Builder</button>
       <button class="fo-btn" id="ft-boundary">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 6 26.5 4.5l4.5 12-8.5 6.5L5 19.5z"/>
+          <path d="M9 6 26.5 4.5l4.5 12-8.5 6.5L5 19.5z" stroke="var(--ic-red)"/>
           <circle cx="9" cy="6" r="2.2"/><circle cx="26.5" cy="4.5" r="2.2"/>
           <circle cx="31" cy="16.5" r="2.2"/><circle cx="22.5" cy="23" r="2.2"/><circle cx="5" cy="19.5" r="2.2"/>
         </svg>Boundary</button>
       <button class="fo-btn" id="ft-routeplan" title="Coverage route planner">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-          <path d="M8 5v13a3 3 0 0 0 6 0V8a3 3 0 0 1 6 0v10a3 3 0 0 0 6 0V5"/>
+          <path d="M8 5v13a3 3 0 0 0 6 0V8a3 3 0 0 1 6 0v10a3 3 0 0 0 6 0V5" stroke="var(--ic-green)"/>
         </svg>Route Planner</button>
       <button class="fo-btn" id="ft-ratecontrol" title="Product rate control — RC modules (RCnano / Teensy / ESP32) native, no RateController app needed">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M7.5 20a9.5 9.5 0 0 1 19 0"/>
           <path d="M17 10.5v2.6" stroke-opacity=".55"/>
-          <path d="M17 20l5.8-5.2"/>
-          <circle cx="17" cy="20" r="1.5" fill="currentColor" stroke="none"/>
+          <path d="M17 20l5.8-5.2" stroke="var(--ic-amber)"/>
+          <circle cx="17" cy="20" r="1.5" fill="var(--ic-amber)" stroke="none"/>
         </svg>Rate Control</button>
       <button class="fo-btn" id="ft-obstacles" title="Add / delete obstacles + proximity alarm">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-          <path d="M10.5 15.8c-1.2-2.6.8-4.8 3.4-4.4 2.1.3 4.6-.8 5.6 1.2 1 2.1-.9 4.6-3.9 4.9-2.3.2-4.3-.2-5.1-1.7z"/>
-          <circle cx="14.5" cy="14" r="8.2" stroke-dasharray="2.6 2.6" stroke-opacity=".6"/>
+          <path d="M10.5 15.8c-1.2-2.6.8-4.8 3.4-4.4 2.1.3 4.6-.8 5.6 1.2 1 2.1-.9 4.6-3.9 4.9-2.3.2-4.3-.2-5.1-1.7z" stroke="var(--ic-blue)"/>
+          <circle cx="14.5" cy="14" r="8.2" stroke-dasharray="2.6 2.6" stroke-opacity=".6" stroke="var(--ic-amber)"/>
         </svg>Obstacles</button>
       <button class="fo-btn" id="ft-setproduct" title="Set the active job's product + rate (stored in the application record)">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M17 4c3.9 4.9 6.6 8.1 6.6 11.2a6.6 6.6 0 0 1-13.2 0C10.4 12.1 13.1 8.9 17 4z"/>
-          <path d="M13.3 15.5c1.2-.9 2.5-.9 3.7 0s2.5.9 3.7 0" stroke-opacity=".7"/>
+          <path d="M17 4c3.9 4.9 6.6 8.1 6.6 11.2a6.6 6.6 0 0 1-13.2 0C10.4 12.1 13.1 8.9 17 4z" stroke="var(--ic-blue)"/>
+          <path d="M13.3 15.5c1.2-.9 2.5-.9 3.7 0s2.5.9 3.7 0" stroke-opacity=".7" stroke="var(--ic-blue)"/>
         </svg>Job Product</button>
       <button class="fo-btn" id="ft-setapplied" title="Record the measured total product used this job (loader scale weight, tank total, drill counter) — actual rate = amount / covered area">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="10" y="5" width="14" height="17" rx="2"/>
           <path d="M13.5 5V3.5h7V5"/>
-          <path d="M13.5 14.2l2.7 2.7 4.6-5.7"/>
+          <path d="M13.5 14.2l2.7 2.7 4.6-5.7" stroke="var(--ic-green)"/>
         </svg>Applied Total</button>
       <button class="fo-btn" id="ft-exportcov" title="Write this job's coverage.geojson application record now (also automatic on field close)">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-          <path d="M7 6.5v13M12 6.5v13M17 6.5v13" stroke-opacity=".45"/>
-          <path d="M20.5 13H33m-3.6-3.6L33 13l-3.6 3.6"/>
+          <path d="M7 6.5v13M12 6.5v13M17 6.5v13" stroke-opacity=".45" stroke="var(--ic-green)"/>
+          <path d="M20.5 13H33m-3.6-3.6L33 13l-3.6 3.6" stroke="var(--ic-cyan)"/>
         </svg>Export Coverage</button>
       <button class="fo-btn" id="ft-deleteapplied">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
           <path d="M8 6.5v13M13 6.5v13M18 6.5v13M23 6.5v13" stroke-opacity=".3"/>
-          <path d="M11 8.5l12 9M23 8.5l-12 9"/>
+          <path d="M11 8.5l12 9M23 8.5l-12 9" stroke="var(--ic-red)"/>
         </svg>Delete Applied Area</button>
       <button class="fo-btn" id="ft-importtracks">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="1.5" y="1.5" width="31" height="23" rx="3"/>
-          <path d="M19.5 6.5v13M26 6.5v13"/>
-          <circle cx="19.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/>
-          <circle cx="26" cy="6.5" r="1.5" fill="currentColor" stroke="none"/>
-          <path d="M1 13h10.5M8 9.5l3.5 3.5L8 16.5"/>
+          <path d="M19.5 6.5v13M26 6.5v13" stroke="var(--ic-green)"/>
+          <circle cx="19.5" cy="6.5" r="1.5" fill="var(--ic-green)" stroke="none"/>
+          <circle cx="26" cy="6.5" r="1.5" fill="var(--ic-green)" stroke="none"/>
+          <path d="M1 13h10.5M8 9.5l3.5 3.5L8 16.5" stroke="var(--ic-cyan)"/>
         </svg>Import Tracks</button>
       <button class="fo-btn" id="ft-recpath">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="5" cy="20.5" r="1.7" fill="currentColor" stroke="none"/>
-          <path d="M7 19.5C11.5 18.5 10.5 7 16.5 6.5c4.5-.4 5 6 12.5 6" stroke-dasharray="3 2.8"/>
-          <path d="M25.5 9.3 29 12.5l-3.5 3.2"/>
+          <circle cx="5" cy="20.5" r="1.7" fill="var(--ic-green)" stroke="none"/>
+          <path d="M7 19.5C11.5 18.5 10.5 7 16.5 6.5c4.5-.4 5 6 12.5 6" stroke-dasharray="3 2.8" stroke="var(--ic-green)"/>
+          <path d="M25.5 9.3 29 12.5l-3.5 3.2" stroke="var(--ic-cyan)"/>
         </svg>Recorded Path</button>
       <button class="fo-btn" id="ft-offsetfix">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M10.5 3.5v19"/>
-          <path d="M25.5 3.5v19" stroke-dasharray="2.6 2.6" stroke-opacity=".6"/>
-          <path d="M14 13h8M16.8 10.2 14 13l2.8 2.8M19.2 10.2 22 13l-2.8 2.8"/>
+          <path d="M10.5 3.5v19" stroke="var(--ic-green)"/>
+          <path d="M25.5 3.5v19" stroke-dasharray="2.6 2.6" stroke-opacity=".6" stroke="var(--ic-green)"/>
+          <path d="M14 13h8M16.8 10.2 14 13l2.8 2.8M19.2 10.2 22 13l-2.8 2.8" stroke="var(--ic-cyan)"/>
         </svg>Offset Fix</button>
     </div>
   </div>
