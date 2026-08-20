@@ -55,6 +55,7 @@ public class VirtualMachineModule : IDisposable
         // Bind to loopback (not IPAddress.Any) so Windows Defender Firewall does
         // not prompt during test runs. All virtual-module traffic is 127.0.0.1.
         _udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, listenPort));
+        PgnProtocol.DisableUdpConnReset(_udp);
         _hostEndpoint = new IPEndPoint(IPAddress.Parse(hostIp), hostPort);
     }
 
@@ -82,6 +83,7 @@ public class VirtualMachineModule : IDisposable
                 ProcessPacket(result.Buffer);
             }
             catch (OperationCanceledException) { break; }
+            catch (SocketException e) when (e.SocketErrorCode == SocketError.ConnectionReset) { }
             catch (SocketException) { break; }
         }
     }

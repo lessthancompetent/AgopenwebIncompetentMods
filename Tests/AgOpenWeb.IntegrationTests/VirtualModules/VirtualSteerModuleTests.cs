@@ -40,6 +40,7 @@ public class VirtualSteerModuleTests
         public HostListener(int port)
         {
             _udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, port));
+            PgnProtocol.DisableUdpConnReset(_udp);
             _ = ReceiveLoopAsync();
         }
 
@@ -58,6 +59,7 @@ public class VirtualSteerModuleTests
                     }
                 }
                 catch (OperationCanceledException) { break; }
+                catch (SocketException e) when (e.SocketErrorCode == SocketError.ConnectionReset) { }
                 catch (SocketException) { break; }
             }
         }

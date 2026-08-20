@@ -16,6 +16,23 @@ namespace AgOpenWeb.IntegrationTests.VirtualModules;
 /// </summary>
 public static class PgnProtocol
 {
+    /// <summary>Windows surfaces an ICMP port-unreachable (from a send to a
+    /// not-yet-bound peer, e.g. a module hello racing the host's bind) as a
+    /// ConnectionReset SocketException on the socket's next receive. Left
+    /// enabled, one stray ICMP silently kills a module's receive loop.</summary>
+    public static void DisableUdpConnReset(System.Net.Sockets.UdpClient udp)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        const int SIO_UDP_CONNRESET = -1744830452; // 0x9800000C
+        try
+        {
+            udp.Client.IOControl(
+                (System.Net.Sockets.IOControlCode)SIO_UDP_CONNRESET,
+                new byte[] { 0 }, null);
+        }
+        catch { }
+    }
+
     public const byte HEADER1 = 0x80;
     public const byte HEADER2 = 0x81;
     public const byte SOURCE_HOST = 0x7F;   // From AgOpenGPS/AgIO
