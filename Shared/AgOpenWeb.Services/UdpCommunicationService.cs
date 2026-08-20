@@ -80,6 +80,22 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
     private string? _machineIp;
     private string? _imuIp;
     private string? _gpsIp;
+
+    /// <summary>Unicast endpoints for every module we have actually heard.
+    /// Broadcasts do not survive every path (bench-proven: an AP that forwards
+    /// wireless-to-wired broadcasts only intermittently starved the AiO of
+    /// steering frames), so module-bound PGNs also go straight to each learned
+    /// address. Duplicate delivery is harmless — modules process per frame.</summary>
+    private volatile IPEndPoint[] _unicastModuleEndpoints = Array.Empty<IPEndPoint>();
+
+    /// <summary>One send socket bound to each local NIC address. A multi-homed
+    /// host with two NICs on the same subnet (e.g. WiFi + wire to the tractor
+    /// switch) collapses to a single broadcast endpoint that the OS routes out
+    /// only one interface — the modules on the other one never hear discovery.
+    /// Broadcasts therefore go out via every NIC-bound socket; replies come
+    /// back as subnet broadcasts to :9999 and land on the main socket.</summary>
+    private readonly object _nicSocketsLock = new();
+    private List<(string Addr, Socket Sock)> _nicSendSockets = new();
     private string? _moduleSubnet;
 
     private const int HELLO_TIMEOUT_MS = 2000; // 2 seconds for hello response
@@ -158,6 +174,7 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
 
             // Discover broadcast endpoints on all network interfaces
             _discoveryEndpoints = GetBroadcastEndpoints();
+            RefreshNicSendSockets();
             _lockedEndpoint = null;
             _lastDiscoveryRefresh = DateTime.UtcNow;
 
@@ -212,6 +229,14 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
         _loopbackSocket?.Dispose();
         _loopbackSocket = null;
         LoopbackPlaneActive = false;
+        lock (_nicSocketsLock)
+        {
+            foreach (var (_, sock) in _nicSendSockets)
+            {
+                try { sock.Dispose(); } catch { }
+            }
+            _nicSendSockets = new List<(string, Socket)>();
+        }
         IsConnected = false;
 
         await Task.CompletedTask;
@@ -232,6 +257,7 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
         if ((DateTime.UtcNow - _lastDiscoveryRefresh).TotalSeconds > DiscoveryRefreshSeconds)
         {
             _discoveryEndpoints = GetBroadcastEndpoints();
+            RefreshNicSendSockets();
             _lastDiscoveryRefresh = DateTime.UtcNow;
         }
 
@@ -244,14 +270,20 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
 
         if (_lockedEndpoint != null)
         {
-            // Connected: send to locked endpoint + localhost only
-            SendPacket(data, _lockedEndpoint);
+            // Connected: locked subnet broadcast (out every NIC) + localhost,
+            // plus a direct unicast to each heard module — the broadcast leg
+            // alone starved modules whenever an AP sat between app and wire.
+            SendBroadcast(data, _lockedEndpoint);
             SendPacket(data, _localhostEndpoint);
+            foreach (var ep in _unicastModuleEndpoints)
+                SendPacket(data, ep);
         }
         else
         {
             // Discovery: broadcast on all interfaces
             foreach (var ep in _discoveryEndpoints)
+                SendBroadcast(data, ep);
+            foreach (var ep in _unicastModuleEndpoints)
                 SendPacket(data, ep);
         }
 
@@ -269,6 +301,62 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
             _perfTxAllocs += GC.GetAllocatedBytesForCurrentThread() - perfA0;
             _perfTxCount++;
             EmitTxIfWindowElapsed();
+        }
+    }
+
+    /// <summary>Send a broadcast frame from the main socket AND every
+    /// NIC-bound socket, so it egresses each physical interface. Loopback
+    /// endpoints skip the NIC fan-out.</summary>
+    private void SendBroadcast(byte[] data, IPEndPoint endpoint)
+    {
+        SendPacket(data, endpoint);
+        if (IPAddress.IsLoopback(endpoint.Address)) return;
+        var socks = _nicSendSockets;
+        foreach (var (_, sock) in socks)
+        {
+            try { sock.SendTo(data, endpoint); } catch { }
+        }
+    }
+
+    /// <summary>Rebuild the per-NIC send sockets if the local address set
+    /// changed. Sockets bind (addr, 0) so replies still target :9999.</summary>
+    private void RefreshNicSendSockets()
+    {
+        List<string> addrs;
+        try
+        {
+            addrs = _localNetworkInfoProvider.GetIPv4Addresses()
+                .Select(a => a.Address.ToString())
+                .Where(a => a != "127.0.0.1")
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(a => a, StringComparer.Ordinal)
+                .ToList();
+        }
+        catch { return; }
+
+        lock (_nicSocketsLock)
+        {
+            if (addrs.Count == _nicSendSockets.Count &&
+                addrs.SequenceEqual(_nicSendSockets.Select(t => t.Addr), StringComparer.Ordinal))
+                return;
+
+            foreach (var (_, sock) in _nicSendSockets)
+            {
+                try { sock.Dispose(); } catch { }
+            }
+            var fresh = new List<(string, Socket)>(addrs.Count);
+            foreach (var addr in addrs)
+            {
+                try
+                {
+                    var sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                    sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true);
+                    sock.Bind(new IPEndPoint(IPAddress.Parse(addr), 0));
+                    fresh.Add((addr, sock));
+                }
+                catch { }
+            }
+            _nicSendSockets = fresh;
         }
     }
 
@@ -710,6 +798,7 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
     private void LockToSubnet(IPAddress remoteIP)
     {
         _lastModuleResponse = DateTime.UtcNow;
+        RefreshUnicastEndpoints();
 
         if (_lockedEndpoint != null || IPAddress.IsLoopback(remoteIP))
             return;
@@ -718,6 +807,28 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
         ipBytes[3] = 255;
         _lockedEndpoint = new IPEndPoint(new IPAddress(ipBytes), 8888);
         System.Diagnostics.Debug.WriteLine($"Auto-discovery: locked to subnet {_lockedEndpoint}");
+    }
+
+    /// <summary>Rebuild the learned-module unicast set if it changed. Cheap:
+    /// four string compares in the common case.</summary>
+    private void RefreshUnicastEndpoints()
+    {
+        var ips = new List<string>(4);
+        foreach (var ip in new[] { _autoSteerIp, _machineIp, _imuIp, _gpsIp })
+            if (!string.IsNullOrEmpty(ip) && ip != "127.0.0.1" && !ips.Contains(ip))
+                ips.Add(ip);
+        var current = _unicastModuleEndpoints;
+        if (current.Length == ips.Count)
+        {
+            bool same = true;
+            for (int i = 0; i < ips.Count; i++)
+                if (!current[i].Address.ToString().Equals(ips[i], StringComparison.Ordinal)) { same = false; break; }
+            if (same) return;
+        }
+        var eps = new IPEndPoint[ips.Count];
+        for (int i = 0; i < ips.Count; i++)
+            eps[i] = new IPEndPoint(IPAddress.Parse(ips[i]), 8888);
+        _unicastModuleEndpoints = eps;
     }
 
     /// <summary>
