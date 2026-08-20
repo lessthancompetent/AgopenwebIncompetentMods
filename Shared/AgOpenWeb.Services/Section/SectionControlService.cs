@@ -484,10 +484,30 @@ public class SectionControlService : ISectionControlService
                        && lookOnInBoundary    // Inside boundary at look-ahead
                        && !lookOnInHeadland;  // Not in headland
 
+        // While a U-turn is executing, the walked look-ahead sample slides with
+        // speed changes through the arc and can flicker across the headland /
+        // coverage edges near the exit. The steady-off branch hard-resets the
+        // ON phase on any flicker (correct for normal driving - see its note),
+        // which kept restarting the 3s phase and landed the paint start seconds
+        // past the exit line. Once the request is armed during a turn, hold it:
+        // the phase timer itself still times the landing on the exit edge.
+        bool planActive = PlannedPathProvider?.Invoke() is { Path.Count: >= 2 };
+        if (!shouldBeOn && planActive && section.SectionOnRequest && !section.IsOn)
+            shouldBeOn = true;
+
         // Determine if section should be off
         bool shouldBeOff = lookOffCovered     // Already covered
                         || !lookOffInBoundary // Outside boundary at look-ahead
-                        || lookOffInHeadland; // In headland
+                        || lookOffInHeadland  // In headland at look-ahead
+                        // Backstop: the tool is IN the headland right now. The
+                        // look-ahead is the anticipatory trigger, but during a
+                        // U-turn the planned-path walk samples BEYOND the
+                        // headland (the next pass) and never sees the band the
+                        // tool is physically crossing - sections painted straight
+                        // through the headland. IsPointInHeadland already honours
+                        // the headland-section-control setting and the on-screen
+                        // headland toggle, so headland-lap painting is unaffected.
+                        || isInHeadland;
 
         // Apply state transitions with timing
         if (shouldBeOn && !section.IsOn)
