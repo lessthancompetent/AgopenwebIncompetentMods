@@ -74,9 +74,10 @@ public class CrossDrillWeaveTests
     {
         var svc = NewPlanner();
         var sequential = svc.GenerateCrossDrill(Field, Width, TurnR, Passes * Width,
-            headingRad: 0, crossAngleRad: Math.PI / 2, headlandPasses: Passes, startPos: Start);
+            headingRad: Math.PI / 4, crossAngleRad: Math.PI / 2, headlandPasses: Passes, startPos: Start);
         var woven = svc.GenerateCrossDrillWoven(Field, Width, TurnR, Passes * Width,
-            headingRad: 0, crossAngleRad: Math.PI / 2, headlandPasses: Passes, startPos: Start);
+            headingRad: Math.PI / 4, crossAngleRad: Math.PI / 2, headlandPasses: Passes, startPos: Start,
+            trialHeadings: false);   // pinned billiard rotation — this test asserts weave STRUCTURE
         Assert.That(woven, Is.Not.Null);
         Assert.That(sequential, Is.Not.Null);
 
@@ -99,7 +100,8 @@ public class CrossDrillWeaveTests
     {
         var svc = NewPlanner();
         var woven = svc.GenerateCrossDrillWoven(Field, Width, TurnR, Passes * Width,
-            headingRad: 0, crossAngleRad: Math.PI / 2, headlandPasses: Passes, startPos: Start)!;
+            headingRad: Math.PI / 4, crossAngleRad: Math.PI / 2, headlandPasses: Passes, startPos: Start,
+            trialHeadings: false)!;
 
         // Direction change across each swath→swath junction: heading out of one
         // leg vs heading into the next. The weave's V is the crossing angle
@@ -124,6 +126,56 @@ public class CrossDrillWeaveTests
         Assert.That(meanDeg, Is.LessThan(120), $"mean junction angle {meanDeg:F0}° should be V-like, not U-like");
         Assert.That(angles.Count(a => a < Math.PI * 0.75), Is.GreaterThan(angles.Count / 2),
             "most junctions are gentler than 135°");
+    }
+
+    // The real Beehive paddock boundary (field-local metres) — the irregular
+    // shape the first weave sequencer LOST on (28.1 km vs 23.1 km sequential).
+    private static readonly List<Vec2> Irregular = new()
+    {
+        new(0,0), new(-1.1,-4.1), new(13.3,-35.3), new(27.6,-66.6), new(42,-97.8),
+        new(55.6,-114.5), new(60.7,-122.1), new(63.7,-128.4), new(65.3,-135.3),
+        new(65.5,-142.1), new(65.1,-148.7), new(63.3,-156.5), new(60.8,-163.4),
+        new(60.8,-167.6), new(80.3,-175.6), new(116.2,-174.7), new(152.2,-173.7),
+        new(188.1,-172.8), new(179.1,-129), new(170,-85.2), new(161,-41.4),
+        new(152,2.4), new(142.9,46.2), new(138,45.7), new(97.4,44), new(56.8,42.2),
+        new(28.4,21.1),
+    };
+
+    private static (double Woven, double Sequential) TotalsOn(
+        List<Vec2> field, double w, double r, double longestEdgeHeading)
+    {
+        // Each drive order gets ITS natural orientation: sequential aligns with
+        // the walls; the weave rotates 45° (the billiard orientation the VM
+        // applies on auto heading) so both families meet every wall obliquely.
+        var svc = NewPlanner();
+        double margin = 4 * w;
+        var seq = svc.GenerateCrossDrill(field, w, r, margin, headingRad: longestEdgeHeading,
+            crossAngleRad: Math.PI / 2, headlandPasses: 4, startPos: Start,
+            blockSkip: 3)!;   // the app's narrow-tool ordering — the honest baseline
+        var wov = svc.GenerateCrossDrillWoven(field, w, r, margin,
+            headingRad: longestEdgeHeading,
+            crossAngleRad: Math.PI / 2, headlandPasses: 4, startPos: Start,
+            passEndExtension: 1.0, entryRunIn: 0.0)!;
+        Assert.That(seq, Is.Not.Null);
+        Assert.That(wov, Is.Not.Null);
+        return (wov.Metadata.TotalDistanceMeters, seq.Metadata.TotalDistanceMeters);
+    }
+
+    [Test]
+    public void Woven_BeatsSequential_OnRectangle()
+    {
+        var (woven, sequential) = TotalsOn(Field, 2.9, 4.0, longestEdgeHeading: 0);
+        Assert.That(woven, Is.LessThan(sequential),
+            $"weave {woven:F0} m should beat sequential {sequential:F0} m on a rectangle");
+    }
+
+    [Test]
+    public void Woven_CompetitiveOnIrregularPaddock()
+    {
+        // Beehive's longest edge (its south fence) runs ~E-W: heading ≈ 1.545 rad.
+        var (woven, sequential) = TotalsOn(Irregular, 2.9, 4.0, longestEdgeHeading: 1.545);
+        Assert.That(woven, Is.LessThanOrEqualTo(sequential * 1.02),
+            $"weave {woven:F0} m must not lose to sequential {sequential:F0} m on the irregular paddock");
     }
 
     [Test]
@@ -157,3 +209,4 @@ public class CrossDrillWeaveTests
         return best;
     }
 }
+

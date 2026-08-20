@@ -512,12 +512,17 @@ public partial class MainViewModel
                     ? RoutePlanner.GenerateSpiral(pts, width, startPos, clearance, cornerRadius, cornerFill, inners)
                     : cross
                         ? (crossWeave
-                            // Woven cross-drill: the V-turn needs the drill running true
-                            // behind the tractor before work resumes, so the leg extension
-                            // carries a straighten-up run on top of the trailing offset.
+                            // Woven cross-drill. Straightening: the leg extension puts
+                            // ~2× the trailing length of straight tractor travel around
+                            // the working line (ext before it + trailExt until the tool
+                            // arrives) — the same settle mechanism as every pattern, so
+                            // no extra run-in is added (a pulled-back Dubins target
+                            // forces loop turns on tight Vs). Rotation is trialled
+                            // inside unless the operator set an angle.
                             ? RoutePlanner.GenerateCrossDrillWoven(pts, width, turnRadius, headlandMargin,
                                 heading, crossAngleRad, passes, startPos, clearance, cornerRadius, inners,
-                                trailExt + Math.Max(2.0, 2.0 * trailExt), rowSpacingM)
+                                trailExt, rowSpacingM,
+                                trialHeadings: !headingOverrideRad.HasValue && Math.Abs(angleDeg) < 0.01)
                             : RoutePlanner.GenerateCrossDrill(pts, width, turnRadius, headlandMargin, heading, crossAngleRad,
                                 SwathPattern.Boustrophedon, passes, startPos, 0, false, false, clearance, skipPasses, blkSkip,
                                 cornerRadius, inners, rowSpacingM))

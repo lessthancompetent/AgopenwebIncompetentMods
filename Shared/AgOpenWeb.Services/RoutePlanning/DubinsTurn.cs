@@ -102,6 +102,49 @@ internal static class DubinsTurn
     }
 
     /// <summary>
+    /// Length of the shortest Dubins path between two poses — the analytic
+    /// candidate lengths only, no coordinate sampling, no per-path allocation.
+    /// Used as the connector cost by the cross-drill weave sequencer, so its
+    /// ordering decisions price every turn exactly as BuildTurn later drives it.
+    /// Time-reversal symmetric: swapping the poses and adding π to both headings
+    /// gives the same length (the sequencer's 2-opt relies on this).
+    /// </summary>
+    public static double ShortestLength(Vec3 start, Vec3 goal, double r)
+    {
+        var startPos = new Vec2(start.Easting, start.Northing);
+        var goalPos = new Vec2(goal.Easting, goal.Northing);
+        if (r <= 0.01) return (goalPos - startPos).GetLength();
+
+        double startHeading = start.Heading, goalHeading = goal.Heading;
+        var goalRight = GetRightCircle(goalPos, goalHeading, r);
+        var goalLeft = GetLeftCircle(goalPos, goalHeading, r);
+        var startRight = GetRightCircle(startPos, startHeading, r);
+        var startLeft = GetLeftCircle(startPos, startHeading, r);
+
+        var paths = new List<PathData>(6);
+        if ((startRight - goalRight).GetLengthSquared() > 1e-12)
+            AddCSC(paths, startPos, goalPos, startRight, goalRight, false, false, r, DubinsPathType.RSR);
+        if ((startLeft - goalLeft).GetLengthSquared() > 1e-12)
+            AddCSC(paths, startPos, goalPos, startLeft, goalLeft, true, true, r, DubinsPathType.LSL);
+        double twoRSq = (2.0 * r) * (2.0 * r);
+        if ((startRight - goalLeft).GetLengthSquared() > twoRSq)
+            AddCSCinner(paths, startPos, goalPos, startRight, goalLeft, false, r, DubinsPathType.RSL);
+        if ((startLeft - goalRight).GetLengthSquared() > twoRSq)
+            AddCSCinner(paths, startPos, goalPos, startLeft, goalRight, true, r, DubinsPathType.LSR);
+        double fourRSq = (4.0 * r) * (4.0 * r);
+        if ((startRight - goalRight).GetLengthSquared() < fourRSq)
+            AddCCC(paths, startPos, goalPos, startRight, goalRight, false, r, DubinsPathType.RLR);
+        if ((startLeft - goalLeft).GetLengthSquared() < fourRSq)
+            AddCCC(paths, startPos, goalPos, startLeft, goalLeft, true, r, DubinsPathType.LRL);
+
+        double best = double.MaxValue;
+        foreach (var pd in paths)
+            if (pd.TotalLength < best) best = pd.TotalLength;
+        // Degenerate (identical circles both sides): fall back to the straight gap.
+        return best == double.MaxValue ? (goalPos - startPos).GetLength() : best;
+    }
+
+    /// <summary>
     /// Replace ±blend meters of waypoints around the two segment junctions with
     /// cubic Beziers whose control points lie along the local travel tangents
     /// (chord/3 — the canonical heuristic). Endpoints and the exact goal are

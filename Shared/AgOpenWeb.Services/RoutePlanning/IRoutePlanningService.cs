@@ -146,7 +146,9 @@ public interface IRoutePlanningService
         double cornerRadius = 0,
         IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
         double passEndExtension = 0,
-        double rowSpacing = 0);
+        double rowSpacing = 0,
+        double entryRunIn = 0,
+        bool trialHeadings = true);
 
     /// <summary>
     /// A simple spiral-in route: concentric inward laps at <paramref name="swathWidth"/>

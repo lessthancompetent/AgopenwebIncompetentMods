@@ -621,7 +621,9 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double cornerRadius = 0,
         IReadOnlyList<IReadOnlyList<Vec2>>? innerBoundaries = null,
         double passEndExtension = 0,
-        double rowSpacing = 0)
+        double rowSpacing = 0,
+        double entryRunIn = 0,
+        bool trialHeadings = true)
     {
         if (outerBoundary == null || outerBoundary.Count < 3 || swathWidth <= 0)
             return null;
@@ -641,23 +643,68 @@ public sealed class RoutePlanningService : IRoutePlanningService
             if (inset is { Count: >= 3 }) cultivated = inset;
         }
 
-        // Straighten-up allowance rides in the leg extension (the tool must be
-        // running true behind the tractor before work begins), clamped so the
-        // extended ends stay inside the headland band.
+        // Legs carry the SAME trailing-tool extension as any other pattern; the
+        // straighten-up run rides in the connectors (entryRunIn), not the worked
+        // leg — so the drill settles with the tool up and nothing double-paints.
         double ext = Math.Max(0, passEndExtension);
         if (headlandMargin > 0) ext = Math.Min(ext, headlandMargin);
+        double runIn = Math.Max(0, entryRunIn);
+        if (headlandMargin > 0) runIn = Math.Min(runIn, Math.Max(0, headlandMargin - ext));
 
-        double thetaA = headingRad;
+        // Orientation is decided by MEASURED tour cost, not by formula: the family
+        // pair is trialled at several rotations and the cheapest sequenced tour
+        // wins. At wall-aligned rotation the family-blind tour degenerates to a
+        // sequential-like order (all A, then all B), so the weave can never lose
+        // to it by more than search noise; oblique rotations put both families'
+        // ends on shared walls where cheap V-turns exist — the optimiser takes
+        // whichever the paddock's shape actually rewards. A manual panel angle
+        // pins the rotation (trialHeadings = false).
+        double[] rotations = trialHeadings
+            ? new[] { 0.0, Math.PI / 12, Math.PI / 6, Math.PI / 4 }
+            : new[] { 0.0 };
+
+        List<List<Vec3>>? legs = null;
         double thetaB = headingRad + crossAngleRad;
-        var famA = BuildFamilyPasses(cultivated, thetaA, swathWidth, ext);
-        var famB = BuildFamilyPasses(cultivated, thetaB, swathWidth, ext);
-        if (famA.Count == 0 || famB.Count == 0) return null;
+        double bestCost = double.MaxValue;
+        foreach (double rot in rotations)
+        {
+            var fa = BuildFamilyPasses(cultivated, headingRad + rot, swathWidth, ext);
+            var fb = BuildFamilyPasses(cultivated, headingRad + rot + crossAngleRad, swathWidth, ext);
+            if (fa.Count == 0 || fb.Count == 0) continue;
+            var tour = WeaveSequence(fa, fb, startPos, turnRadius, swathWidth);
+            if (tour.Count == 0) continue;
 
-        var legs = WeaveSequence(famA, famB, startPos, turnRadius, crossAngleRad);
-        if (legs.Count == 0) return null;
+            // Full drive cost of this candidate: worked legs + connectors + the
+            // per-junction straighten-up run (junction COUNT varies with rotation).
+            double cost = runIn * Math.Max(0, tour.Count - 1);
+            for (int i = 0; i < tour.Count; i++)
+            {
+                cost += Distance(
+                    new Vec2(tour[i][0].Easting, tour[i][0].Northing),
+                    new Vec2(tour[i][^1].Easting, tour[i][^1].Northing));
+                if (i > 0)
+                {
+                    var a = tour[i - 1]; var b = tour[i];
+                    double hOut = Math.Atan2(a[^1].Easting - a[0].Easting, a[^1].Northing - a[0].Northing);
+                    double hIn = Math.Atan2(b[^1].Easting - b[0].Easting, b[^1].Northing - b[0].Northing);
+                    cost += DubinsTurn.ShortestLength(
+                        new Vec3(a[^1].Easting, a[^1].Northing, hOut),
+                        new Vec3(b[0].Easting, b[0].Northing, hIn),
+                        Math.Max(0.5, turnRadius));
+                }
+            }
+            if (cost < bestCost)
+            {
+                bestCost = cost;
+                legs = tour;
+                thetaB = headingRad + rot + crossAngleRad;
+            }
+        }
+        if (legs == null) return null;
 
         var plan = Assemble(legs, boundary, swathWidth, headlandPasses, startPos, false,
-            turnRadius, boundaryClearance, cornerRadius, null, preOriented: true);
+            turnRadius, boundaryClearance, cornerRadius, null, preOriented: true,
+            entryRunIn: runIn);
         if (plan == null) return null;
 
         plan = TagCrossChannels(plan, thetaB);
@@ -700,74 +747,238 @@ public sealed class RoutePlanningService : IRoutePlanningService
     }
 
     /// <summary>
-    /// The weave drive order: strictly alternate pass family, choosing the nearest
-    /// unused leg of the OTHER family whose near end is at least a V-turn's chord
-    /// away (2r·sin(X/2) — nearer would demand a tighter-than-minimum arc, so the
-    /// pairing skips a slot or two and later Ws collect the skipped rows). Falls
-    /// back to plain nearest (then to the same family) when the constraint can't
-    /// be met — the endgame stragglers; Dubins connectors absorb those.
+    /// The weave drive order as a cost-driven open tour over BOTH families' legs:
+    /// every leg is a node drivable in either direction, every connector is priced
+    /// at its exact Dubins length (the same length BuildTurn drives later), and
+    /// the order is greedy-constructed then improved with 2-opt + relocation
+    /// local search. The V-weave emerges because an A→B turn at the same wall is
+    /// the cheapest connector; where the paddock's shape makes a same-family
+    /// skip-U cheaper (corner stubs, angled edges), the optimiser simply takes
+    /// it — no straggler fallbacks, no hand-tuned pairing rules. 2-opt segment
+    /// reversal is O(1) per move because Dubins length is time-reversal
+    /// symmetric (internal connector costs are unchanged by reversal).
     /// </summary>
     private static List<List<Vec3>> WeaveSequence(
         List<(Vec3 A, Vec3 B)> famA, List<(Vec3 A, Vec3 B)> famB,
-        Vec3? startPos, double turnRadius, double crossAngleRad)
+        Vec3? startPos, double turnRadius, double legSpacing)
     {
         int nA = famA.Count, n = nA + famB.Count;
-        var used = new bool[n];
+        if (n == 0) return new List<List<Vec3>>();
+        double r = Math.Max(0.5, turnRadius);
+
         (Vec3 A, Vec3 B) Pass(int i) => i < nA ? famA[i] : famB[i - nA];
-        int FamOf(int i) => i < nA ? 0 : 1;
 
-        double minChord = 2.0 * Math.Max(0.5, turnRadius)
-            * Math.Sin(Math.Min(Math.PI, Math.Abs(crossAngleRad)) / 2.0);
-
-        var order = new List<List<Vec3>>(n);
-        var pos = startPos.HasValue
-            ? new Vec2(startPos.Value.Easting, startPos.Value.Northing)
-            : new Vec2(famA[0].A.Easting, famA[0].A.Northing);
-        int lastFam = 1;   // so the first pick prefers family A
-        bool firstLeg = true;
-
-        for (int step = 0; step < n; step++)
+        // Pose helpers. flip=false drives A→B (build heading); flip=true B→A.
+        Vec3 Entry(int leg, bool flip)
         {
-            int best = -1, bestEnd = 0;
-            double bestD = double.MaxValue;
+            var p = Pass(leg);
+            return flip
+                ? new Vec3(p.B.Easting, p.B.Northing, p.A.Heading + Math.PI)
+                : p.A;
+        }
+        Vec3 Exit(int leg, bool flip)
+        {
+            var p = Pass(leg);
+            return flip
+                ? new Vec3(p.A.Easting, p.A.Northing, p.A.Heading + Math.PI)
+                : new Vec3(p.B.Easting, p.B.Northing, p.A.Heading);
+        }
 
-            void Consider(int i, bool requireChord)
+        var order = new int[n];
+        var flip = new bool[n];
+
+        // ---- construction seeds ----
+        // Greedy: cheapest-connector-next from the start pose. Finds the weave
+        // where V pairings exist, but can tangle on shapes where they don't.
+        void BuildGreedy()
+        {
+            var used = new bool[n];
+            Vec3? cursor = startPos;
+            for (int step = 0; step < n; step++)
             {
-                var p = Pass(i);
-                for (int e = 0; e < 2; e++)
+                int best = -1; bool bestFlip = false;
+                double bestC = double.MaxValue;
+                for (int i = 0; i < n; i++)
                 {
-                    var q = e == 0 ? p.A : p.B;
-                    double dx = q.Easting - pos.Easting, dy = q.Northing - pos.Northing;
-                    double d = Math.Sqrt(dx * dx + dy * dy);
-                    if (requireChord && d < minChord) continue;
-                    if (d < bestD) { bestD = d; best = i; bestEnd = e; }
+                    if (used[i]) continue;
+                    for (int f = 0; f < 2; f++)
+                    {
+                        var e = Entry(i, f == 1);
+                        double c = cursor.HasValue
+                            ? DubinsTurn.ShortestLength(cursor.Value, e, r)
+                            : 0;
+                        if (c < bestC) { bestC = c; best = i; bestFlip = f == 1; }
+                    }
+                }
+                used[best] = true;
+                order[step] = best;
+                flip[step] = bestFlip;
+                cursor = Exit(best, bestFlip);
+            }
+        }
+
+        // Block-skip seed: each family in the app's narrow-tool block order (the
+        // sequential cross-drill's own sequencing), A then B. Guarantees the tour
+        // search STARTS at sequential quality — local search can only improve it,
+        // so the weave never loses to the sequential baseline by more than noise.
+        void BuildBlockSeed()
+        {
+            int skip = Math.Max(1, (int)Math.Ceiling(2.0 * r / Math.Max(0.5, legSpacing)));
+            int k = 0;
+            Vec3? cur = startPos;
+            foreach (var (offset, count) in new[] { (0, nA), (nA, n - nA) })
+            {
+                foreach (int idx in SwathOrderingService.GenerateBlockSequence(count, skip))
+                {
+                    int leg = offset + idx;
+                    bool f = false;
+                    if (cur.HasValue)
+                    {
+                        var a = Entry(leg, false);
+                        var b = Entry(leg, true);
+                        double da = Distance(new Vec2(cur.Value.Easting, cur.Value.Northing), new Vec2(a.Easting, a.Northing));
+                        double db = Distance(new Vec2(cur.Value.Easting, cur.Value.Northing), new Vec2(b.Easting, b.Northing));
+                        f = db < da;
+                    }
+                    order[k] = leg; flip[k] = f; k++;
+                    cur = Exit(leg, f);
+                }
+            }
+        }
+
+        // ---- local search: 2-opt (reverse a span, flipping each leg) + single-leg
+        // relocation, first-improvement sweeps until a full quiet pass ----
+        double Conn(int p, int q)   // connector cost between tour positions (p = -1 → start pose)
+        {
+            var e = Entry(order[q], flip[q]);
+            if (p < 0)
+                return startPos.HasValue ? DubinsTurn.ShortestLength(startPos.Value, e, r) : 0;
+            return DubinsTurn.ShortestLength(Exit(order[p], flip[p]), e, r);
+        }
+        double ConnRevIn(int p, int j)   // pos p's exit → position-j leg driven REVERSED
+        {
+            var e = Entry(order[j], !flip[j]);
+            if (p < 0)
+                return startPos.HasValue ? DubinsTurn.ShortestLength(startPos.Value, e, r) : 0;
+            return DubinsTurn.ShortestLength(Exit(order[p], flip[p]), e, r);
+        }
+        double ConnRevOut(int i, int q) =>   // position-i leg driven REVERSED → pos q's entry
+            DubinsTurn.ShortestLength(Exit(order[i], !flip[i]), Entry(order[q], flip[q]), r);
+
+        const double EPS = 0.05;
+        void Improve()
+        {
+        for (int sweep = 0; sweep < 15; sweep++)
+        {
+            bool improved = false;
+
+            // 2-opt: reverse span [i..j]. Internal connectors keep their cost
+            // (time-reversal symmetry); only the two boundary connectors change.
+            // Windowed on big fields — long-range fixes are relocation's job.
+            for (int i = 0; i < n - 1; i++)
+            {
+                int jMax = Math.Min(n - 1, i + 80);
+                for (int j = i + 1; j <= jMax; j++)
+                {
+                    double before = Conn(i - 1, i) + (j + 1 < n ? Conn(j, j + 1) : 0);
+                    double after = ConnRevIn(i - 1, j) + (j + 1 < n ? ConnRevOut(i, j + 1) : 0);
+                    if (after < before - EPS)
+                    {
+                        Array.Reverse(order, i, j - i + 1);
+                        Array.Reverse(flip, i, j - i + 1);
+                        for (int k = i; k <= j; k++) flip[k] = !flip[k];
+                        improved = true;
+                    }
                 }
             }
 
-            // 1: other family, V-chord respected (skip only after the first leg —
-            //    the approach to the very first leg has no turn constraint).
-            for (int i = 0; i < n; i++)
-                if (!used[i] && FamOf(i) != lastFam) Consider(i, !firstLeg);
-            // 2: other family, nearest regardless.
-            if (best < 0)
-                for (int i = 0; i < n; i++)
-                    if (!used[i] && FamOf(i) != lastFam) Consider(i, false);
-            // 3: stragglers of the same family.
-            if (best < 0)
-                for (int i = 0; i < n; i++)
-                    if (!used[i]) Consider(i, false);
-            if (best < 0) break;
+            // Relocation: move one leg (either orientation) to a better slot —
+            // the straggler killer the span reversal can't express.
+            for (int p = 0; p < n; p++)
+            {
+                double removeGain = Conn(p - 1, p) + (p + 1 < n ? Conn(p, p + 1) : 0)
+                    - (p + 1 < n ? Conn(p - 1, p + 1) : 0);
+                if (removeGain < EPS) continue;
 
-            used[best] = true;
-            var pk = Pass(best);
-            var from = bestEnd == 0 ? pk.A : pk.B;
-            var to = bestEnd == 0 ? pk.B : pk.A;
-            order.Add(new List<Vec3> { from, to });
-            pos = new Vec2(to.Easting, to.Northing);
-            lastFam = FamOf(best);
-            firstLeg = false;
+                int leg = order[p];
+                int bestQ = int.MinValue; bool bestF = flip[p]; double bestDelta = EPS;
+                for (int q = -1; q < n; q++)
+                {
+                    if (q == p || q == p - 1) continue;   // no-op slots
+                    int after = q + 1;                     // neither q nor after is p here
+                    for (int f = 0; f < 2; f++)
+                    {
+                        bool nf = f == 1;
+                        var entry = Entry(leg, nf);
+                        var exit = Exit(leg, nf);
+                        double insBefore = q < 0
+                            ? (startPos.HasValue ? DubinsTurn.ShortestLength(startPos.Value, entry, r) : 0)
+                            : DubinsTurn.ShortestLength(Exit(order[q], flip[q]), entry, r);
+                        double insAfter = after < n
+                            ? DubinsTurn.ShortestLength(exit, Entry(order[after], flip[after]), r)
+                            : 0;
+                        double oldGap = after < n ? Conn(q, after) : 0;
+                        double delta = removeGain - (insBefore + insAfter - oldGap);
+                        if (delta > bestDelta) { bestDelta = delta; bestQ = q; bestF = nf; }
+                    }
+                }
+                if (bestQ != int.MinValue)
+                {
+                    // Rebuild the tour with the leg re-inserted after original
+                    // position bestQ (-1 = front).
+                    var no = new List<int>(n); var nfl = new List<bool>(n);
+                    if (bestQ == -1) { no.Add(leg); nfl.Add(bestF); }
+                    for (int k = 0; k < n; k++)
+                    {
+                        if (k == p) continue;
+                        no.Add(order[k]); nfl.Add(flip[k]);
+                        if (k == bestQ) { no.Add(leg); nfl.Add(bestF); }
+                    }
+                    if (no.Count == n)
+                    {
+                        no.CopyTo(order); nfl.CopyTo(flip);
+                        improved = true;
+                    }
+                }
+            }
+
+            if (!improved) break;
         }
-        return order;
+        }
+
+        double TotalConn()
+        {
+            double s = 0;
+            for (int p = 0; p < n; p++) s += Conn(p - 1, p);
+            return s;
+        }
+
+        // Two starts, best polished tour wins: the greedy weave and the
+        // sequential-equivalent block order. Whichever the paddock's shape
+        // rewards survives.
+        BuildGreedy();
+        Improve();
+        double greedyCost = TotalConn();
+        var greedyOrder = (int[])order.Clone();
+        var greedyFlip = (bool[])flip.Clone();
+
+        BuildBlockSeed();
+        Improve();
+        if (greedyCost < TotalConn())
+        {
+            greedyOrder.CopyTo(order, 0);
+            greedyFlip.CopyTo(flip, 0);
+        }
+
+        var result = new List<List<Vec3>>(n);
+        for (int s = 0; s < n; s++)
+        {
+            var p = Pass(order[s]);
+            result.Add(flip[s]
+                ? new List<Vec3> { p.B, p.A }
+                : new List<Vec3> { p.A, p.B });
+        }
+        return result;
     }
 
     /// <summary>Tag the woven plan's working legs with their coverage channel by
@@ -1307,7 +1518,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double boundaryClearance = 0,
         double cornerRadius = 0,
         List<List<Vec2>>? holes = null,
-        bool preOriented = false)
+        bool preOriented = false,
+        double entryRunIn = 0)
     {
         if (ordered.Count == 0) return null;
 
@@ -1376,9 +1588,27 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
             if (prevExit.HasValue)
             {
-                var turn = BuildTurn(prevExit.Value, poly[0], turnRadius, turnLimit, holes);
+                // Straighten-up run (the cross-drill weave): the connector targets a
+                // pose pulled back along the entry heading, then runs the last
+                // entryRunIn metres STRAIGHT — the trailed tool settles true behind
+                // the tractor inside the turn (tool up), not on the worked leg.
+                var target = poly[0];
+                List<Vec3>? runIn = null;
+                if (entryRunIn > 0.01)
+                {
+                    var pulled = new Vec3(
+                        target.Easting - Math.Sin(target.Heading) * entryRunIn,
+                        target.Northing - Math.Cos(target.Heading) * entryRunIn,
+                        target.Heading);
+                    runIn = new List<Vec3> { pulled, target };
+                    target = pulled;
+                }
+                var turn = BuildTurn(prevExit.Value, target, turnRadius, turnLimit, holes);
+                if (turn.Count < 2 && runIn != null)
+                    turn = new List<Vec3> { prevExit.Value, target };
                 if (turn.Count >= 2)
                 {
+                    if (runIn != null) turn.AddRange(runIn);
                     interior.Add(new RouteSegment(RouteSegmentType.Turn, turn));
                     totalDist += PolylineLength(turn);
                 }
