@@ -379,6 +379,14 @@
     .sa-act { background: rgba(var(--ov),0.10); }
     .sa-grid .cfg-num { height: 40px; }
     .sa-hint { color: var(--text-muted); font: 400 11px system-ui, sans-serif; }
+    /* Terrain elevation legend — map corner, visible while the Terrain overlay is on. */
+    #terrain-legend { position: fixed; left: calc(14px + var(--sal)); bottom: calc(16px + var(--sab));
+      z-index: 20; display: none; align-items: center; gap: 6px; padding: 4px 8px;
+      border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised);
+      color: var(--text-2); font: 600 11px system-ui, sans-serif; pointer-events: none; }
+    #terrain-legend.on { display: flex; }
+    #terrain-legend .tl-bar { width: 84px; height: 8px; border-radius: 4px;
+      background: linear-gradient(90deg, #3060ff, #22b14c, #ffd21f, #e03a20); }
     .ln-sub { color: var(--text-muted); font: 600 12px system-ui, sans-serif; margin-bottom: 12px; }
     /* #41: grow WIDER not taller so tall tabs fit a 1200x700 landscape tablet without
        scrolling. Capped so it doesn't balloon on a big desktop monitor, and clamped to
@@ -1555,6 +1563,7 @@
     <div class="cfg-label">Map Background</div>
     <div class="sa-grid">
       <button class="sa-tgl" id="sa-sat"><img class="sa-ic" src="/icons/BoundaryByMap.png" alt="">Satellite / Aerial</button>
+      <button class="sa-tgl" id="sa-terrain" title="Shade the field by recorded elevation">Terrain</button>
     </div>
     <div class="cfg-label">On-Screen Buttons</div>
     <div class="sa-grid">
@@ -3185,6 +3194,8 @@
     </div>
   </div>
   <div id="clock">--:--:--</div>
+  <!-- Terrain elevation legend: low → high colour ramp with the recorded min/max. -->
+  <div id="terrain-legend"><span id="tl-min">—</span><div class="tl-bar"></div><span id="tl-max">—</span></div>
   <!-- Bottom-centre stack (mirrors the native StackPanel): simulator bar above the
        section bar above the bottom nav (Phase 8). Each row toggles its own
        visibility; the column re-flows. -->

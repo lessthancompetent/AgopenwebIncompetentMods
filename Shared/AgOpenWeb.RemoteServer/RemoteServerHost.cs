@@ -101,6 +101,10 @@ public sealed class RemoteServerHost
     /// for the map overlay). Served at GET /api/routeblocks.</summary>
     public Func<string>? RouteBlocksJsonProvider { get; set; }
 
+    /// <summary>Host-supplied JSON of the field's Terrain elevation grid (5 m
+    /// cells, field-local metres). Served at GET /api/elevation.</summary>
+    public Func<string>? ElevationJsonProvider { get; set; }
+
     /// <summary>Host-supplied JSON of rate-control products + module state.
     /// Served at GET /api/ratecontrol.</summary>
     public Func<string>? RateControlJsonProvider { get; set; }
@@ -239,6 +243,10 @@ public sealed class RemoteServerHost
         // Field splitting: block labels + centroids for the map overlay.
         server.MapGet("/api/routeblocks", () => SimpleWebServer.Response.Text(
             RouteBlocksJsonProvider?.Invoke() ?? "{\"blocks\":[]}", "application/json", noStore));
+
+        // Terrain: recorded elevation grid for the map shading overlay.
+        server.MapGet("/api/elevation", () => SimpleWebServer.Response.Text(
+            ElevationJsonProvider?.Invoke() ?? "{}", "application/json", noStore));
 
         // Rate control: products + live module state for the Rate panel.
         server.MapGet("/api/ratecontrol", () => SimpleWebServer.Response.Text(

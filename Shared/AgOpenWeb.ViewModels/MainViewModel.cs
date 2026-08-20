@@ -84,6 +84,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IChartDataService _chartDataService;
     private readonly IAudioService _audioService;
     private readonly IElevationLogService _elevationLogService;
+    private readonly IElevationMapService _elevationMapService;
     private readonly IJobService _jobService;
     private readonly ITramLineService _tramLineService;
     private bool _hasTramSystemsEverUsed;
@@ -211,6 +212,7 @@ public partial class MainViewModel : ObservableObject
         IChartDataService chartDataService,
         IAudioService audioService,
         IElevationLogService elevationLogService,
+        IElevationMapService elevationMapService,
         IJobService jobService,
         ITramLineService tramLineService,
         IGpsPipelineService gpsPipelineService,
@@ -353,6 +355,7 @@ public partial class MainViewModel : ObservableObject
         _chartDataService = chartDataService;
         _audioService = audioService;
         _elevationLogService = elevationLogService;
+        _elevationMapService = elevationMapService;
         _jobService = jobService;
         // Refresh the field/job pill + status strip whenever the active job
         // changes (created, resumed, suspended).
@@ -1840,6 +1843,10 @@ public partial class MainViewModel : ObservableObject
             // Sync elevation log enabled state from config
             _elevationLogService.IsEnabled = _configStore.Display.ElevationLogEnabled;
 
+            // Terrain: load the field's recorded elevation grid (field-scoped,
+            // unlike coverage which lives under the job)
+            _elevationMapService.LoadFromFile(fieldPath);
+
             // Save as last opened field (persistent state → appstate.json)
             PersistentState.LastOpenedField = fieldName;
             _persistentStateService.Save();
@@ -1944,6 +1951,9 @@ public partial class MainViewModel : ObservableObject
             _elevationLogService.Flush(ActiveField.DirectoryPath);
             _elevationLogService.Clear();
 
+            // Terrain: persist the elevation grid with the field (no-op when unchanged)
+            _elevationMapService.SaveToFile(ActiveField.DirectoryPath);
+
             // Save tracks
             SaveTracksToFile();
 
@@ -2018,6 +2028,9 @@ public partial class MainViewModel : ObservableObject
 
         // Clear coverage
         _coverageMapService.ClearAll();
+
+        // Clear terrain elevation grid (per-field; see MainViewModel.Terrain.cs)
+        ResetTerrainState();
 
         // Update field service
         _fieldService.SetActiveField(null);

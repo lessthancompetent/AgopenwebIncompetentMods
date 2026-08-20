@@ -224,6 +224,10 @@ public partial class MainViewModel
                 RollDegrees);
         }
 
+        // Terrain: accumulate the per-field elevation grid while driving
+        // (gated + throttled inside; see MainViewModel.Terrain.cs)
+        RecordTerrainSample(posEasting, posNorthing, data.CurrentPosition);
+
         // Add recorded path point if path recording is active
         if (IsRecordingPath)
         {

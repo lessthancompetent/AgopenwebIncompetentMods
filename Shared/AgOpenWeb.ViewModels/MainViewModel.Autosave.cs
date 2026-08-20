@@ -109,8 +109,14 @@ public partial class MainViewModel
         {
             // Same call shape as the close-save path (MainViewModel.cs
             // CloseFieldAsync). RLE compression can take seconds on a
-            // large field; the GPS cycle must not block on it.
-            await Task.Run(() => _coverageMapService.SaveToFile(savePath, taskName));
+            // large field; the GPS cycle must not block on it. The terrain
+            // elevation grid rides the same tick (field-scoped, dirty-gated
+            // no-op when nothing new was recorded).
+            await Task.Run(() =>
+            {
+                _coverageMapService.SaveToFile(savePath, taskName);
+                _elevationMapService.SaveToFile(savePath);
+            });
             _logger.LogDebug("[Coverage] Autosaved coverage to {Path} job={Task}", savePath, taskName);
         }
         catch (Exception ex)

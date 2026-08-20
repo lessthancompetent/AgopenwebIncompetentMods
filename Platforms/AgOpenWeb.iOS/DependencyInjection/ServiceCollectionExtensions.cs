@@ -169,6 +169,9 @@ public static class ServiceCollectionExtensions
         // Elevation log service (#120)
         services.AddSingleton<IElevationLogService, ElevationLogService>();
 
+        // Terrain: per-field elevation grid recorded while driving (5 m cells)
+        services.AddSingleton<IElevationMapService, AgOpenWeb.Services.Elevation.ElevationMapService>();
+
         // GPS processing pipeline (background-thread orchestration)
         // Singleton: UI commands and the cycle worker must share one intent instance.
         services.AddSingleton<IPipelineIntents, PipelineIntents>();

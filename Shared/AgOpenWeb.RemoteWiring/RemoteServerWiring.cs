@@ -1054,6 +1054,12 @@ public static partial class RemoteServerWiring
                     server.RoutePlanJsonProvider = () => vm.GetRoutePlanJson();
                     server.RouteBlocksJsonProvider = () => vm.GetRouteBlocksJson();
 
+                    // Terrain: recorded elevation grid for the web map's Terrain
+                    // shading toggle. The service is thread-safe (snapshot under
+                    // its own lock), so serving from the HTTP thread is fine.
+                    var elevationMap = services.GetRequiredService<AgOpenWeb.Services.Interfaces.IElevationMapService>();
+                    server.ElevationJsonProvider = () => elevationMap.BuildElevationJson();
+
                     // Rate control (AOG_RC port): start the module plane (29999/28888)
                     // and expose status for the web Rate panel.
                     var rateSvc = services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>();
