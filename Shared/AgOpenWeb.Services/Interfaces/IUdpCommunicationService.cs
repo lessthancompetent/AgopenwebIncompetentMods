@@ -97,6 +97,14 @@ public interface IUdpCommunicationService
     /// </summary>
     string? GetModuleSubnet();
 
+    /// <summary>Serial module bridge transmit hook — module-bound PGNs are
+    /// mirrored here while a serial module connection is open.</summary>
+    Action<byte[]>? SerialMirror { get; set; }
+
+    /// <summary>Inject one complete frame received over serial into the normal
+    /// receive path (the module then acts like a network one).</summary>
+    void InjectSerialFrame(byte[] data);
+
     /// <summary>
     /// Broadcast a scan request (PGN 202) asking every module to reply with its
     /// IP + subnet (PGN 203). Matches AgIO's FormUDP "Scan" button.

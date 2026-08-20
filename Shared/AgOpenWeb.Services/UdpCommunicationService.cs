@@ -121,6 +121,23 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
     private static readonly IPEndPoint _loopbackAppsEndpoint =
         new(IPAddress.Parse("127.255.255.255"), 17777);
 
+    // ---- Serial module bridge ----------------------------------------------
+    /// <summary>Sentinel "remote" for frames injected from the serial bridge —
+    /// IPAddress.Any so IP-learning and subnet-locking know to skip them.</summary>
+    private static readonly IPEndPoint _serialEndpoint = new(IPAddress.Any, 0);
+
+    /// <summary>When a serial module bridge is open it hangs its transmit here;
+    /// every module-bound PGN is mirrored out the port too.</summary>
+    public Action<byte[]>? SerialMirror { get; set; }
+
+    /// <summary>Feed one complete frame (binary PGN or NMEA sentence) from the
+    /// serial bridge into the normal receive path. The module then behaves
+    /// exactly like a network one, except its address reads "serial".</summary>
+    public void InjectSerialFrame(byte[] data)
+    {
+        try { ProcessReceivedData(data, _serialEndpoint); } catch { }
+    }
+
     /// <summary>True when the AgIO-parity loopback app plane is up (15555 bound).
     /// False usually means real AgIO is running on this machine — the bridge
     /// then stands down so the two don't fight over the port.</summary>
@@ -266,6 +283,12 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
             (DateTime.UtcNow - _lastModuleResponse).TotalSeconds > ModuleTimeoutSeconds)
         {
             _lockedEndpoint = null;
+        }
+
+        // Serial module bridge: modules on USB get the same stream.
+        if (SerialMirror is { } serialTx)
+        {
+            try { serialTx(data); } catch { }
         }
 
         if (_lockedEndpoint != null)
@@ -542,6 +565,14 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
                 // Track module connections based on hello messages
                 UpdateModuleConnection(data, remoteEndPoint);
 
+                // AgIO parity: module traffic fans out to the local app plane
+                // as well (AgDiag and friends watch the module PGNs there).
+                // Skip frames that arrived FROM loopback — they're already on it.
+                if (_loopbackSocket is { } lbIn && !IPAddress.IsLoopback(remoteEndPoint.Address))
+                {
+                    try { lbIn.SendTo(data, _loopbackAppsEndpoint); } catch { }
+                }
+
                 // Fire event
                 DataReceived?.Invoke(this, new UdpDataReceivedEventArgs
                 {
@@ -638,7 +669,8 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
     private void UpdateModuleConnection(byte[] data, IPEndPoint remoteEndPoint)
     {
         var now = DateTime.Now;
-        var remoteIp = remoteEndPoint.Address.ToString();
+        bool fromSerial = remoteEndPoint.Address.Equals(IPAddress.Any);
+        var remoteIp = fromSerial ? "serial" : remoteEndPoint.Address.ToString();
         byte pgn = data[3];
 
         // Track ALL PGNs as data - if we're getting any PGN from a module, it's sending data
@@ -798,6 +830,7 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
     private void LockToSubnet(IPAddress remoteIP)
     {
         _lastModuleResponse = DateTime.UtcNow;
+        if (remoteIP.Equals(IPAddress.Any)) return; // serial bridge: no subnet to lock
         RefreshUnicastEndpoints();
 
         if (_lockedEndpoint != null || IPAddress.IsLoopback(remoteIP))
@@ -815,7 +848,8 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
     {
         var ips = new List<string>(4);
         foreach (var ip in new[] { _autoSteerIp, _machineIp, _imuIp, _gpsIp })
-            if (!string.IsNullOrEmpty(ip) && ip != "127.0.0.1" && !ips.Contains(ip))
+            if (!string.IsNullOrEmpty(ip) && ip != "127.0.0.1" && !ips.Contains(ip)
+                && IPAddress.TryParse(ip, out _))
                 ips.Add(ip);
         var current = _unicastModuleEndpoints;
         if (current.Length == ips.Count)

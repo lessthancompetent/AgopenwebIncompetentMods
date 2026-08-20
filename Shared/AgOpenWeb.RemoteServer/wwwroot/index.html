@@ -1724,6 +1724,9 @@
         </div>
         <div data-show="worksw">
           <img id="tc-img-worksw" class="vc-diag-wide" alt="">
+          <div class="cfg-label">Switch type</div>
+          <div class="ln-seg cfg-seg-full"><button class="cfg-typebtn" data-key="tool.isWorkSwitchMomentary" data-val="0" data-active="false">Maintained switch</button><button class="cfg-typebtn" data-key="tool.isWorkSwitchMomentary" data-val="1" data-active="true">Momentary button</button></div>
+          <div class="sa-hint">Momentary: each press toggles work on/off</div>
           <div class="cfg-label">Active state</div>
           <div class="ln-seg cfg-seg-full"><button class="cfg-typebtn" data-key="tool.isWorkSwitchActiveLow" data-val="1" data-active="true">Active low (closed)</button><button class="cfg-typebtn" data-key="tool.isWorkSwitchActiveLow" data-val="0" data-active="false">Active high (open)</button></div>
           <div class="cfg-label">Controls</div>
@@ -2027,6 +2030,22 @@
       <span class="nio-dot" id="nio-imu-dot"></span><span class="nio-mod">IMU</span><span class="nio-ip" id="nio-imu-ip">—</span>
     </div>
     <button id="nio-scan" class="cfg-act cfg-actwide">Scan for Modules</button>
+    <div class="cfg-label" style="margin-top:14px">Module connection</div>
+    <div class="ln-seg cfg-seg-full">
+      <button class="cfg-typebtn" id="nio-conn-udp">UDP (network)</button>
+      <button class="cfg-typebtn" id="nio-conn-serial">Serial (USB)</button>
+    </div>
+    <div id="nio-serialcfg" style="display:none">
+      <div class="cfg-grid" style="margin-top:8px">
+        <label>Port</label><select class="cfg-isel" id="nio-serport"></select>
+        <label>Baud</label><select class="cfg-isel" id="nio-serbaud">
+          <option value="38400">38400</option><option value="115200">115200</option>
+          <option value="57600">57600</option><option value="19200">19200</option>
+          <option value="9600">9600</option><option value="460800">460800</option>
+        </select>
+      </div>
+      <div class="sa-hint" id="nio-serstatus">—</div>
+    </div>
     <div class="cfg-label" style="margin-top:14px">Subnet</div>
     <div class="nio-subnet">
       <input class="cfg-num nio-oct" id="nio-o1" type="number" min="0" max="255">

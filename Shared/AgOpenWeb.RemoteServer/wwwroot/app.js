@@ -292,7 +292,13 @@ const transport = RemoteTransport.create({
     cov.pending.push({ cells: msg.cells, t: performance.now() });
   },
   onCoverageEdge(polylines) { coverageEdges = polylines; }, // crisp worked-area perimeter (~2 Hz)
-  onStatusBar(s) { statusBar = s; if (typeof applySimBarVisible === 'function') applySimBarVisible(); syncUnsavedCov(); },
+  onStatusBar(s) {
+    statusBar = s; if (typeof applySimBarVisible === 'function') applySimBarVisible(); syncUnsavedCov();
+    // Network IO panel renders from this frame — keep it live while open
+    // (it used to render once at open and freeze).
+    const nio = document.getElementById('networkio');
+    if (nio && nio.classList.contains('open') && typeof renderNetworkIo === 'function') renderNetworkIo();
+  },
   onConfig(c) { config = c; configDirty = true; applyTheme(c && c.display && c.display.isDayMode); },
   onProfiles(p) { profiles = p; profilesDirty = true; },
   onNtripProfiles(p) { ntripProfiles = p; ntripDirty = true; },
@@ -2015,7 +2021,11 @@ document.getElementById('ln-autosteer').addEventListener('pointerdown', e => {
 document.getElementById('ln-network').addEventListener('pointerdown', e => {
   e.stopPropagation();
   if (document.getElementById('networkio').classList.contains('open')) lnCloseAll();
-  else lnOpen('networkio', 'ln-network', renderNetworkIo);
+  else {
+    lnOpen('networkio', 'ln-network', renderNetworkIo);
+    nioSerialTick();
+    if (!nioSerialPoll) nioSerialPoll = setInterval(nioSerialTick, 2000);
+  }
 });
 // Route Planner controls: pattern picker, ± steppers, Plan / Clear.
 for (const b of document.querySelectorAll('#routeplan .rp-pat[data-pat]'))
@@ -3560,8 +3570,50 @@ nioSubnetBtn.addEventListener('pointerdown', e => {
     () => transport.send('net.subnet|' + o1 + '.' + o2 + '.' + o3));
 });
 document.getElementById('nio-ntprofiles').addEventListener('pointerdown', e => { e.stopPropagation(); openNtripProfiles(); });
+// --- Module connection: UDP (always on) vs a serial/USB module port. Serial
+// state comes from /api/serial, polled while the panel is open.
+let nioSerial = null, nioSerialPoll = null;
+function nioSerialTick() {
+  if (!nioPanel.classList.contains('open')) { clearInterval(nioSerialPoll); nioSerialPoll = null; return; }
+  fetch('/api/serial').then(r => r.json()).then(j => { nioSerial = j; renderNioSerial(); }).catch(() => {});
+}
+function renderNioSerial() {
+  const j = nioSerial; if (!j) return;
+  document.getElementById('nio-conn-udp').dataset.active = j.enabled ? 'false' : 'true';
+  document.getElementById('nio-conn-serial').dataset.active = j.enabled ? 'true' : 'false';
+  document.getElementById('nio-serialcfg').style.display = j.enabled ? '' : 'none';
+  const sel = document.getElementById('nio-serport');
+  if (document.activeElement !== sel) {
+    const ports = j.ports || [];
+    const want = ports.map(p => '<option>' + p + '</option>').join('') || '<option value="">(no ports)</option>';
+    if (sel.dataset.opts !== want) { sel.innerHTML = want; sel.dataset.opts = want; }
+    if (j.port) sel.value = j.port;
+  }
+  const baud = document.getElementById('nio-serbaud');
+  if (document.activeElement !== baud && j.baud) baud.value = String(j.baud);
+  document.getElementById('nio-serstatus').textContent =
+    !j.enabled ? '—'
+    : j.open ? ('Open — ' + (j.rxFrames || 0) + ' frames in, ' + (j.txFrames || 0) + ' out')
+    : ('Not open' + (j.error ? ' — ' + j.error : ''));
+}
+function nioSerialSendCfg() {
+  const port = document.getElementById('nio-serport').value;
+  const baud = document.getElementById('nio-serbaud').value || '38400';
+  if (port) transport.send('serial.cfg|' + port + ',' + baud);
+  setTimeout(nioSerialTick, 400);
+}
+document.getElementById('nio-conn-udp').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('serial.enable|0'); setTimeout(nioSerialTick, 400);
+});
+document.getElementById('nio-conn-serial').addEventListener('pointerdown', e => {
+  e.stopPropagation(); transport.send('serial.enable|1'); nioSerialSendCfg();
+});
+document.getElementById('nio-serport').addEventListener('change', nioSerialSendCfg);
+document.getElementById('nio-serbaud').addEventListener('change', nioSerialSendCfg);
 function clampOct(v) { let n = parseInt(v); if (!Number.isFinite(n)) n = 0; return Math.max(0, Math.min(255, n)); }
-function nioDotColor(configured, ok) { return !configured ? '#6b7280' : (ok ? '#22c55e' : '#ef4444'); }
+// Alive is always green (even unticked); ticked = "expected here", so a
+// missing expected module goes red while an unticked absent one stays grey.
+function nioDotColor(configured, ok) { return ok ? '#22c55e' : (configured ? '#ef4444' : '#6b7280'); }
 let _lastModuleSubnet = '';
 function renderNetworkIo() {
   const s = statusBar; if (!s) return;

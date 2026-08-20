@@ -773,6 +773,20 @@ public static partial class RemoteServerWiring
                                         services.GetRequiredService<IUdpCommunicationService>().SetModuleSubnet(o1, o2, o3);
                                     return;
                                 }
+                                // --- Serial module bridge (Network IO panel). Tier-1:
+                                // config-file writes + opening a local COM port. ---
+                                case "serial.cfg": // arg = "port,baud"
+                                {
+                                    var sp = arg.Split(',');
+                                    if (sp.Length == 2 && int.TryParse(sp[1], out var baud))
+                                        services.GetRequiredService<AgOpenWeb.Services.SerialBridgeService>()
+                                            .SetConfig(sp[0], baud);
+                                    return;
+                                }
+                                case "serial.enable": // arg = "1"/"0"
+                                    services.GetRequiredService<AgOpenWeb.Services.SerialBridgeService>()
+                                        .SetEnabled(arg == "1");
+                                    return;
                                 // --- NTRIP profile CRUD (Phase 9). Calls INtripProfileService
                                 // directly (mirrors the vehicle/tool ApplyProfileCommand path);
                                 // confirmations happen client-side. Tier-1 (config files). ---
@@ -1030,6 +1044,11 @@ public static partial class RemoteServerWiring
                     var rateSvc = services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>();
                     rateSvc.Start();
                     server.RateControlJsonProvider = () => rateSvc.BuildStatusJson();
+
+                    // Serial module bridge: USB modules on the same PGN plane.
+                    var serialSvc = services.GetRequiredService<AgOpenWeb.Services.SerialBridgeService>();
+                    serialSvc.Start();
+                    server.SerialBridgeJsonProvider = () => serialSvc.BuildStatusJson();
                     server.ModuleSetupJsonProvider = () => rateSvc.BuildModuleSetupJson();
                     // Flowmeter totals → job records: baseline the counters when a
                     // job opens; coverage export auto-fills measured applied.
