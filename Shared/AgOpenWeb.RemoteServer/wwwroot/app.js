@@ -2881,6 +2881,25 @@ function rtRenderSwitches() {
     ws.textContent = d.switchbox.workSwitchOn ? 'ON (implement down)' : 'off';
     ws.style.color = d.switchbox.workSwitchOn ? '#2ecc71' : '';
   }
+  // Physical PGN 32618 box: read-only status + live switch levels.
+  const phys = d.switchbox.physical;
+  const pc = document.getElementById('sw-phys');
+  if (pc) {
+    const on = !!(phys && phys.connected);
+    pc.textContent = on ? 'connected' : '—';
+    pc.style.color = on ? '#2ecc71' : '';
+    const ps = document.getElementById('sw-physstate');
+    if (ps) {
+      if (on) {
+        const secs = [];
+        for (let i = 0; i < 16; i++) if (phys.sections & (1 << i)) secs.push(i + 1);
+        ps.textContent = 'work ' + (phys.work ? 'ON' : 'off')
+          + ' · auto sec ' + (phys.autoSection ? 'ON' : 'off')
+          + ' · auto rate ' + (phys.autoRate ? 'ON' : 'off')
+          + ' · sw ' + (secs.length ? secs.join(',') : 'none');
+      } else ps.textContent = '—';
+    }
+  }
   // allocation grid: one select per section
   const grid = document.getElementById('sw-alloc');
   const alloc = d.switchbox.sectionSwitch || [];

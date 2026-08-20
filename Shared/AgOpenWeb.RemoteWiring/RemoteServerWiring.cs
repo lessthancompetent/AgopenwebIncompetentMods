@@ -1059,6 +1059,16 @@ public static partial class RemoteServerWiring
                     var rateSvc = services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>();
                     rateSvc.Start();
                     server.RateControlJsonProvider = () => rateSvc.BuildStatusJson();
+                    // Physical switchbox (PGN 32618): its auto-section toggle flips
+                    // the section auto master through the same command every other
+                    // hardware button uses. Marshalled — the event fires on the RC
+                    // receive thread.
+                    rateSvc.PhysicalAutoSectionChanged += on => dispatcher.Post(() =>
+                    {
+                        if (vm.IsSectionMasterOn != on
+                            && vm.ToggleSectionMasterCommand?.CanExecute(null) == true)
+                            vm.ToggleSectionMasterCommand.Execute(null);
+                    });
 
                     // Serial module bridge: USB modules on the same PGN plane.
                     var serialSvc = services.GetRequiredService<AgOpenWeb.Services.SerialBridgeService>();
