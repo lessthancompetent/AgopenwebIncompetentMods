@@ -693,6 +693,90 @@ function toggleSatBackground() {
 }
 window.toggleSatBackground = toggleSatBackground;
 
+// ---- Terrain (recorded elevation shading) ---------------------------------
+// The host samples RTK altitude into a 5 m per-field grid while driving and
+// serves it at /api/elevation. While the Screen & Alerts → Map Background
+// "Terrain" toggle is ON we refetch every 5 s, paint one canvas pixel per cell
+// through a blue→green→yellow→red ramp (alpha 0.35), and blit it world-anchored
+// UNDER the coverage/route layers (same drawImageWorldSk path as coverage).
+// OFF = no fetches, nothing drawn.
+let terrainOn = false, terrain = null, terrainTimer = null;
+function terrainRamp(t) { // 0..1 (low..high) → blue → green → yellow → red
+  const stops = [[0x30, 0x60, 0xff], [0x22, 0xb1, 0x4c], [0xff, 0xd2, 0x1f], [0xe0, 0x3a, 0x20]];
+  const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(x)), f = x - i;
+  const a = stops[i], b = stops[i + 1];
+  return [Math.round(a[0] + (b[0] - a[0]) * f),
+          Math.round(a[1] + (b[1] - a[1]) * f),
+          Math.round(a[2] + (b[2] - a[2]) * f)];
+}
+function terrainDrop() {
+  if (terrain && terrain.skImg) terrain.skImg.delete();
+  terrain = null;
+}
+// Payload: {cell, min, max, cells:[[eCentre, nCentre, alt]…]} in field-local metres.
+function terrainBuild(d) {
+  const cs = d.cell, cells = d.cells;
+  let minCx = Infinity, maxCx = -Infinity, minCy = Infinity, maxCy = -Infinity;
+  for (const c of cells) {
+    const cx = Math.round((c[0] - cs / 2) / cs), cy = Math.round((c[1] - cs / 2) / cs);
+    if (cx < minCx) minCx = cx; if (cx > maxCx) maxCx = cx;
+    if (cy < minCy) minCy = cy; if (cy > maxCy) maxCy = cy;
+  }
+  const w = maxCx - minCx + 1, h = maxCy - minCy + 1;
+  if (!(w > 0) || !(h > 0) || w * h > 16e6) { terrainDrop(); return; }
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  const span = Math.max(0.01, d.max - d.min);
+  for (const c of cells) {
+    const cx = Math.round((c[0] - cs / 2) / cs), cy = Math.round((c[1] - cs / 2) / cs);
+    const rgb = terrainRamp((c[2] - d.min) / span);
+    ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',0.35)';
+    ctx.fillRect(cx - minCx, h - 1 - (cy - minCy), 1, 1); // y-flip: high northing at top
+  }
+  terrainDrop();
+  terrain = { canvas: cv, skImg: null,
+    minE: minCx * cs, minN: minCy * cs, maxE: (maxCx + 1) * cs, maxN: (maxCy + 1) * cs,
+    min: d.min, max: d.max };
+}
+function terrainLegend() {
+  const el = document.getElementById('terrain-legend');
+  el.classList.toggle('on', terrainOn && !!terrain);
+  if (terrain) {
+    document.getElementById('tl-min').textContent = terrain.min.toFixed(1) + ' m';
+    document.getElementById('tl-max').textContent = terrain.max.toFixed(1) + ' m';
+  }
+}
+function terrainFetch() {
+  fetch('/api/elevation').then(r => r.json()).then(d => {
+    if (!terrainOn) return; // toggled off while the fetch was in flight
+    if (d && d.cells && d.cells.length) terrainBuild(d); else terrainDrop();
+    terrainLegend();
+  }).catch(() => {});
+}
+function toggleTerrain() {
+  terrainOn = !terrainOn;
+  const b = document.getElementById('sa-terrain');
+  if (b) b.classList.toggle('active', terrainOn);
+  if (terrainOn) {
+    terrainFetch();
+    terrainTimer = setInterval(terrainFetch, 5000);
+  } else {
+    if (terrainTimer) { clearInterval(terrainTimer); terrainTimer = null; }
+    terrainDrop();
+    terrainLegend();
+  }
+}
+function drawTerrainSk(canvas) {
+  if (!terrainOn || !terrain) return;
+  if (!terrain.skImg) terrain.skImg = CK.MakeImageFromCanvasImageSource(terrain.canvas);
+  if (!terrain.skImg) return;
+  // Nearest keeps the 5 m cells as crisp squares (the recorded resolution).
+  drawImageWorldSk(canvas, terrain.skImg, terrain.minE, terrain.minN, terrain.maxE, terrain.maxN,
+    CK.FilterMode.Nearest, CK.MipmapMode.None);
+}
+window.toggleTerrain = toggleTerrain;
+
 // ---- Route Planner (Layer 3) ----------------------------------------------
 // The control state mirrors the headless PlanRoute(pattern, headlandPasses, skip,
 // block, angleDeg) args. Plan Route posts route.plan|… then fetches /api/routeplan
@@ -3354,6 +3438,8 @@ for (const b of saPanel.querySelectorAll('.sa-tgl[data-key]'))
   b.addEventListener('pointerdown', e => { e.stopPropagation(); cfgSend(b.dataset.key, b.classList.contains('active') ? '0' : '1'); });
 // Satellite/aerial map background — a client-only toggle (no backend display key).
 document.getElementById('sa-sat').addEventListener('pointerdown', e => { e.stopPropagation(); toggleSatBackground(); });
+// Terrain elevation shading — client-side toggle; fetches /api/elevation while on.
+document.getElementById('sa-terrain').addEventListener('pointerdown', e => { e.stopPropagation(); toggleTerrain(); });
 for (const b of saPanel.querySelectorAll('.sa-act'))
   b.addEventListener('pointerdown', e => { e.stopPropagation(); transport.send(b.dataset.cmd); });
 const saExtra = document.getElementById('sa-extracount');
@@ -3363,6 +3449,7 @@ function populateScreenAlerts() {
   const d = config.display;
   for (const b of saPanel.querySelectorAll('.sa-tgl[data-key]')) b.classList.toggle('active', !!d[b.dataset.key.split('.')[1]]);
   document.getElementById('sa-sat').classList.toggle('active', satEnabled);
+  document.getElementById('sa-terrain').classList.toggle('active', terrainOn);
   if (document.activeElement !== saExtra) saExtra.value = d.extraGuidelinesCount;
   document.getElementById('sa-quality').textContent = d.resolutionLabel || '—';
 }
@@ -6691,6 +6778,7 @@ function renderSkia(canvas, rp) {
   drawGroundTextureSk(canvas); // ground backdrop (under everything)
   drawSatelliteSk(canvas); // Bing aerial underlay while drawing a boundary on map
   drawImagerySk(canvas); // imagery overlays the ground where present
+  drawTerrainSk(canvas); // Terrain: recorded elevation shading (under coverage/routes)
   drawPickOutlinesSk(canvas); // pick-from-map: all mapped field outlines
   drawRoutePlanSk(canvas); // route planner: generated coverage-route preview
   drawRouteSplitsSk(canvas); // field-split divider lines (dashed magenta)

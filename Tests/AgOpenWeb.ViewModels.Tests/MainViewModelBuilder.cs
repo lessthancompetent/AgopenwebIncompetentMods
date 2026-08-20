@@ -82,6 +82,7 @@ public class MainViewModelBuilder
             chartDataService: Substitute.For<IChartDataService>(),
             audioService: Substitute.For<IAudioService>(),
             elevationLogService: Substitute.For<IElevationLogService>(),
+            elevationMapService: Substitute.For<IElevationMapService>(),
             jobService: Substitute.For<IJobService>(),
             tramLineService: Substitute.For<AgOpenWeb.Services.Interfaces.ITramLineService>(),
             gpsPipelineService: GpsPipelineService,

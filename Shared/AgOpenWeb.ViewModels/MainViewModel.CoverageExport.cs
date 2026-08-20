@@ -102,6 +102,13 @@ public partial class MainViewModel
             var jobDir = JobJsonService.JobDirectory(field.DirectoryPath, job.TaskName);
             Directory.CreateDirectory(jobDir);
             File.WriteAllText(Path.Combine(jobDir, "coverage.geojson"), json);
+
+            // Terrain: the field's elevation grid rides along for the off-board
+            // viewer (Point features, properties {alt}).
+            var elevationGeoJson = _elevationMapService.BuildGeoJson(
+                field.Origin.Latitude, field.Origin.Longitude);
+            if (elevationGeoJson != null)
+                File.WriteAllText(Path.Combine(jobDir, "elevation.geojson"), elevationGeoJson);
             if (!quiet)
                 StatusMessage = $"Coverage exported ({(string.IsNullOrEmpty(job.Product) ? "no product set" : job.Product)})";
         }
