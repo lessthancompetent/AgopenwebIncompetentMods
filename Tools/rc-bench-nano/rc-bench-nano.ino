@@ -58,6 +58,7 @@
 // own console rate.)
 
 #include <Arduino.h>
+#include <EEPROM.h>
 
 // ---- pins ----
 static const uint8_t PIN_PULSE   = 9;    // OC1A — hardware-timed, no jitter
@@ -103,6 +104,32 @@ static bool  binEmpty   = false;
 static bool  twoWire    = false;
 static float travelSec  = 6.0f;    // 'r': full-travel time of the valve
 static float valvePos   = 0.0f;    // 0..1 modelled position
+// 'D<-1..1>': signed valve drive fed over serial from the HOST, which reads the
+// module's own signed PWM telemetry. Lets the close direction work with only
+// one sense divider on the bench (the analog path only sees one H-bridge leg).
+// Falls back to the analog dividers when no 'D' has arrived for a while.
+static float serialDuty = 0.0f;
+static uint32_t serialDutyMs = 0;
+
+// Settings survive resets. Three bench runs in a row were silently wrecked by
+// a USB bump or port-open resetting the board back to MANUAL-at-20 - which is
+// indistinguishable on the wire from a perfectly settled loop at a 20 target.
+struct Persist { uint32_t magic; uint8_t mode; float cal, flow, maxF, tau, travel; bool twoW, potLock; };
+static const uint32_t MAGIC = 0xBE7C4001;
+
+static void saveSettings()
+{
+  Persist ps = { MAGIC, (uint8_t)mode, meterCal, manualFlow, maxFlow, tauSec, travelSec, twoWire, potLocked };
+  EEPROM.put(0, ps);
+}
+
+static void loadSettings()
+{
+  Persist ps; EEPROM.get(0, ps);
+  if (ps.magic != MAGIC) return;
+  mode = (Mode)ps.mode; meterCal = ps.cal; manualFlow = ps.flow; maxFlow = ps.maxF;
+  tauSec = ps.tau; travelSec = ps.travel; twoWire = ps.twoW; potLocked = ps.potLock;
+}
 static bool  binActiveHigh = false; // match the module's invert-bin flag
 
 // ---- state ----
@@ -216,6 +243,7 @@ void setup()
   digitalWrite(PIN_BIN, binActiveHigh ? LOW : HIGH);   // "not empty"
   Serial.begin(38400);
   Serial.setTimeout(50);                 // snappy: no 1s stall after each command
+  loadSettings();                        // reset-proof: come back as configured
   delay(200);
   printHelp();
   printStatus();
@@ -258,7 +286,8 @@ void loop()
       float dOpen  = readDutyRaw(pwmInvert ? PIN_PWM_IN2 : PIN_PWM_IN);
       float dClose = readDutyRaw(pwmInvert ? PIN_PWM_IN : PIN_PWM_IN2);
       pwmDuty = dOpen - dClose;                      // signed, for the status line
-      valvePos += (dOpen - dClose) * (dt / travelSec);
+      if (millis() - serialDutyMs < 1500) pwmDuty = serialDuty;   // host telemetry wins while fresh
+      valvePos += pwmDuty * (dt / travelSec);
       if (valvePos < 0) valvePos = 0; else if (valvePos > 1) valvePos = 1;
       wanted = valvePos * maxFlow;
     } else {
@@ -291,7 +320,7 @@ void loop()
     if (c == '\r' || c == '\n') continue;
     // Only parse a number for commands that take one: parseFloat() otherwise
     // blocks for the whole serial timeout and can swallow the next command.
-    bool takesValue = (strchr("mcfxtvbikwr", c) != NULL);
+    bool takesValue = (strchr("mcfxtvbikwrD", c) != NULL);
     float v = takesValue ? Serial.parseFloat() : 0.0f;
     switch (c) {
       case 'm': mode = (Mode)constrain((int)v, 0, 2); break;
@@ -305,12 +334,14 @@ void loop()
       case 'b': binEmpty = (v >= 1); break;
       case 'k': buttonArmed = (v >= 1); break;
       case 'w': twoWire = (v >= 1); valvePos = 0; break;
+      case 'D': serialDuty = v < -1 ? -1 : (v > 1 ? 1 : v); serialDutyMs = millis(); break;
       case 'r': if (v > 0.2f) travelSec = v; break;
       case 's': break;
       case '?': printHelp(); break;
       default: continue;
     }
-    printStatus();
+    if (c != 'D' && c != 's' && c != '?') saveSettings();   // D floods; s/? change nothing
+    if (c != 'D') printStatus();
   }
 
   if (now - lastPrint > 1000) { lastPrint = now; printStatus(); }
