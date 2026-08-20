@@ -65,6 +65,12 @@ public class SectionControlService : ISectionControlService
     /// </summary>
     public double TickHz { get; set; } = 10.0;
 
+    // Ticks of "just finished a turn" grace: the turn EARLY-COMPLETES ~4m
+    // before the path end, so the plan disappears while the trailing tool is
+    // still inside the headland - the turn-exit paint override needs to stay
+    // armed briefly after the plan ends or it never fires.
+    private int _planGraceTicks;
+
     /// <summary>When a planned path is known ahead (an armed/executing U-turn),
     /// look-ahead anticipation walks the PLAN instead of dead-reckoning from
     /// tool heading — the trailing tool crabs through a turn, so heading
@@ -378,7 +384,14 @@ public class SectionControlService : ISectionControlService
         var plan = PlannedPathProvider?.Invoke();
         double? planRemaining = null;
         if (plan is { Path.Count: >= 2 } p2)
+        {
             planRemaining = RemainingPlannedPath(p2.Path, p2.Index);
+            _planGraceTicks = (int)(5.0 * TickHz);
+        }
+        else if (_planGraceTicks > 0)
+        {
+            _planGraceTicks--;
+        }
         double onSampleDist = planRemaining is { } r
             ? Math.Max(lookAheadOnDist, r + 2.0)
             : lookAheadOnDist;
@@ -551,7 +564,7 @@ public class SectionControlService : ISectionControlService
             // turn, the physical exit is authoritative: the section has left
             // the headland onto uncovered ground, so paint NOW. Normal driving
             // (no active plan) keeps the pure timer semantics.
-            bool turnExitArrived = planRemaining.HasValue
+            bool turnExitArrived = (planRemaining.HasValue || _planGraceTicks > 0)
                 && !isInHeadland
                 && currentCoverage.CoveragePercent < coverageOnThreshold;
 
