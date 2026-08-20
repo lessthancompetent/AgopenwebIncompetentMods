@@ -685,7 +685,8 @@ public sealed class SceneProjector
                 t.IsSectionOffWhenOut, t.IsHeadlandSectionControl, t.MinCoverage, t.SlowSpeedCutoff,
                 t.CoverageMargin, t.IsWorkSwitchEnabled, t.IsWorkSwitchActiveLow, t.IsWorkSwitchManualSections,
                 t.IsSteerSwitchEnabled, t.IsSteerSwitchManualSections, _config.ActualToolWidth, t.PhysicalWidth,
-                t.UseRateControl),
+                t.UseRateControl,
+                t.IsWorkSwitchMomentary),
             new UturnConfigDto(g.UTurnStyle, g.UTurnExtension, g.UTurnSmoothing, g.UTurnRadius, g.UTurnDistanceFromBoundary,
                 g.RouteWorkSpeedKmh, g.RouteTurnSpeedKmh, g.RouteTurnOverheadSec, g.RouteFirstPassOffsetM),
             new TramConfigDto(g.TramPasses, g.TramDisplay, g.TramLine),
@@ -784,7 +785,8 @@ public sealed class SceneProjector
               // Without this the frame is not re-sent when rate control is
               // toggled, so the button would stay stale even once the wire
               // carries the field.
-              + (t.UseRateControl ? 512 : 0);
+              + (t.UseRateControl ? 512 : 0)
+              + (t.IsWorkSwitchMomentary ? 1024 : 0);
         foreach (var d in new[] { t.HitchLength, t.TrailingHitchLength, t.TankTrailingHitchLength, t.Length,
                                   t.LookAheadOnSetting, t.LookAheadOffSetting, t.TurnOffDelay, t.Offset, t.Overlap,
                                   t.TrailingToolToPivotLength, t.DefaultSectionWidth, t.SlowSpeedCutoff, t.CoverageMargin,

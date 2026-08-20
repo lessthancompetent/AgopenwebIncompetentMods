@@ -85,9 +85,10 @@ public partial class MainViewModel
         var tool = ConfigStore.Tool;
         var mc = _moduleCommunicationService;
         mc.IsRemoteWorkSystemOn = tool.IsWorkSwitchEnabled || tool.IsSteerSwitchEnabled;
-        // Snapshot's WorkSwitchActive is "pin pulled low (closed)"; the native
-        // logic wants the raw pin level, its ActiveLow flag does the polarity.
-        mc.WorkSwitchHigh = !state.WorkSwitchActive;
+        // Feed the pre-resolved work state (polarity + momentary latch applied)
+        // through the native formula: active == (High != ActiveLow), so express
+        // WorkSwitchOn as the pin level that makes the formula come out right.
+        mc.WorkSwitchHigh = tool.IsWorkSwitchActiveLow ? !state.WorkSwitchOn : state.WorkSwitchOn;
         mc.SteerSwitchHigh = _autoSteerService.LastSteerData.SteerSwitchActive;
 
         _moduleSwitchState.IsAutoSteerOn = IsAutoSteerEngaged;

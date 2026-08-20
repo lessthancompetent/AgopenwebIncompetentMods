@@ -276,6 +276,7 @@ public static class WireCodec
         // MUST be added there in the same order and the same commit.
         w.Write(t.PhysicalWidth);      // f64
         w.Write((byte)(t.UseRateControl ? 1 : 0));
+        w.Write((byte)(t.IsWorkSwitchMomentary ? 1 : 0));
         // U-Turn tab.
         var u = c.Uturn;
         w.Write(u.Style);              // i32

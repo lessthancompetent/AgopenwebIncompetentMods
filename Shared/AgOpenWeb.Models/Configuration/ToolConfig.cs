@@ -455,6 +455,15 @@ public class ToolConfig : ObservableObject
         set => SetProperty(ref _isWorkSwitchActiveLow, value);
     }
 
+    private bool _isWorkSwitchMomentary;
+    /// <summary>Work input is a momentary button: each press toggles the work
+    /// state, instead of the level of a maintained switch being the state.</summary>
+    public bool IsWorkSwitchMomentary
+    {
+        get => _isWorkSwitchMomentary;
+        set => SetProperty(ref _isWorkSwitchMomentary, value);
+    }
+
     private bool _isWorkSwitchManualSections;
     public bool IsWorkSwitchManualSections
     {

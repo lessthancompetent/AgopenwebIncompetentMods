@@ -987,15 +987,10 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     public void CancelPrimed() => _primedUntilUtc = DateTime.MinValue;
 
-    /// <summary>Work switch reads "on" (implement down). The snapshot bit is
-    /// normalized to "pin pulled low (closed)", so a closed-to-ground switch —
-    /// ActiveLow=true, the native default — compares EQUAL, not opposite. (The
-    /// original != here silently required the polarity setting to be wrong.)</summary>
+    /// <summary>Work switch reads "on" (implement down) — polarity and
+    /// momentary-latch resolution live in the snapshot.</summary>
     private bool WorkSwitchOn()
-    {
-        bool pinLow = _autoSteer?.LatestSnapshot?.WorkSwitchActive ?? false;
-        return pinLow == _configStore.Tool.IsWorkSwitchActiveLow;
-    }
+        => _autoSteer?.LatestSnapshot?.WorkSwitchOn ?? false;
 
     /// <summary>Master as the machine should see it: the raw switch filtered
     /// through the master mode, the work-switch gate and a primed run.</summary>

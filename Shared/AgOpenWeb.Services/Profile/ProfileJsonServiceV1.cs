@@ -184,6 +184,7 @@ public static class ProfileJsonServiceV1
                 ZoneRanges = (int[])store.Tool.ZoneRanges.Clone(),
                 IsWorkSwitchEnabled = store.Tool.IsWorkSwitchEnabled,
                 IsWorkSwitchActiveLow = store.Tool.IsWorkSwitchActiveLow,
+                IsWorkSwitchMomentary = store.Tool.IsWorkSwitchMomentary,
                 IsWorkSwitchManualSections = store.Tool.IsWorkSwitchManualSections,
                 IsSteerSwitchEnabled = store.Tool.IsSteerSwitchEnabled,
                 IsSteerSwitchManualSections = store.Tool.IsSteerSwitchManualSections,
@@ -315,6 +316,7 @@ public static class ProfileJsonServiceV1
             store.Tool.ZoneRanges = (int[])dto.Tool.ZoneRanges.Clone();
         store.Tool.IsWorkSwitchEnabled = dto.Tool?.IsWorkSwitchEnabled ?? false;
         store.Tool.IsWorkSwitchActiveLow = dto.Tool?.IsWorkSwitchActiveLow ?? false;
+        store.Tool.IsWorkSwitchMomentary = dto.Tool?.IsWorkSwitchMomentary ?? false;
         store.Tool.IsWorkSwitchManualSections = dto.Tool?.IsWorkSwitchManualSections ?? false;
         store.Tool.IsSteerSwitchEnabled = dto.Tool?.IsSteerSwitchEnabled ?? false;
         store.Tool.IsSteerSwitchManualSections = dto.Tool?.IsSteerSwitchManualSections ?? false;
@@ -457,6 +459,7 @@ public static class ProfileJsonServiceV1
         public int[]? ZoneRanges { get; set; }
         public bool? IsWorkSwitchEnabled { get; set; }
         public bool? IsWorkSwitchActiveLow { get; set; }
+        public bool? IsWorkSwitchMomentary { get; set; }
         public bool? IsWorkSwitchManualSections { get; set; }
         public bool? IsSteerSwitchEnabled { get; set; }
         public bool? IsSteerSwitchManualSections { get; set; }

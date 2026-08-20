@@ -329,7 +329,8 @@ public record ToolConfigDto(
     double SlowSpeedCutoff, double CoverageMargin,
     bool IsWorkSwitchEnabled, bool IsWorkSwitchActiveLow, bool IsWorkSwitchManualSections,
     bool IsSteerSwitchEnabled, bool IsSteerSwitchManualSections,
-    double TotalWidth, double PhysicalWidth, bool UseRateControl);
+    double TotalWidth, double PhysicalWidth, bool UseRateControl,
+    bool IsWorkSwitchMomentary);
 
 /// <summary>U-Turn tab (ConfigStore.Guidance). Style: 0 Omega, 1 Sagitta.</summary>
 public record UturnConfigDto(int Style, double Extension, int Smoothing, double Radius, double DistanceFromBoundary,

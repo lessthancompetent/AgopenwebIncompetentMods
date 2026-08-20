@@ -755,6 +755,30 @@ public class AutoSteerService : IAutoSteerService
         _latencySampleIndex = (_latencySampleIndex + 1) % _latencySamples.Length;
     }
 
+    // ---- Work switch resolution (polarity + momentary latch) ----------------
+    // The raw bit is "pin pulled low". A maintained switch's state IS the level
+    // (equal to ActiveLow = closed = working). A momentary button toggles a
+    // latch on each press edge instead.
+    private bool _workPressedPrev;
+    private bool _workLatchOn;
+
+    private bool ResolveWorkSwitchOn()
+    {
+        var tool = _configStore.Tool;
+        bool pinLow = _state.MachineWorkSwitchPresent
+            ? _state.MachineWorkSwitchActive : _state.WorkSwitchActive;
+        bool pressed = pinLow == tool.IsWorkSwitchActiveLow;
+        if (tool.IsWorkSwitchMomentary)
+        {
+            if (pressed && !_workPressedPrev) _workLatchOn = !_workLatchOn;
+            _workPressedPrev = pressed;
+            return _workLatchOn;
+        }
+        _workPressedPrev = pressed;
+        _workLatchOn = pressed; // momentary mode starts from the live level
+        return pressed;
+    }
+
     private void NotifyStateUpdated()
     {
         var snapshot = CreateSnapshot();
@@ -795,6 +819,7 @@ public class AutoSteerService : IAutoSteerService
             // exists; otherwise the steer board's input (stock AOG wiring).
             WorkSwitchActive = _state.MachineWorkSwitchPresent
                 ? _state.MachineWorkSwitchActive : _state.WorkSwitchActive,
+            WorkSwitchOn = ResolveWorkSwitchOn(),
             TotalLatencyMs = _state.TotalLatencyMs,
             ParseLatencyMs = _state.ParseLatencyMs,
             GuidanceLatencyMs = _state.GuidanceLatencyMs,

@@ -238,6 +238,10 @@ public readonly struct VehicleStateSnapshot
     /// logic does.</summary>
     public bool WorkSwitchActive { get; init; }
 
+    /// <summary>Resolved work state: polarity applied, and in momentary-button
+    /// mode the per-press toggle latch. This is the value consumers gate on.</summary>
+    public bool WorkSwitchOn { get; init; }
+
     public double TotalLatencyMs { get; init; }
     public double ParseLatencyMs { get; init; }
     public double GuidanceLatencyMs { get; init; }
