@@ -666,9 +666,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
             ? new[] { 0.0, Math.PI / 12, Math.PI / 6, Math.PI / 4 }
             : new[] { 0.0 };
 
-        List<List<Vec3>>? legs = null;
-        double thetaB = headingRad + crossAngleRad;
-        double bestCost = double.MaxValue;
+        var candidates = new List<(double Cost, List<List<Vec3>> Tour, double ThetaB)>();
         foreach (double rot in rotations)
         {
             var fa = BuildFamilyPasses(cultivated, headingRad + rot, swathWidth, ext);
@@ -677,7 +675,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
             var tour = WeaveSequence(fa, fb, startPos, turnRadius, swathWidth);
             if (tour.Count == 0) continue;
 
-            // Full drive cost of this candidate: worked legs + connectors + the
+            // Model cost of this candidate: worked legs + Dubins connectors + the
             // per-junction straighten-up run (junction COUNT varies with rotation).
             double cost = runIn * Math.Max(0, tour.Count - 1);
             for (int i = 0; i < tour.Count; i++)
@@ -696,18 +694,29 @@ public sealed class RoutePlanningService : IRoutePlanningService
                         Math.Max(0.5, turnRadius));
                 }
             }
-            if (cost < bestCost)
+            candidates.Add((cost, tour, headingRad + rot + crossAngleRad));
+        }
+        if (candidates.Count == 0) return null;
+
+        // The model under-prices what BuildTurn actually drives (validation,
+        // CC blending, boundary clamping), and the bias varies with rotation —
+        // so ASSEMBLE the top two model-ranked candidates and keep the one
+        // whose BUILT plan is actually shorter.
+        candidates.Sort((x, y) => x.Cost.CompareTo(y.Cost));
+        RoutePlan? plan = null;
+        double thetaB = candidates[0].ThetaB;
+        for (int c = 0; c < Math.Min(2, candidates.Count); c++)
+        {
+            var built = Assemble(candidates[c].Tour, boundary, swathWidth, headlandPasses, startPos,
+                false, turnRadius, boundaryClearance, cornerRadius, null, preOriented: true,
+                entryRunIn: runIn);
+            if (built == null) continue;
+            if (plan == null || built.Metadata.TotalDistanceMeters < plan.Metadata.TotalDistanceMeters)
             {
-                bestCost = cost;
-                legs = tour;
-                thetaB = headingRad + rot + crossAngleRad;
+                plan = built;
+                thetaB = candidates[c].ThetaB;
             }
         }
-        if (legs == null) return null;
-
-        var plan = Assemble(legs, boundary, swathWidth, headlandPasses, startPos, false,
-            turnRadius, boundaryClearance, cornerRadius, null, preOriented: true,
-            entryRunIn: runIn);
         if (plan == null) return null;
 
         plan = TagCrossChannels(plan, thetaB);
