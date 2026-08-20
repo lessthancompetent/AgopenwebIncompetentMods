@@ -150,6 +150,7 @@ public static partial class RemoteServerWiring
             case "tool.isWorkSwitchEnabled": tool.IsWorkSwitchEnabled = B(); return;
             case "tool.isWorkSwitchActiveLow": tool.IsWorkSwitchActiveLow = B(); return;
             case "tool.isWorkSwitchMomentary": tool.IsWorkSwitchMomentary = B(); return;
+            case "tool.isKTurnAllowed": tool.IsKTurnAllowed = B(); return;
             case "tool.isWorkSwitchManualSections": tool.IsWorkSwitchManualSections = B(); return;
             case "tool.isSteerSwitchEnabled": tool.IsSteerSwitchEnabled = B(); return;
             case "tool.isSteerSwitchManualSections": tool.IsSteerSwitchManualSections = B(); return;

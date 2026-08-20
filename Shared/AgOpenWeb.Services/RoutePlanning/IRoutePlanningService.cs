@@ -3,6 +3,7 @@
 //
 // Licensed under GNU GPL v3. See LICENSE.md.
 
+using System;
 using System.Collections.Generic;
 using AgOpenWeb.Models.Base;
 using AgOpenWeb.Models.RoutePlanning;
@@ -35,6 +36,22 @@ public interface IRoutePlanningService
     /// tool on. The band geometry (interior inset) is unchanged; only the lap
     /// paths are dropped. Set per plan from the coverage map.</summary>
     int HeadlandSkipOuterLaps { get; set; }
+
+    /// <summary>Whether obstacle/transit connectors may fall back to a 3-point
+    /// K-turn with a reverse leg. Off for trailed implements (they jackknife
+    /// in reverse) — the planner then always produces forward-only paths.
+    /// Mirrors ToolConfig.IsKTurnAllowed.</summary>
+    bool AllowReverseTurns { get; set; }
+
+    /// <summary>
+    /// Terrain altitude sampler (field-local metres → altitude, null = no
+    /// data) for slope-corrected pass spacing: passes spaced a full width on
+    /// the MAP sit width/cos(slope) apart on sloped GROUND — a sliver of miss
+    /// on every side-slope pass that accumulates across a face. When set, the
+    /// pass comb steps by width·cos(cross-slope) instead. Null = uniform
+    /// spacing (no terrain data / correction off).
+    /// </summary>
+    Func<double, double, double?>? ElevationSampler { get; set; }
 
     /// <summary>
     /// Build a back-and-forth coverage route inside <paramref name="outerBoundary"/>

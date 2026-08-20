@@ -260,6 +260,7 @@ window.RemoteTransport = {
             // positional, so a field added on one side only turns every later
             // section (uturn, tram, machine, display, autosteer) into garbage.
             physicalWidth: f64(), useRateControl: !!u8(), isWorkSwitchMomentary: !!u8(),
+            isKTurnAllowed: !!u8(),
           };
           const uturn = { style: i32(), extension: f64(), smoothing: i32(), radius: f64(), distanceFromBoundary: f64() };
           const tram = { passes: i32(), display: !!u8(), line: i32() };

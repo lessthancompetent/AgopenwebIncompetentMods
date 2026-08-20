@@ -177,6 +177,26 @@ public class HeadlandStyleTests
     }
 
     [Test]
+    public void SlopeCorrectedSpacing_TightensPassCombOnSideSlopes()
+    {
+        // Synthetic terrain: constant 30% cross-slope along E. Passes run north
+        // (heading 0), so E is the spacing axis: expected map spacing =
+        // width · cos(atan 0.3) = width / sqrt(1.09) ≈ 0.958 · width.
+        var flat = Plan(NewPlanner());
+        var svc = NewPlanner();
+        svc.ElevationSampler = (e, n) => 0.3 * e;
+        var sloped = Plan(svc);
+
+        Assert.That(sloped.Metadata.SwathCount, Is.GreaterThan(flat.Metadata.SwathCount),
+            "tighter ground spacing needs more passes to cover the same field");
+
+        var swaths = sloped.Segments.Where(s => s.Type == RouteSegmentType.Swath).ToList();
+        double gap = Math.Abs(swaths[1].Points[0].Easting - swaths[0].Points[0].Easting);
+        Assert.That(gap, Is.EqualTo(Width / Math.Sqrt(1.09)).Within(0.05),
+            "consecutive passes sit width·cos(cross-slope) apart on the map");
+    }
+
+    [Test]
     public void BackCut_AppendsOneOppositeHandFenceLapAtTheEnd()
     {
         var svc = NewPlanner();

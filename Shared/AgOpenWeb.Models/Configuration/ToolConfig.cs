@@ -464,6 +464,17 @@ public class ToolConfig : ObservableObject
         set => SetProperty(ref _isWorkSwitchMomentary, value);
     }
 
+    private bool _isKTurnAllowed = true;
+    /// <summary>Whether the route planner may use a 3-point K-turn (reverse leg)
+    /// where a forward-only turn doesn't fit. Trailed implements jackknife when
+    /// reversed, so trailed setups switch this off and always get forward-only
+    /// (Dubins) connectors instead.</summary>
+    public bool IsKTurnAllowed
+    {
+        get => _isKTurnAllowed;
+        set => SetProperty(ref _isKTurnAllowed, value);
+    }
+
     private bool _isWorkSwitchManualSections;
     public bool IsWorkSwitchManualSections
     {

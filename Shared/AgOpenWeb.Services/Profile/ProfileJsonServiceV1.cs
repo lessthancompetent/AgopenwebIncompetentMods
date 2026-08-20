@@ -185,6 +185,7 @@ public static class ProfileJsonServiceV1
                 IsWorkSwitchEnabled = store.Tool.IsWorkSwitchEnabled,
                 IsWorkSwitchActiveLow = store.Tool.IsWorkSwitchActiveLow,
                 IsWorkSwitchMomentary = store.Tool.IsWorkSwitchMomentary,
+                IsKTurnAllowed = store.Tool.IsKTurnAllowed,
                 IsWorkSwitchManualSections = store.Tool.IsWorkSwitchManualSections,
                 IsSteerSwitchEnabled = store.Tool.IsSteerSwitchEnabled,
                 IsSteerSwitchManualSections = store.Tool.IsSteerSwitchManualSections,
@@ -317,6 +318,7 @@ public static class ProfileJsonServiceV1
         store.Tool.IsWorkSwitchEnabled = dto.Tool?.IsWorkSwitchEnabled ?? false;
         store.Tool.IsWorkSwitchActiveLow = dto.Tool?.IsWorkSwitchActiveLow ?? false;
         store.Tool.IsWorkSwitchMomentary = dto.Tool?.IsWorkSwitchMomentary ?? false;
+        store.Tool.IsKTurnAllowed = dto.Tool?.IsKTurnAllowed ?? true;   // old profiles keep today's behaviour
         store.Tool.IsWorkSwitchManualSections = dto.Tool?.IsWorkSwitchManualSections ?? false;
         store.Tool.IsSteerSwitchEnabled = dto.Tool?.IsSteerSwitchEnabled ?? false;
         store.Tool.IsSteerSwitchManualSections = dto.Tool?.IsSteerSwitchManualSections ?? false;
@@ -460,6 +462,7 @@ public static class ProfileJsonServiceV1
         public bool? IsWorkSwitchEnabled { get; set; }
         public bool? IsWorkSwitchActiveLow { get; set; }
         public bool? IsWorkSwitchMomentary { get; set; }
+        public bool? IsKTurnAllowed { get; set; }
         public bool? IsWorkSwitchManualSections { get; set; }
         public bool? IsSteerSwitchEnabled { get; set; }
         public bool? IsSteerSwitchManualSections { get; set; }

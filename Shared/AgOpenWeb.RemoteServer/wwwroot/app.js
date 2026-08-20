@@ -796,6 +796,9 @@ let rpBackCut = localStorage.rpBackCut === '1';        // extra opposite-hand fe
 // and the woven W drive order (V-turns instead of two sequential coverages).
 let rpRowSp = +(localStorage.rpRowSp || 0) || 0;
 let rpWeave = localStorage.rpWeave === '1';
+// Slope-corrected spacing from the Terrain map — on by default (no-op until
+// the field has terrain data).
+let rpSlope = localStorage.rpSlope !== '0';
 let rpObsW = 4, rpObsL = 4, rpObsType = 'HOLE';
 const RP_PAINT = { Swath: 'routeSwath', Turn: 'routeTurn', Headland: 'routeHeadland', Approach: 'routeApproach' };
 function drawRoutePlanSk(canvas) {
@@ -896,6 +899,7 @@ function rpRender() {
   show('rp-weave-row', rpPattern === 2);       // Cross: woven drive order
   document.getElementById('rp-rowsp').textContent = rpRowSp ? rpRowSp : 'Off';
   document.getElementById('rp-weave').classList.toggle('on', rpWeave);
+  document.getElementById('rp-slope').classList.toggle('on', rpSlope);
   show('rp-angle-row', rpPattern !== 3);       // every pattern but spiral
   show('rp-cornerfill-row', rpPattern === 3);  // Spiral
   document.getElementById('rp-obsw').textContent = rpObsW;
@@ -1267,7 +1271,7 @@ document.getElementById('ft-exportcov').addEventListener('pointerdown', e => {
 });
 function planRoute() {
   transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0,
-    rpHlStyle, rpHlFirst ? 1 : 0, rpBackCut ? 1 : 0, rpRowSp, rpWeave ? 1 : 0].join(','));
+    rpHlStyle, rpHlFirst ? 1 : 0, rpBackCut ? 1 : 0, rpRowSp, rpWeave ? 1 : 0, rpSlope ? 1 : 0].join(','));
   document.getElementById('rp-stats').textContent = 'Planning…';
   // The command runs on the backend dispatcher and can take a while on big fields
   // (obstacle-aware Dubins turns). The backend clears the plan first, so poll
@@ -2211,6 +2215,11 @@ document.getElementById('rp-backcut').addEventListener('pointerdown', e => {
 document.getElementById('rp-weave').addEventListener('pointerdown', e => {
   e.stopPropagation();
   rpWeave = !rpWeave; localStorage.rpWeave = rpWeave ? '1' : '0';
+  rpRender();
+});
+document.getElementById('rp-slope').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  rpSlope = !rpSlope; localStorage.rpSlope = rpSlope ? '1' : '0';
   rpRender();
 });
 for (const b of document.querySelectorAll('#routeplan .rp-sb, #obstacles .rp-sb'))

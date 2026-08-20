@@ -36,6 +36,11 @@ public interface IElevationMapService
     /// in field-local metres.</summary>
     IReadOnlyList<(double CellE, double CellN, double AltM)> GetCells();
 
+    /// <summary>Mean altitude of the cell containing the point, or null when
+    /// that cell has no samples. O(1); used by the route planner's
+    /// slope-corrected pass spacing.</summary>
+    double? GetAltitude(double easting, double northing);
+
     /// <summary>Drop all samples (field close).</summary>
     void Clear();
 

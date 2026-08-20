@@ -35,6 +35,12 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// <inheritdoc />
     public int HeadlandSkipOuterLaps { get; set; }
 
+    /// <inheritdoc />
+    public bool AllowReverseTurns { get; set; } = true;
+
+    /// <inheritdoc />
+    public Func<double, double, double?>? ElevationSampler { get; set; }
+
     public RoutePlanningService(IPolygonOffsetService offset)
     {
         _offset = offset;
@@ -185,11 +191,16 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // Each parallel line -> its passes (left-to-right along the travel axis). A line
         // crossing a pond yields >1 pass; those get clustered into separate blocks below.
         var lines = new List<List<List<Vec3>>>();
-        for (double s = pmin + swathWidth / 2.0 + off - swathWidth; s <= pmax + swathWidth; s += swathWidth)
+        double sStep = swathWidth;
+        for (double s = pmin + swathWidth / 2.0 + off - swathWidth; s <= pmax + swathWidth; s += sStep)
         {
+            sStep = swathWidth;   // default; slope sampling below may shrink it
             var lp = new Vec2(o.Easting + s * pE, o.Northing + s * pN);
             var segs = ClipSegments(lp, dE, dN, cultivated, clipHoles);
             if (segs.Count == 0) continue;
+            // Slope-corrected comb: the NEXT pass steps by width·cos(cross-slope)
+            // so on-ground spacing stays a full tool width on side slopes.
+            sStep = swathWidth * MeanCrossSlopeCos(pE, pN, segs);
             var passes = new List<List<Vec3>>(segs.Count);
             // Trailing-tool overshoot: passes are TRACTOR paths, but coverage comes
             // from the tool trailing behind. Without extending the working ends, the
@@ -364,7 +375,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
             // Tangent link between the two poses at the machine's radius.
             var link = BuildTurn(new Vec3(A.Easting, A.Northing, ha),
                                  new Vec3(B.Easting, B.Northing, hb), radius, limit, holesForLink,
-                                 allowReverse: true);
+                                 allowReverse: AllowReverseTurns);
 
             bool clear = link.Count >= 2;
             if (clear && holesForLink.Count > 0)
@@ -726,6 +737,39 @@ public sealed class RoutePlanningService : IRoutePlanningService
         return plan;
     }
 
+    /// <summary>
+    /// Mean cos of the CROSS-slope along a pass line — the map-vs-ground
+    /// spacing ratio. Sampled from the Terrain grid one cell each side,
+    /// perpendicular to the pass, every ~15 m; cells without data contribute
+    /// nothing; no data at all = 1 (uniform spacing). Clamped to ≥0.85 (~30°)
+    /// so noisy altitude can't over-shrink the comb.
+    /// </summary>
+    private double MeanCrossSlopeCos(
+        double pE, double pN, IReadOnlyList<(Vec2 Entry, Vec2 Exit)> segs)
+    {
+        var sampler = ElevationSampler;
+        if (sampler == null) return 1.0;
+        const double BASE = 5.0;   // gradient baseline each side (one terrain cell)
+        double sum = 0; int n = 0;
+        foreach (var (entry, exit) in segs)
+        {
+            double len = Distance(entry, exit);
+            int steps = Math.Max(1, (int)(len / 15.0));
+            for (int i = 0; i < steps; i++)
+            {
+                double t = (i + 0.5) / steps;
+                double e = entry.Easting + (exit.Easting - entry.Easting) * t;
+                double nn = entry.Northing + (exit.Northing - entry.Northing) * t;
+                if (sampler(e + pE * BASE, nn + pN * BASE) is not { } h1) continue;
+                if (sampler(e - pE * BASE, nn - pN * BASE) is not { } h2) continue;
+                double m = (h1 - h2) / (2 * BASE);
+                sum += 1.0 / Math.Sqrt(1.0 + m * m);
+                n++;
+            }
+        }
+        return n == 0 ? 1.0 : Math.Max(0.85, sum / n);
+    }
+
     /// <summary>One family's parallel passes clipped to the cultivated polygon,
     /// spatial order, both ends extended by <paramref name="ext"/> into the band.</summary>
     private List<(Vec3 A, Vec3 B)> BuildFamilyPasses(
@@ -743,10 +787,14 @@ public sealed class RoutePlanningService : IRoutePlanningService
         }
         var result = new List<(Vec3, Vec3)>();
         if (pmax - pmin <= 0) return result;
-        for (double s = pmin + swathWidth / 2.0; s <= pmax; s += swathWidth)
+        double sStep = swathWidth;
+        for (double s = pmin + swathWidth / 2.0; s <= pmax; s += sStep)
         {
+            sStep = swathWidth;
             var lp = new Vec2(o.Easting + s * pE, o.Northing + s * pN);
-            foreach (var seg in ClipSegments(lp, dE, dN, cultivated, null))
+            var clipped = ClipSegments(lp, dE, dN, cultivated, null);
+            if (clipped.Count > 0) sStep = swathWidth * MeanCrossSlopeCos(pE, pN, clipped);
+            foreach (var seg in clipped)
             {
                 double h = Math.Atan2(seg.Exit.Easting - seg.Entry.Easting,
                                        seg.Exit.Northing - seg.Entry.Northing);

@@ -46,6 +46,13 @@ public class ElevationMapService : IElevationMapService
         get { lock (_lock) return _cells.Count > 0 ? (_minAlt, _maxAlt) : null; }
     }
 
+    public double? GetAltitude(double easting, double northing)
+    {
+        var key = ((int)Math.Floor(easting / CELL_SIZE), (int)Math.Floor(northing / CELL_SIZE));
+        lock (_lock)
+            return _cells.TryGetValue(key, out var cell) ? cell.Mean : null;
+    }
+
     public void Record(double easting, double northing, double altitudeM)
     {
         var key = ((int)Math.Floor(easting / CELL_SIZE), (int)Math.Floor(northing / CELL_SIZE));

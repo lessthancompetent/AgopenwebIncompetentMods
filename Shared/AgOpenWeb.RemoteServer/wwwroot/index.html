@@ -1525,6 +1525,9 @@
       <div class="rp-row" id="rp-speeds-row" title="Machine speed model for route comparison and ETA: work km/h, turn km/h, seconds lost per turn"><span class="cfg-label">Spd W/T · s/turn · edge m</span>
         <input id="rp-wspd" type="number" step="0.5" min="0.5" style="width:40px"><input id="rp-tspd" type="number" step="0.5" min="0.5" style="width:40px"><input id="rp-tovh" type="number" step="0.5" min="0" style="width:40px"><input id="rp-edgeoff" type="number" step="0.25" min="0" style="width:40px" title="First-pass edge offset: pulls the whole plan this far in from the mapped boundary (fence-on-the-line paddocks). 0 when the boundary was driven as the first working pass."></div>
       <div class="rp-pats" id="rp-missed-row" style="grid-template-columns:1fr"><button id="rp-missed" title="Tint unworked ground red under the coverage so missed spots stand out">Show missed spots</button></div>
+      <div class="rp-pats" id="rp-slope-row" style="grid-template-columns:1fr">
+        <button class="rp-pat on" id="rp-slope" title="Uses the recorded Terrain map to tighten pass spacing on side slopes, so ground coverage stays a full tool width — map-spaced passes gap by the slope cosine on every pass, which adds up across a face. Does nothing until Terrain data exists for this field.">Slope-corrected spacing</button>
+      </div>
     </div>
     <div class="rp-btns">
       <button class="cfg-act fj-primary" id="rp-plan">Plan Route</button>
@@ -1768,6 +1771,8 @@
             <label data-show="tbt">Tank trailing hitch (m)</label><input class="cfg-num" data-key="tool.tankTrailingHitchLength" data-show="tbt" type="number" step="0.01">
             <label>Implement length (m)</label><input class="cfg-num" data-key="tool.length" type="number" step="0.01">
             <label>Physical width (m)</label><input class="cfg-num" data-key="tool.physicalWidth" type="number" step="0.01" title="Actual frame width for obstacle clearance; 0 = use working width. Route planner swerves small obstacles by this instead of the full spread.">
+            <label title="A K-turn backs up mid-turn (3-point turn). The route planner only uses one where a forward turn can't fit. Trailed implements jackknife in reverse — set Never and every planned turn stays forward-only.">K-turns (reverse leg)</label>
+            <div class="ln-seg cfg-seg-full"><button class="cfg-typebtn" data-key="tool.isKTurnAllowed" data-val="1" data-active="true">Allowed</button><button class="cfg-typebtn" data-key="tool.isKTurnAllowed" data-val="0" data-active="false">Never (trailed)</button></div>
           </div>
         </div>
       </div>

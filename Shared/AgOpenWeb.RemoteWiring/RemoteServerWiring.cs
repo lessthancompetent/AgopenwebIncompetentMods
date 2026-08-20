@@ -149,7 +149,8 @@ public static partial class RemoteServerWiring
                                             headlandFirst: rp.Length < 8 || rp[7] != "0",
                                             headlandBackCut: rp.Length >= 9 && rp[8] == "1",
                                             rowSpacingM: rrow,
-                                            crossWeave: rp.Length >= 11 && rp[10] == "1");
+                                            crossWeave: rp.Length >= 11 && rp[10] == "1",
+                                            slopeCorrected: rp.Length < 12 || rp[11] != "0");
                                     }
                                     return;
                                 }

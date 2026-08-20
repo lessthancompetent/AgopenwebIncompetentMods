@@ -296,6 +296,10 @@ public partial class MainViewModel
         if (State.Field.ActiveField?.Boundary?.OuterBoundary is not { IsValid: true } outer)
             return null;
 
+        // Trailed implements jackknife in reverse — the tool setting decides
+        // whether any planner connector may fall back to a 3-point K-turn.
+        RoutePlanner.AllowReverseTurns = _configStore.Tool.IsKTurnAllowed;
+
         var ctx = new RouteCtx();
         var pts = new List<Vec2>(outer.Points.Count);
         foreach (var p in outer.Points) pts.Add(new Vec2(p.Easting, p.Northing));
@@ -473,7 +477,7 @@ public partial class MainViewModel
     public void PlanRoute(int pattern, int headlandPasses, int skipCount, int blockSkip, double angleDeg, bool cornerFill = false,
         double? headingOverrideRad = null, IReadOnlyList<Vec3>? refCurve = null,
         int headlandStyle = 0, bool headlandFirst = true, bool headlandBackCut = false,
-        double rowSpacingM = 0, bool crossWeave = false)
+        double rowSpacingM = 0, bool crossWeave = false, bool slopeCorrected = true)
     {
         // Clear any prior plan up front so the web client, which polls
         // /api/routeplan for the result, can't pick up a stale plan while this
@@ -500,6 +504,14 @@ public partial class MainViewModel
         // as coverage along the lap line, so the route doesn't ask for it again.
         // Band geometry is untouched — only the drive paths are skipped.
         RoutePlanner.HeadlandSkipOuterLaps = CountWorkedOuterLaps(ctx);
+
+        // Slope-corrected pass spacing from the recorded Terrain map: on a
+        // side slope, map-spaced passes sit width/cos(slope) apart on the
+        // GROUND — a sliver of miss per pass that accumulates across a face.
+        // No terrain data (or the toggle off) → uniform spacing as before.
+        RoutePlanner.ElevationSampler = slopeCorrected && _elevationMapService.CellCount > 0
+            ? _elevationMapService.GetAltitude
+            : null;
         var pts = ctx.Pts;
         var inners = ctx.Inners;
         double edgeOff = ctx.EdgeOff, width = ctx.Width, physWidth = ctx.PhysWidth,
