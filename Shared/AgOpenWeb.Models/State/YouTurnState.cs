@@ -165,6 +165,23 @@ public class YouTurnState : ObservableObject
         set => SetProperty(ref _snakeIndex, value);
     }
 
+    // Skip-worked mode as of the previous tick — mirror of the working state's
+    // mode-edge memory (the snake sequence rebuilds fresh on a mode toggle).
+    public bool? LastSkipWorkedMode { get; set; }
+
+    // Lateral progression sign of the last completed normal turn (true = pass
+    // number increased) — mirror of the working state's alternating-turn memory.
+    public bool? LastOffsetPositive { get; set; }
+
+    // World anchor the snake pass-range walk starts from (tractor position at
+    // sequence build) — mirror of the working state's anchor.
+    public double SnakeAnchorE { get; set; }
+    public double SnakeAnchorN { get; set; }
+
+    // Pass number at which the stale-cursor self-heal last rebuilt the snake
+    // sequence — mirror of the working state's rebuild-loop guard.
+    public int? SnakeRebuiltAtPath { get; set; }
+
     // Zone the tractor is in — source of truth for turn creation gating.
     private TractorZone _currentZone = TractorZone.OutsideBoundary;
     public TractorZone CurrentZone
@@ -200,6 +217,11 @@ public class YouTurnState : ObservableObject
         ReturnPassTargetPath = null;
         SnakeSequence = null;
         SnakeIndex = -1;
+        LastSkipWorkedMode = null;
+        LastOffsetPositive = null;
+        SnakeAnchorE = 0;
+        SnakeAnchorN = 0;
+        SnakeRebuiltAtPath = null;
         CurrentZone = TractorZone.OutsideBoundary;
         NextUTurnDirectionLeftOverride = null;
     }
