@@ -65,6 +65,14 @@ echo "==> Writing ${TARBALL} ..."
 # with a com.apple.provenance xattr, which GNU tar on the target warns about
 # ("Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'").
 # The flag exists in both bsdtar and GNU tar, so the bundle stays clean either way.
+# Normalise line endings on the shipped scripts. package.sh may run on Windows
+# (Git Bash) where a CRLF checkout ships scripts that /usr/bin/env on the target
+# rejects with a 'bad interpreter' error. Strip CR so the bundle
+# installs on a clean Linux box regardless of build host.
+for f in "$STAGE/install.sh" "$STAGE/uninstall.sh" "$STAGE/agopenweb.service" "$STAGE/README.md"; do
+  [ -f "$f" ] && { tr -d '\r' < "$f" > "$f.tmp" && mv "$f.tmp" "$f"; }
+done
+
 tar --no-xattrs -C "$(dirname "$STAGE")" -czf "$TARBALL" "$NAME"
 rm -rf "$(dirname "$STAGE")"
 
