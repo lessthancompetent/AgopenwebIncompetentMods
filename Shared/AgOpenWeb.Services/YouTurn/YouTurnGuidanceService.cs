@@ -81,6 +81,17 @@ namespace AgOpenWeb.Services.YouTurn
                 return output;
             }
 
+            // K-style: the K path is only the forward arc — the operator
+            // reversing while on it IS the completion signal. Hand guidance
+            // to the next track (followed in reverse) regardless of which
+            // steering algorithm is active. The in-branch checks below are
+            // unreachable in some walk orders, so this is the authority.
+            if (input.UTurnStyle == 1 && input.IsReverse)
+            {
+                output.IsTurnComplete = true;
+                return output;
+            }
+
             if (input.UseStanley)
             {
                 CalculateStanleyGuidance(input, output, ptCount);

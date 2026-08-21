@@ -38,6 +38,12 @@ public sealed class RcSwitchboxSettings
     /// <summary>Master only engages while the implement's work switch is on.</summary>
     public bool WorkSwitchGate { get; set; }
 
+    /// <summary>A physical PGN 32618 box is EXPECTED on this tool — its absence
+    /// is alarm-worthy from power-on, not only after it has been seen this
+    /// session. Auto-set the first time a box frame arrives on the tool; the
+    /// operator can clear it (box removed for good) in Network IO.</summary>
+    public bool ExpectPhysical { get; set; }
+
     /// <summary>Which on-screen switch (0-7) controls each section — the native
     /// "zone" idea: all sections allocated to a switch flip together. Defaults
     /// to switch N for section N (capped at the last switch). -1 = no switch.</summary>

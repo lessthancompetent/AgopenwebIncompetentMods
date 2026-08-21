@@ -1105,7 +1105,17 @@ public static partial class RemoteServerWiring
                     // and expose status for the web Rate panel.
                     var rateSvc = services.GetRequiredService<AgOpenWeb.Services.RateControl.IRateControlService>();
                     rateSvc.Start();
-                    server.RateControlJsonProvider = () => rateSvc.BuildStatusJson();
+                    // Guarded: a status-JSON bug must degrade to an error payload,
+                    // not kill the HTTP connection with nothing in the log.
+                    server.RateControlJsonProvider = () =>
+                    {
+                        try { return rateSvc.BuildStatusJson(); }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[Rate] BuildStatusJson failed: {ex}");
+                            return "{\"plane\":false,\"error\":true,\"products\":[]}";
+                        }
+                    };
                     // Physical switchbox (PGN 32618): its auto-section toggle flips
                     // the section auto master through the same command every other
                     // hardware button uses. Marshalled — the event fires on the RC
@@ -1121,7 +1131,15 @@ public static partial class RemoteServerWiring
                     var serialSvc = services.GetRequiredService<AgOpenWeb.Services.SerialBridgeService>();
                     serialSvc.Start();
                     server.SerialBridgeJsonProvider = () => serialSvc.BuildStatusJson();
-                    server.ModuleSetupJsonProvider = () => rateSvc.BuildModuleSetupJson();
+                    server.ModuleSetupJsonProvider = () =>
+                    {
+                        try { return rateSvc.BuildModuleSetupJson(); }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[Rate] BuildModuleSetupJson failed: {ex}");
+                            return "{\"modules\":[],\"error\":true}";
+                        }
+                    };
                     // Flowmeter totals → job records: baseline the counters when a
                     // job opens; coverage export auto-fills measured applied.
                     services.GetRequiredService<AgOpenWeb.Services.Interfaces.IJobService>()

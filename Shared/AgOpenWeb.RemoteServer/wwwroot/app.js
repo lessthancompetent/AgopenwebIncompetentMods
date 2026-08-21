@@ -2417,6 +2417,8 @@ document.getElementById('ln-network').addEventListener('pointerdown', e => {
     lnOpen('networkio', 'ln-network', renderNetworkIo);
     nioSerialTick();
     if (!nioSerialPoll) nioSerialPoll = setInterval(nioSerialTick, 2000);
+    nioRcTick();
+    if (!nioRcPoll) nioRcPoll = setInterval(nioRcTick, 2000);
   }
 });
 // Route Planner controls: pattern picker, ± steppers, Plan / Clear.
@@ -2659,10 +2661,21 @@ function rhRender(d) {
   const hud = document.getElementById('rate-hud');
   if (!hud) return;
   const enabled = ((d && d.products) || []).filter(p => p.enabled);
-  // Hidden unless this tool meters product AND there is a channel to show.
-  if (!rhMode || !d || !d.useRateControl || !enabled.length) { hud.classList.remove('on'); return; }
+  // Hidden unless this tool meters product. Stays up with no enabled channel
+  // (muted hint instead) — it hosts the switchbox + Rate Control buttons.
+  if (!rhMode || !d || !d.useRateControl) { hud.classList.remove('on'); return; }
   hud.classList.add('on');
-  hud.innerHTML = '';
+  const swBtn = document.getElementById('rh-swb');
+  if (swBtn) swBtn.classList.toggle('on', !!(d.switchbox && d.switchbox.onScreen));
+  const host = document.getElementById('rh-rows');
+  host.innerHTML = '';
+  if (!enabled.length) {
+    const n = document.createElement('div');
+    n.className = 'rh-none';
+    n.textContent = 'no product enabled';
+    host.appendChild(n);
+    return;
+  }
   for (const p of enabled) {
     const row = document.createElement('div');
     row.className = 'rh-row';
@@ -2694,12 +2707,12 @@ function rhRender(d) {
       row.classList.add('rh-off');
     row.appendChild(name);
     row.appendChild(vals);
-    hud.appendChild(row);
+    host.appendChild(row);
     if (p.binEmpty) {
       const b = document.createElement('div');
       b.className = 'rh-bin';
       b.textContent = 'BIN EMPTY';
-      hud.appendChild(b);
+      host.appendChild(b);
     }
   }
 }
@@ -2710,8 +2723,83 @@ function rhTick() {
     if (rhMode) rhRender(d);
     else { const h = document.getElementById('rate-hud'); if (h) h.classList.remove('on'); }
     renderSwitchbox(d);
+    rcAlmCheck(d);
   }).catch(() => {});
 }
+
+// ── Rate drop-off alarm ─────────────────────────────────────────────────────
+// A rate module an ENABLED product needs, or the physical switchbox, stops
+// answering AFTER having been seen this session → banner + beep. Rides the
+// HUD's 1 Hz poll (always running); the server's heard windows (10 s module,
+// 4 s box) debounce single lost packets. Screen/sound are independent
+// per-device toggles (Network IO panel). Tap the banner to acknowledge —
+// beep stops, banner dims; any CHANGE in the offline set re-arms.
+let rcAlmScreen = localStorage.rcAlmScreen !== '0';
+let rcAlmSound = localStorage.rcAlmSound !== '0';
+const rcAlmSeen = new Set();
+let rcAlmSbSeen = false;
+let rcAlmActive = [];
+let rcAlmAck = false;
+let rcAlmBeepTimer = null;
+let rcAlmCtx = null;
+function rcAlmBeep() {
+  if (!rcAlmSound) return;
+  try {
+    rcAlmCtx = rcAlmCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (rcAlmCtx.state === 'suspended') rcAlmCtx.resume();
+    const t0 = rcAlmCtx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const o = rcAlmCtx.createOscillator(), g = rcAlmCtx.createGain();
+      o.type = 'square'; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, t0 + i * 0.25);
+      g.gain.exponentialRampToValueAtTime(0.28, t0 + i * 0.25 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.25 + 0.18);
+      o.connect(g); g.connect(rcAlmCtx.destination);
+      o.start(t0 + i * 0.25); o.stop(t0 + i * 0.25 + 0.2);
+    }
+  } catch {}
+}
+const rcAlmT0 = Date.now();  // page start — boot grace for never-seen modules
+function rcAlmCheck(d) {
+  if (!d || !d.useRateControl) { rcAlmSet([]); return; }
+  const heard = new Set(d.modulesHeard || []);
+  for (const id of heard) rcAlmSeen.add(id);
+  const p = d.switchbox && d.switchbox.physical;
+  const offline = [];
+  // A module is EXPECTED when an enabled product uses it. Once seen, absence
+  // alarms immediately; never seen, it still alarms after a 30 s boot grace
+  // (module powers up slower than the app) — so a dead module is caught at
+  // morning start, not only after a mid-session drop.
+  const graceOver = Date.now() - rcAlmT0 > 30000;
+  const need = new Set((d.products || []).filter(x => x.enabled).map(x => x.moduleId));
+  for (const id of need)
+    if (!heard.has(id) && (rcAlmSeen.has(id) || graceOver)) offline.push('RATE MODULE ' + id);
+  // The switchbox is expected per-tool (persisted server-side; auto-set the
+  // first time a box is ever seen on the tool, clearable in Network IO).
+  if (p && p.expected && !p.connected && graceOver) offline.push('SWITCHBOX');
+  else if (p && p.connected) rcAlmSbSeen = true;
+  if (rcAlmSbSeen && !(p && p.connected) && !offline.includes('SWITCHBOX')) offline.push('SWITCHBOX');
+  rcAlmSet(offline);
+}
+function rcAlmSet(offline) {
+  const el = document.getElementById('rc-alarm');
+  if (!el) return;
+  if (offline.join(',') !== rcAlmActive.join(',')) rcAlmAck = false;
+  rcAlmActive = offline;
+  el.classList.toggle('on', offline.length > 0 && rcAlmScreen);
+  el.classList.toggle('ack', rcAlmAck);
+  if (offline.length)
+    document.getElementById('rc-alarm-txt').textContent =
+      offline.join(' + ') + ' OFFLINE' + (rcAlmAck ? '' : ' — tap to silence');
+  if (offline.length > 0 && !rcAlmAck) {
+    if (!rcAlmBeepTimer) { rcAlmBeep(); rcAlmBeepTimer = setInterval(rcAlmBeep, 4000); }
+  } else if (rcAlmBeepTimer) { clearInterval(rcAlmBeepTimer); rcAlmBeepTimer = null; }
+}
+document.getElementById('rc-alarm').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  rcAlmAck = true;
+  rcAlmSet(rcAlmActive);
+});
 
 // ── On-screen switchbox ─────────────────────────────────────────────────────
 // The native RC floating switch panel: master valve, primed start, auto rate,
@@ -2747,8 +2835,12 @@ function renderSwitchbox(d) {
   prm.classList.toggle('on', !!(d.primed && d.primed.active));
   prm.disabled = d.switchbox.switchType === 1;      // maintained: no primed start
   prm.textContent = (d.primed && d.primed.active) ? 'PRM ' + d.primed.remaining : 'PRM';
-  const auto = document.getElementById('swb-auto');
-  auto.classList.toggle('on', !!d.switchbox.autoRate);
+  const autoR = document.getElementById('swb-autorate');
+  autoR.classList.toggle('on', !!d.switchbox.autoRate);
+  // Auto sections = the section auto master (same thing the physical box's
+  // AUTO toggle and the right-nav button drive); live state rides the tick.
+  const autoS = document.getElementById('swb-autosec');
+  autoS.classList.toggle('on', !!(tick && tick.op && tick.op.sectionAuto));
   // section group switches
   const host = document.getElementById('swb-secs');
   const groups = swbGroups(d);
@@ -2792,10 +2884,55 @@ document.getElementById('swb-prm').addEventListener('pointerdown', e => {
   e.stopPropagation();
   if (rcLive) swbSend('rate.primed|' + (rcLive.primed && rcLive.primed.active ? 0 : 1));
 });
-document.getElementById('swb-auto').addEventListener('pointerdown', e => {
+document.getElementById('swb-autorate').addEventListener('pointerdown', e => {
   e.stopPropagation();
   if (rcLive) swbSend('rate.sw|autoRate,' + (rcLive.switchbox.autoRate ? 0 : 1));
 });
+document.getElementById('swb-autosec').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  swbSend('section.master');
+});
+// Drag-by-grip for floating panels; position persists across sessions under
+// the given localStorage key. Default (never moved) is the panel's CSS dock.
+function makeFloatDrag(boxId, gripId, storeKey) {
+  const box = document.getElementById(boxId);
+  const grip = document.getElementById(gripId);
+  if (!box || !grip) return;
+  const clamp = (l, t) => {
+    const w = box.offsetWidth || 300, h = box.offsetHeight || 72;
+    return [Math.min(Math.max(0, l), Math.max(0, innerWidth - w)),
+            Math.min(Math.max(0, t), Math.max(0, innerHeight - h))];
+  };
+  const place = (l, t) => {
+    [l, t] = clamp(l, t);
+    box.classList.add('moved');
+    box.style.left = l + 'px';
+    box.style.top = t + 'px';
+  };
+  try {
+    const p = JSON.parse(localStorage[storeKey] || 'null');
+    if (p && typeof p.l === 'number') place(p.l, p.t);
+  } catch {}
+  let drag = null;
+  grip.addEventListener('pointerdown', e => {
+    e.stopPropagation(); e.preventDefault();
+    const r = box.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    grip.setPointerCapture(e.pointerId);
+  });
+  grip.addEventListener('pointermove', e => {
+    if (!drag) return;
+    place(e.clientX - drag.dx, e.clientY - drag.dy);
+  });
+  grip.addEventListener('pointerup', () => {
+    if (!drag) return;
+    drag = null;
+    const r = box.getBoundingClientRect();
+    localStorage[storeKey] = JSON.stringify({ l: r.left, t: r.top });
+  });
+}
+makeFloatDrag('rc-switchbox', 'swb-grip', 'swbPos');
+makeFloatDrag('rate-hud', 'rh-grip', 'rhPos');
 for (const [id, dir] of [['swb-dn', -5], ['swb-up', 5]])
   document.getElementById(id).addEventListener('pointerdown', e => {
     e.stopPropagation();
@@ -2803,8 +2940,19 @@ for (const [id, dir] of [['swb-dn', -5], ['swb-up', 5]])
     rcLive.products.forEach((p, i) => { if (p.enabled) swbSend('rate.bump|' + i + ',' + dir); });
   });
 {
+  // Header buttons replace the old tap-anywhere-to-open: the HUD is draggable
+  // now, so opening lives on its own button and SW toggles the on-screen box.
   const hud = document.getElementById('rate-hud');
-  if (hud) hud.addEventListener('pointerdown', e => { e.stopPropagation(); rtOpen(); });
+  if (hud) hud.addEventListener('pointerdown', e => e.stopPropagation());
+  const menu = document.getElementById('rh-menu');
+  if (menu) menu.addEventListener('pointerdown', e => { e.stopPropagation(); rtOpen(); });
+  const swb = document.getElementById('rh-swb');
+  if (swb) swb.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    if (rcLive && rcLive.switchbox)
+      swbSend('rate.sw|onScreen,' + (rcLive.switchbox.onScreen ? 0 : 1));
+    setTimeout(rhTick, 300);
+  });
   rhPoll = setInterval(rhTick, 1000);
   rhTick();
 }
@@ -4043,6 +4191,77 @@ let nioSerial = null, nioSerialPoll = null;
 function nioSerialTick() {
   if (!nioPanel.classList.contains('open')) { clearInterval(nioSerialPoll); nioSerialPoll = null; return; }
   fetch('/api/serial').then(r => r.json()).then(j => { nioSerial = j; renderNioSerial(); }).catch(() => {});
+}
+// --- Rate-control rows: RC modules + the physical switchbox, polled from the
+// rate plane while the panel is open (same lifecycle as the serial poll).
+// Dot: green = frames arriving; red = a module an ENABLED product needs is
+// silent; grey = known but idle / no product needs it.
+let nioRcPoll = null;
+function nioRcTick() {
+  if (!nioPanel.classList.contains('open')) { clearInterval(nioRcPoll); nioRcPoll = null; return; }
+  Promise.all([
+    fetch('/api/ratecontrol').then(r => r.json()),
+    fetch('/api/ratemodules').then(r => r.json())
+  ]).then(([rc, mods]) => renderNioRc(rc, mods)).catch(() => {});
+}
+function renderNioRc(rc, mods) {
+  const label = document.getElementById('nio-rc-label');
+  const grid = document.getElementById('nio-rc-grid');
+  const show = rc && rc.useRateControl;
+  label.style.display = show ? '' : 'none';
+  grid.style.display = show ? '' : 'none';
+  const almRowEl = document.getElementById('nio-alm-row');
+  if (almRowEl) almRowEl.style.display = show ? '' : 'none';
+  if (!show) return;
+  const heard = new Set((mods && mods.modulesHeard) || []);
+  const ips = (mods && mods.moduleIps) || {};
+  const expected = new Set((rc.products || []).filter(p => p.enabled).map(p => p.moduleId));
+  let html = '';
+  for (const m of (mods && mods.modules) || []) {
+    const ok = heard.has(m.moduleId);
+    const col = ok ? '#22c55e' : (expected.has(m.moduleId) ? '#ef4444' : '#6b7280');
+    html += '<span></span><span class="nio-dot" style="background:' + col + '"></span>'
+          + '<span class="nio-mod">Rate ' + m.moduleId + ' (' + (m.board || 'esp32') + ')</span>'
+          + '<span class="nio-ip">' + (ips[m.moduleId] || '—') + '</span>';
+  }
+  const p = rc.switchbox && rc.switchbox.physical;
+  const sbOk = !!(p && p.connected);
+  const sbExp = !!(p && p.expected);
+  html += '<input type="checkbox" class="nio-chk" id="nio-sb-exp"'
+        + (sbExp ? ' checked' : '')
+        + ' title="Switchbox should be present on this tool — alarm when it is missing">'
+        + '<span class="nio-dot" style="background:' + (sbOk ? '#22c55e' : (sbExp ? '#ef4444' : '#6b7280')) + '"></span>'
+        + '<span class="nio-mod">Switchbox</span>'
+        + '<span class="nio-ip">' + (sbOk && p.inoId ? 'ino ' + p.inoId : '—') + '</span>';
+  if (grid.dataset.html !== html) {
+    grid.innerHTML = html;
+    grid.dataset.html = html;
+    const cb = document.getElementById('nio-sb-exp');
+    if (cb) cb.addEventListener('change', () => {
+      transport.send('rate.sw|expectPhysical,' + (cb.checked ? 1 : 0));
+      setTimeout(nioRcTick, 400);
+    });
+  }
+  const almRow = document.getElementById('nio-alm-row');
+  if (almRow) almRow.style.display = show ? '' : 'none';
+  const bell = document.getElementById('nio-alm-bell');
+  if (bell) bell.classList.toggle('live', rcAlmActive.length > 0);
+}
+// Alarm toggles (persisted per device, default both on).
+{
+  const scr = document.getElementById('nio-alm-scr'), snd = document.getElementById('nio-alm-snd');
+  const sync = () => { scr.classList.toggle('on', rcAlmScreen); snd.classList.toggle('on', rcAlmSound); };
+  scr.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    rcAlmScreen = !rcAlmScreen; localStorage.rcAlmScreen = rcAlmScreen ? '1' : '0';
+    sync(); rcAlmSet(rcAlmActive);
+  });
+  snd.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    rcAlmSound = !rcAlmSound; localStorage.rcAlmSound = rcAlmSound ? '1' : '0';
+    sync(); rcAlmSet(rcAlmActive);
+  });
+  sync();
 }
 function renderNioSerial() {
   const j = nioSerial; if (!j) return;

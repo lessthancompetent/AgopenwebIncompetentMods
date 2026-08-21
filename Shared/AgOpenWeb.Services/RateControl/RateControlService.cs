@@ -142,6 +142,8 @@ public sealed class RateControlService : IRateControlService, IDisposable
 
     // Physical switchbox (PGN 32618) — same step the on-screen box's ± buttons send.
     private readonly RcPhysicalSwitchbox _physBox = new();
+    private int _lastSwitchboxTraceBits = -1;
+    private ushort _lastSwitchboxTraceSections;
     private const double SwitchboxRateStepPercent = 5;
 
     /// <summary><paramref name="autoSteer"/> is optional so tests and headless
@@ -321,8 +323,30 @@ public sealed class RateControlService : IRateControlService, IDisposable
     /// only 0→1 edges act — a held or stuck button does its thing once.</summary>
     private void OnSwitchboxFrame(in RcSwitchboxFrame f)
     {
+        // Raw-bit trace on change: which status bits this box actually sets —
+        // settles wiring-vs-parse questions when a box doesn't match the
+        // standard layout. Logs only on transitions, so steady frames are quiet.
+        int stBits = (f.MasterOnPressed ? 2 : 0) | (f.MasterOffPressed ? 4 : 0)
+                   | (f.RateUpPressed ? 8 : 0) | (f.RateDownPressed ? 16 : 0)
+                   | (f.AutoSectionOn ? 32 : 0) | (f.AutoRateOn ? 64 : 0)
+                   | (f.WorkSwitchOn ? 128 : 0);
+        if (stBits != _lastSwitchboxTraceBits || f.SectionBits != _lastSwitchboxTraceSections)
+        {
+            Console.WriteLine($"[Rate] switchbox bits: st=0b{Convert.ToString(stBits, 2).PadLeft(8, '0')} sections=0x{f.SectionBits:X4}");
+            _lastSwitchboxTraceBits = stBits;
+            _lastSwitchboxTraceSections = f.SectionBits;
+        }
+
         EnsureToolChannels();
         EnsureSwitchboxLoaded();
+        // First frame from a box on this tool marks it EXPECTED — from then on
+        // its absence alarms even straight after power-on. Cleared in Network IO
+        // if the box is removed for good.
+        if (!_switchbox.ExpectPhysical)
+        {
+            _switchbox.ExpectPhysical = true;
+            SaveSwitchbox();
+        }
         RcSwitchboxActions act;
         lock (_ioLock) act = _physBox.Apply(f, DateTime.UtcNow, _switchbox.SwitchType == 1);
 
@@ -718,7 +742,9 @@ public sealed class RateControlService : IRateControlService, IDisposable
           .Append(",\"workGate\":").Append(_switchbox.WorkSwitchGate ? "true" : "false")
           .Append(",\"workSwitchOn\":").Append(WorkSwitchOn() ? "true" : "false")
           // Physical PGN 32618 box: connected + its maintained switch levels.
-          .Append(",\"physical\":{\"connected\":")
+          .Append(",\"physical\":{\"expected\":")
+          .Append(_switchbox.ExpectPhysical ? "true" : "false")
+          .Append(",\"connected\":")
           .Append(_physBox.Connected(DateTime.UtcNow) ? "true" : "false")
           .Append(",\"work\":").Append(_physBox.WorkSwitchOn ? "true" : "false")
           .Append(",\"autoSection\":").Append(_physBox.AutoSectionOn ? "true" : "false")
@@ -745,13 +771,27 @@ public sealed class RateControlService : IRateControlService, IDisposable
           .Append(",\"active\":").Append(PrimedActive ? "true" : "false")
           .Append(",\"remaining\":").Append((primedLeft > 0 ? primedLeft : 0).ToString("0", CultureInfo.InvariantCulture))
           .Append('}');
+        // Live heard-list for the client-side drop-off alarm — rides the same
+        // 1 Hz status poll the rate HUD already makes.
+        {
+            var heardCutoff = DateTime.UtcNow.AddSeconds(-ModuleHeardWindowSeconds);
+            var heardIds = new List<int>();
+            lock (_ioLock)
+                foreach (var kv in _moduleAddresses)
+                    if (kv.Value.LastHeardUtc >= heardCutoff) heardIds.Add(kv.Key);
+            heardIds.Sort();
+            sb.Append(",\"modulesHeard\":[").Append(string.Join(",", heardIds)).Append(']');
+        }
         EnsureModuleSetupsLoaded();
         sb.Append(",\"moduleSensorCounts\":{");
-        for (int mi = 0; mi < _moduleSetups.Count; mi++)
+        lock (_ioLock)
         {
-            if (mi > 0) sb.Append(',');
-            sb.Append('"').Append(_moduleSetups[mi].ModuleId).Append("\":")
-              .Append(Math.Max(1, (int)_moduleSetups[mi].Config.SensorCount));
+            for (int mi = 0; mi < _moduleSetups.Count; mi++)
+            {
+                if (mi > 0) sb.Append(',');
+                sb.Append('"').Append(_moduleSetups[mi].ModuleId).Append("\":")
+                  .Append(Math.Max(1, (int)_moduleSetups[mi].Config.SensorCount));
+            }
         }
         sb.Append('}');
         sb.Append(",\"catalog\":[");
@@ -818,26 +858,41 @@ public sealed class RateControlService : IRateControlService, IDisposable
     /// <summary>Module setups for the ACTIVE tool, reloading if the tool changed.</summary>
     public IReadOnlyList<RcModuleSetup> ModuleSetups
     {
-        get { EnsureModuleSetupsLoaded(); return _moduleSetups; }
+        get
+        {
+            EnsureModuleSetupsLoaded();
+            // Snapshot: the live list is mutated under _ioLock from the tick
+            // and receive threads; handing it out raw invites the concurrent
+            // Add/iterate corruption that once wrote null slots to disk.
+            lock (_ioLock) return _moduleSetups.ToArray();
+        }
     }
 
     private void EnsureModuleSetupsLoaded()
     {
         string key = ModuleSetupFile;
-        if (key == _moduleSetupsToolKey && _moduleSetups.Count > 0) return;
-        _moduleSetupsToolKey = key;
-        _moduleSetups.Clear();
-        try
+        lock (_ioLock)
         {
-            if (File.Exists(key))
+            if (key == _moduleSetupsToolKey && _moduleSetups.Count > 0) return;
+            _moduleSetupsToolKey = key;
+            _moduleSetups.Clear();
+            try
             {
-                var loaded = JsonSerializer.Deserialize<List<RcModuleSetup>>(File.ReadAllText(key));
-                if (loaded != null) _moduleSetups.AddRange(loaded);
+                if (File.Exists(key))
+                {
+                    var loaded = JsonSerializer.Deserialize<List<RcModuleSetup>>(File.ReadAllText(key));
+                    if (loaded != null)
+                        // Drop null entries: files written while the list was
+                        // being mutated concurrently (pre-lock builds) persisted
+                        // corrupted slots — heal them on load.
+                        foreach (var m in loaded)
+                            if (m != null) _moduleSetups.Add(m);
+                }
             }
+            catch { }
+            if (_moduleSetups.Count == 0)
+                _moduleSetups.Add(new RcModuleSetup { ModuleId = 0, Sensors = { new RcSensorSetup { SensorId = 0 } } });
         }
-        catch { }
-        if (_moduleSetups.Count == 0)
-            _moduleSetups.Add(new RcModuleSetup { ModuleId = 0, Sensors = { new RcSensorSetup { SensorId = 0 } } });
     }
 
     private void SaveModuleSetups()
@@ -946,10 +1001,14 @@ public sealed class RateControlService : IRateControlService, IDisposable
     public RcModuleSetup GetOrAddModuleSetup(int moduleId)
     {
         EnsureModuleSetupsLoaded();
-        foreach (var m in _moduleSetups)
-            if (m.ModuleId == moduleId) return m;
-        var added = new RcModuleSetup { ModuleId = moduleId, Sensors = { new RcSensorSetup { SensorId = 0 } } };
-        _moduleSetups.Add(added);
+        RcModuleSetup added;
+        lock (_ioLock)
+        {
+            foreach (var m in _moduleSetups)
+                if (m.ModuleId == moduleId) return m;
+            added = new RcModuleSetup { ModuleId = moduleId, Sensors = { new RcSensorSetup { SensorId = 0 } } };
+            _moduleSetups.Add(added);
+        }
         SaveModuleSetups();
         return added;
     }
@@ -1009,6 +1068,7 @@ public sealed class RateControlService : IRateControlService, IDisposable
             case "onScreen": _switchbox.OnScreenEnabled = Bo(); break;
             case "autoRate": _switchbox.AutoRate = Bo(); break;
             case "workGate": _switchbox.WorkSwitchGate = Bo(); break;
+            case "expectPhysical": _switchbox.ExpectPhysical = Bo(); break;
             // "secSwitch:<section>" allocates a section to an on-screen switch
             case string k when k.StartsWith("secSwitch:", StringComparison.Ordinal)
                             && int.TryParse(k.AsSpan(10), out var sec) && sec >= 0 && sec < 64:
@@ -1261,19 +1321,36 @@ public sealed class RateControlService : IRateControlService, IDisposable
         sb.Append("{\"tool\":").Append(JsonSerializer.Serialize(_configStore.ActiveToolProfileName ?? ""));
         sb.Append(",\"useRateControl\":").Append(_configStore.Tool.UseRateControl ? "true" : "false");
         List<int> heard;
+        List<KeyValuePair<int, string>> addrs;
         var cutoff = DateTime.UtcNow.AddSeconds(-ModuleHeardWindowSeconds);
         lock (_ioLock)
         {
             heard = new List<int>();
+            addrs = new List<KeyValuePair<int, string>>();
             foreach (var kv in _moduleAddresses)
+            {
+                addrs.Add(new KeyValuePair<int, string>(kv.Key, kv.Value.Address.ToString()));
                 if (kv.Value.LastHeardUtc >= cutoff) heard.Add(kv.Key);
+            }
         }
         heard.Sort();
         sb.Append(",\"modulesHeard\":[").Append(string.Join(",", heard)).Append(']');
-        sb.Append(",\"modules\":[");
-        for (int i = 0; i < _moduleSetups.Count; i++)
+        // Last-known address per module id — for the Network IO panel's rate rows.
+        addrs.Sort((a, b) => a.Key.CompareTo(b.Key));
+        sb.Append(",\"moduleIps\":{");
+        for (int ai = 0; ai < addrs.Count; ai++)
         {
-            var m = _moduleSetups[i];
+            if (ai > 0) sb.Append(',');
+            sb.Append('"').Append(addrs[ai].Key).Append("\":")
+              .Append(JsonSerializer.Serialize(addrs[ai].Value));
+        }
+        sb.Append('}');
+        sb.Append(",\"modules\":[");
+        List<RcModuleSetup> setups;
+        lock (_ioLock) setups = new List<RcModuleSetup>(_moduleSetups);
+        for (int i = 0; i < setups.Count; i++)
+        {
+            var m = setups[i];
             if (i > 0) sb.Append(',');
             var c = m.Config;
             // Live relay word too: the only way to see a relay map is doing what

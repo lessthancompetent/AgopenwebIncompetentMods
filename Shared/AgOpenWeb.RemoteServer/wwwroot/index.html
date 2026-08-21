@@ -532,6 +532,25 @@
     .nio-dot { width: 12px; height: 12px; border-radius: 50%; background: #6b7280; }
     .nio-mod { color: var(--text); font: 500 13px system-ui, sans-serif; }
     .nio-ip { color: var(--text-2); font: 600 12px ui-monospace, monospace; text-align: right; }
+    .nio-almrow { display: flex; align-items: center; gap: 6px; margin: 2px 0 10px; }
+    .nio-almrow .alm-lbl { flex: 1; display: flex; align-items: center; gap: 7px;
+      color: var(--text-2); font: 600 12px system-ui, sans-serif; }
+    .nio-alm { height: 26px; padding: 0 11px; border: 0; border-radius: 6px;
+      background: rgba(var(--ov),0.14); color: var(--text-muted);
+      font: 700 12px system-ui, sans-serif; cursor: pointer; }
+    .nio-alm.on { background: rgba(46,204,113,0.5); color: #fff; }
+    #nio-alm-bell.live { stroke: #ff5252; animation: rcAlmPulse 1s infinite; }
+    /* Rate drop-off alarm banner — a module an enabled product needs (or the
+       switchbox) stopped answering. Tap acknowledges: beep stops, banner dims;
+       any NEW drop re-arms it. */
+    #rc-alarm { position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 60;
+      display: none; padding: 10px 18px; border-radius: 10px; background: rgba(186,28,28,0.93);
+      border: 1px solid #ff6b6b; color: #fff; font: 800 15px system-ui, sans-serif;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.5); cursor: pointer; white-space: nowrap;
+      animation: rcAlmPulse 1s infinite; }
+    #rc-alarm.on { display: block; }
+    #rc-alarm.ack { animation: none; opacity: 0.55; }
+    @keyframes rcAlmPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     .nio-subnet { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
     .nio-oct { width: 56px; text-align: center; }
     .nio-dotsep { color: var(--text); font-weight: 700; }
@@ -912,28 +931,53 @@
     .dlg-mode .dlg-bigtxt { font: 800 24px system-ui, sans-serif; color: var(--text); }
     .dlg-mode.disabled { opacity: 0.4; pointer-events: none; }
     /* Rate readout — the small always-visible panel the separate RateController
-       app used to give you. Only appears when the hitched tool actually meters
-       product, so it costs nothing on a set of harrows. Tap to open Rate Control. */
+       app used to give you. Appears whenever the hitched tool has rate control
+       on, so it costs nothing on a set of harrows. Draggable by its grip; the
+       header buttons toggle the on-screen switchbox and open Rate Control. */
     #rate-hud { position: fixed; top: 88px; right: 12px; z-index: 30; display: none;
-      flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px;
+      flex-direction: column; gap: 6px; padding: 8px 10px 10px; border-radius: 10px;
       background: rgba(20,22,26,0.82); border: 1px solid var(--border);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.45); cursor: pointer; min-width: 132px; }
+      box-shadow: 0 6px 20px rgba(0,0,0,0.45); min-width: 156px; touch-action: none; }
     #rate-hud.on { display: flex; }
-    /* On-screen switchbox — a vertical strip under the rate HUD. Big targets:
-       this is pressed with a gloved thumb on the cab screen. */
-    #rc-switchbox { position: fixed; top: 132px; right: 12px; z-index: 30; display: none;
-      flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px;
+    #rate-hud.moved { right: auto; }
+    .rh-head { display: flex; align-items: center; gap: 6px; }
+    #rh-grip { width: 20px; height: 26px; border-radius: 5px; background: rgba(var(--ov),0.10);
+      color: var(--text-muted); font: 700 12px system-ui, sans-serif; display: flex;
+      align-items: center; justify-content: center; cursor: grab; user-select: none;
+      -webkit-user-select: none; letter-spacing: -2px; }
+    .rh-title { color: var(--text-muted); font: 700 11px system-ui, sans-serif;
+      letter-spacing: 1px; flex: 1; }
+    .rh-head button { width: 36px; height: 28px; border: 0; border-radius: 6px;
+      background: rgba(var(--ov),0.14); color: var(--text); font: 700 11px system-ui, sans-serif;
+      cursor: pointer; }
+    .rh-head button.on { background: rgba(46,204,113,0.5); color: #fff; }
+    #rh-rows { display: flex; flex-direction: column; gap: 6px; }
+    .rh-none { color: var(--text-muted); font: 600 11px system-ui, sans-serif; }
+    /* On-screen switchbox — floating, draggable, laid out HORIZONTALLY like the
+       physical box so it never blankets the right-hand nav column. Big targets:
+       this is pressed with a gloved thumb on the cab screen. Default docks
+       bottom-centre; once dragged, .moved pins it at the saved left/top. */
+    #rc-switchbox { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
+      z-index: 30; display: none; flex-direction: row; align-items: stretch; gap: 6px;
+      padding: 8px; border-radius: 10px; touch-action: none;
       background: rgba(20,24,28,0.88); border: 1px solid var(--border); }
+    #rc-switchbox.moved { transform: none; bottom: auto; }
     #rc-switchbox.on { display: flex; }
-    #rc-switchbox .sw-big { width: 74px; height: 44px; border: 0; border-radius: 8px;
-      background: rgba(231,76,60,0.35); color: #fff; font: 700 14px system-ui, sans-serif; cursor: pointer; }
+    #swb-grip { width: 22px; border-radius: 6px; background: rgba(var(--ov),0.10);
+      color: var(--text-muted); font: 700 13px system-ui, sans-serif; display: flex;
+      align-items: center; justify-content: center; cursor: grab; user-select: none;
+      -webkit-user-select: none; letter-spacing: -2px; }
+    #rc-switchbox .sw-big { width: 62px; height: 56px; border: 0; border-radius: 8px;
+      background: rgba(231,76,60,0.35); color: #fff; font: 700 13px system-ui, sans-serif;
+      cursor: pointer; line-height: 1.15; }
     #rc-switchbox .sw-big.on { background: rgba(46,204,113,0.55); }
     #rc-switchbox .sw-big:disabled { opacity: .35; }
-    #rc-switchbox .sw-rate { display: flex; gap: 6px; }
-    #rc-switchbox .sw-rate button { flex: 1; height: 40px; border: 0; border-radius: 8px;
-      background: rgba(var(--ov),0.16); color: var(--text); font: 700 20px system-ui, sans-serif; cursor: pointer; }
-    #swb-secs { display: flex; flex-direction: column; gap: 4px; }
-    #swb-secs button { width: 74px; height: 34px; border: 0; border-radius: 6px;
+    /* Rate nudge: vertical rocker like the physical box — + on top, − below. */
+    #rc-switchbox .sw-rate { display: flex; flex-direction: column; gap: 4px; width: 48px; }
+    #rc-switchbox .sw-rate button { flex: 1; border: 0; border-radius: 8px;
+      background: rgba(var(--ov),0.16); color: var(--text); font: 700 18px system-ui, sans-serif; cursor: pointer; }
+    #swb-secs { display: flex; flex-direction: row; gap: 4px; }
+    #swb-secs button { min-width: 48px; height: 56px; padding: 0 8px; border: 0; border-radius: 6px;
       background: rgba(var(--ov),0.14); color: var(--text); font: 700 12px system-ui, sans-serif; cursor: pointer; }
     #swb-secs button.on { background: rgba(46,204,113,0.55); color: #fff; }
     #swb-secs button.mix { background: rgba(240,168,104,0.45); color: #fff; }
@@ -2195,6 +2239,23 @@
       <input type="checkbox" class="nio-chk" id="nio-imu-cfg" data-key="conn.imuConfigured" title="IMU module should be present">
       <span class="nio-dot" id="nio-imu-dot"></span><span class="nio-mod">IMU</span><span class="nio-ip" id="nio-imu-ip">—</span>
     </div>
+    <!-- Rate-control plane (29999): RC modules + the physical switchbox. Shown
+         only when the hitched tool uses rate control; polled while open. The
+         alarm toggles arm the drop-off banner/beep (client-side preference). -->
+    <div class="cfg-label" id="nio-rc-label" style="display:none">Rate control</div>
+    <div class="nio-modgrid" id="nio-rc-grid" style="display:none"></div>
+    <div class="nio-almrow" id="nio-alm-row" style="display:none">
+      <span class="alm-lbl">
+        <svg id="nio-alm-bell" viewBox="0 0 24 24" width="16" height="16" fill="none"
+             stroke="#FFC24B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+        </svg>
+        Drop-off alarm
+      </span>
+      <button class="nio-alm" id="nio-alm-scr" title="Flash an on-screen alarm when a rate module or the switchbox drops off">Screen</button>
+      <button class="nio-alm" id="nio-alm-snd" title="Beep when a rate module or the switchbox drops off">Sound</button>
+    </div>
     <button id="nio-scan" class="cfg-act cfg-actwide">Scan for Modules</button>
     <div class="cfg-label" style="margin-top:14px">Module connection</div>
     <div class="ln-seg cfg-seg-full">
@@ -3419,19 +3480,31 @@
        more cards into this same host. -->
   <!-- Rate readout: actual vs target while working, like the old standalone
        RateController window. Populated by rhTick(); tap opens Rate Control. -->
-  <div id="rate-hud" title="Rate control — tap to open"></div>
+  <div id="rate-hud">
+    <div class="rh-head">
+      <div id="rh-grip" title="Drag to move">&#8942;&#8942;</div>
+      <span class="rh-title">RATE</span>
+      <button id="rh-swb" title="Show/hide on-screen switchbox">SW</button>
+      <button id="rh-menu" title="Open Rate Control">&#9776;</button>
+    </div>
+    <div id="rh-rows"></div>
+  </div>
   <!-- On-screen switchbox: the native RC floating switch panel. Shown when the
        tool uses rate control and Switches -> "Show on main screen" is on.
        Section buttons flip switch GROUPS (the section->switch allocation). -->
+  <!-- Rate drop-off alarm: tap to acknowledge (silences beep, dims banner). -->
+  <div id="rc-alarm"><span id="rc-alarm-txt"></span></div>
   <div id="rc-switchbox">
+    <div id="swb-grip" title="Drag to move">&#8942;&#8942;</div>
     <button class="sw-big" id="swb-mst" title="Master valve">MST</button>
     <button class="sw-big" id="swb-prm" title="Primed start">PRM</button>
-    <button class="sw-big" id="swb-auto" title="Auto rate">AUTO</button>
-    <div class="sw-rate">
-      <button id="swb-dn" title="Rate down 5%">&minus;</button>
-      <button id="swb-up" title="Rate up 5%">+</button>
-    </div>
+    <button class="sw-big" id="swb-autorate" title="Auto rate">AUTO<br>RATE</button>
+    <button class="sw-big" id="swb-autosec" title="Auto sections">AUTO<br>SECT</button>
     <div id="swb-secs"></div>
+    <div class="sw-rate">
+      <button id="swb-up" title="Rate up 5%">+</button>
+      <button id="swb-dn" title="Rate down 5%">&minus;</button>
+    </div>
   </div>
   <div id="dialoghost">
     <div class="dlg-backdrop"></div>
