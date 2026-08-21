@@ -84,3 +84,12 @@ Work down this list:
 > **Do not diagnose with ping.** The nano machine boards (EtherCard-based)
 > never answer ping even when they are working perfectly. A dead ping proves
 > nothing; a green dot in Network IO proves everything.
+
+## Module settings are pushed for you
+
+You set a module's configuration once, in the app (steer settings, machine relay
+map, section widths). Every time a module comes online — at start-up, after a
+reboot, after a cable is replugged — the app re-sends that module its settings
+within a second. A board with blank or stale memory therefore always runs what
+the app shows; you never have to press "Send" after a power cycle. The Send
+buttons still work if you want to push by hand.
