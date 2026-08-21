@@ -83,6 +83,15 @@ public class AutoSteerService : IAutoSteerService
     private bool _configSubscribed;
     private AutoSteerConfig? _subscribedAutoSteer;
     private ToolConfig? _subscribedTool;
+    private MachineConfig? _subscribedMachine;
+    private ConfigurationStore? _subscribedStore;
+
+    // Machine-module config (PGN 238/236/235) gets the same treatment: a
+    // baseline at Start, a debounced re-emit on any machine / section-layout
+    // change, and a re-push when the machine board's hello reappears after a
+    // gap. Before this the trio only ever left on the manual "Send" button,
+    // so a rebooted or freshly flashed board ran on whatever its EEPROM held.
+    private readonly Timer _machineEmitTimer;
 
     /// <summary>
     /// Test seam: lets tests shorten the debounce so they don't have
@@ -126,6 +135,10 @@ public class AutoSteerService : IAutoSteerService
             state: null,
             dueTime: Timeout.Infinite,
             period: Timeout.Infinite);
+        _machineEmitTimer = new Timer(_ => EmitMachineConfigPgns(),
+            state: null,
+            dueTime: Timeout.Infinite,
+            period: Timeout.Infinite);
     }
 
     /// <summary>
@@ -150,6 +163,7 @@ public class AutoSteerService : IAutoSteerService
     {
         _isEnabled = true;
         _udpService.DataReceived += OnUdpDataReceived;
+        _udpService.ModuleConnectionChanged += OnModuleConnectionChanged;
 
         // Subscribe before the initial emission so a settings write that
         // races against startup still re-fires through the debounce.
@@ -162,14 +176,41 @@ public class AutoSteerService : IAutoSteerService
         // config dialog" symptom — the simulator reads switch-type from
         // PGN 251 byte 5 and we'd previously never send it on startup.
         EmitSteerConfigPgns();
+        // Same baseline for the machine board (238/236/235).
+        EmitMachineConfigPgns();
     }
 
     public void Stop()
     {
         _udpService.DataReceived -= OnUdpDataReceived;
+        _udpService.ModuleConnectionChanged -= OnModuleConnectionChanged;
         UnsubscribeFromConfigChanges();
         _isEnabled = false;
         _isEngaged = false;
+    }
+
+    /// <summary>
+    /// A steer module whose hello just (re)appeared may have rebooted with
+    /// blank or stale EEPROM — and the startup PGN 251/252 emission goes to
+    /// nobody when the app boots before the module powers up. Push the saved
+    /// profile config whenever the module comes (back) online so it always
+    /// matches the app without the operator touching a setting. Routed
+    /// through the debounce timer to coalesce with any concurrent config
+    /// burst; the module's UDP stack is up by the time it hellos.
+    /// </summary>
+    private void OnModuleConnectionChanged(object? sender, ModuleConnectionEventArgs e)
+    {
+        if (!e.IsConnected) return;
+        if (e.ModuleType == ModuleType.AutoSteer)
+        {
+            Console.WriteLine($"[AutoSteer] Steer module online at {e.IPAddress} - re-emitting config (PGN 251/252)");
+            _configEmitTimer.Change(_configEmitDelayMs, Timeout.Infinite);
+        }
+        else if (e.ModuleType == ModuleType.Machine)
+        {
+            Console.WriteLine($"[Machine] Machine module online at {e.IPAddress} - re-emitting config (PGN 238/236/235)");
+            _machineEmitTimer.Change(_configEmitDelayMs, Timeout.Infinite);
+        }
     }
 
     private void SubscribeToConfigChanges()
@@ -177,8 +218,12 @@ public class AutoSteerService : IAutoSteerService
         if (_configSubscribed) return;
         _subscribedAutoSteer = _configStore.AutoSteer;
         _subscribedTool = _configStore.Tool;
+        _subscribedMachine = _configStore.Machine;
+        _subscribedStore = _configStore;
         _subscribedAutoSteer.PropertyChanged += OnConfigPropertyChanged;
         _subscribedTool.PropertyChanged += OnConfigPropertyChanged;
+        _subscribedMachine.PropertyChanged += OnMachineConfigPropertyChanged;
+        _subscribedStore.PropertyChanged += OnStorePropertyChanged;
         _configSubscribed = true;
     }
 
@@ -189,6 +234,10 @@ public class AutoSteerService : IAutoSteerService
             _subscribedAutoSteer.PropertyChanged -= OnConfigPropertyChanged;
         if (_subscribedTool != null)
             _subscribedTool.PropertyChanged -= OnConfigPropertyChanged;
+        if (_subscribedMachine != null)
+            _subscribedMachine.PropertyChanged -= OnMachineConfigPropertyChanged;
+        if (_subscribedStore != null)
+            _subscribedStore.PropertyChanged -= OnStorePropertyChanged;
         _configSubscribed = false;
     }
 
@@ -203,6 +252,36 @@ public class AutoSteerService : IAutoSteerService
     private void OnConfigPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         _configEmitTimer.Change(_configEmitDelayMs, Timeout.Infinite);
+        // Section widths ride PGN 235 to the machine plane as well.
+        if (ReferenceEquals(sender, _subscribedTool)
+            && (e.PropertyName == nameof(ToolConfig.SectionWidths)
+                || e.PropertyName == nameof(ToolConfig.TotalSectionWidth)))
+            _machineEmitTimer.Change(_configEmitDelayMs, Timeout.Infinite);
+    }
+
+    private void OnMachineConfigPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        _machineEmitTimer.Change(_configEmitDelayMs, Timeout.Infinite);
+    }
+
+    private void OnStorePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ConfigurationStore.NumSections))
+            _machineEmitTimer.Change(_configEmitDelayMs, Timeout.Infinite);
+    }
+
+    private void EmitMachineConfigPgns()
+    {
+        if (!_isEnabled) return; // raced past Stop()
+        try
+        {
+            SendMachineConfigAll();
+            Console.WriteLine("[Machine] PGN 238/236/235 emitted to modules");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AutoSteerService] machine PGN emit failed: {ex.Message}");
+        }
     }
 
     private void EmitSteerConfigPgns()
@@ -213,6 +292,7 @@ public class AutoSteerService : IAutoSteerService
             var cfg = _configStore.AutoSteer;
             _udpService.SendToModules(PgnBuilder.BuildSteerConfigPgn(cfg));
             _udpService.SendToModules(PgnBuilder.BuildSteerSettingsPgn(cfg));
+            Console.WriteLine("[AutoSteer] PGN 251/252 pair emitted to modules");
         }
         catch (Exception ex)
         {

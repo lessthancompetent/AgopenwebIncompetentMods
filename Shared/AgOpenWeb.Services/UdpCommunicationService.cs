@@ -666,7 +666,33 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
         _perfTxWindowStart = DateTime.UtcNow;
     }
 
-    private void UpdateModuleConnection(byte[] data, IPEndPoint remoteEndPoint)
+    /// <summary>
+    /// Raised from the receive thread when a module's hello reappears after
+    /// the hello timeout — covers both first contact (app started before the
+    /// module powered up) and reboot / cable-pull recovery. Only connect
+    /// transitions are raised; disconnects are still discovered by polling
+    /// <see cref="IsModuleHelloOk"/>.
+    /// </summary>
+    private void RaiseModuleConnected(ModuleType type, string ip)
+    {
+        try
+        {
+            ModuleConnectionChanged?.Invoke(this, new ModuleConnectionEventArgs
+            {
+                ModuleType = type,
+                IsConnected = true,
+                IPAddress = ip
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[UDP] ModuleConnectionChanged handler failed: {ex.Message}");
+        }
+    }
+
+    // internal: test seam — lets tests feed hello packets directly to
+    // exercise the reconnect-transition logic without binding sockets.
+    internal void UpdateModuleConnection(byte[] data, IPEndPoint remoteEndPoint)
     {
         var now = DateTime.Now;
         bool fromSerial = remoteEndPoint.Address.Equals(IPAddress.Any);
@@ -695,10 +721,12 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
 
             // AutoSteer PGNs
             case PgnNumbers.HELLO_FROM_AUTOSTEER: // 126
+                bool steerWasGone = (now - _lastHelloFromAutoSteer).TotalMilliseconds >= HELLO_TIMEOUT_MS;
                 _lastHelloFromAutoSteer = now;
                 _autoSteerIp = remoteIp;
                 LockToSubnet(remoteEndPoint.Address);
                 System.Diagnostics.Debug.WriteLine($"AutoSteer HELLO received at {now:HH:mm:ss.fff}");
+                if (steerWasGone) RaiseModuleConnected(ModuleType.AutoSteer, remoteIp);
                 break;
 
             case PgnNumbers.SENSOR_DATA:          // 250 - Sensor data from module
@@ -713,10 +741,12 @@ public class UdpCommunicationService : IUdpCommunicationService, IDisposable
 
             // Machine PGNs (receive-only, only Hello matters)
             case PgnNumbers.HELLO_FROM_MACHINE:  // 123
+                bool machineWasGone = (now - _lastHelloFromMachine).TotalMilliseconds >= HELLO_TIMEOUT_MS;
                 _lastHelloFromMachine = now;
                 _machineIp = remoteIp;
                 LockToSubnet(remoteEndPoint.Address);
                 System.Diagnostics.Debug.WriteLine($"Machine HELLO received at {now:HH:mm:ss.fff}");
+                if (machineWasGone) RaiseModuleConnected(ModuleType.Machine, remoteIp);
                 break;
 
             // IMU PGNs (only Hello matters - data only sent when active)
