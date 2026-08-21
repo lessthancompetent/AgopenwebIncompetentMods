@@ -616,4 +616,37 @@ public class SectionControlServiceTests
     }
 
     #endregion
+
+    #region Lateral tool offset
+
+    /// <summary>
+    /// Pins the single-application contract: the ToolPosition handed to this
+    /// service ALREADY carries Tool.Offset (ToolPositionService applies it),
+    /// so section spans must be symmetric about that pose. The old code baked
+    /// Offset into the spans too, painting coverage and running section
+    /// queries at 2× the configured offset — invisible to the suite because
+    /// every test pinned Offset = 0.
+    /// </summary>
+    [Test]
+    public void SectionWorldPositions_WithToolOffset_AreSymmetricAboutToolCenter()
+    {
+        ConfigurationStore.Instance.Tool.Offset = 0.5;
+        _service.RecalculateSectionPositions();
+
+        // Tool pose as ToolPositionService would provide it: hitch line at
+        // easting 10, offset already applied → tool center at 10.5. Heading
+        // north (0) so easting IS the lateral axis, right positive.
+        var toolCenter = new Vec3(10.5, 0, 0);
+
+        var (l0, _) = _service.GetSectionWorldPosition(0, toolCenter, 0);
+        var (_, r2) = _service.GetSectionWorldPosition(2, toolCenter, 0);
+
+        // 6 m of sections symmetric about the (already offset) tool center:
+        // left edge 10.5 − 3, right edge 10.5 + 3. The 2× bug put these at
+        // 8.0 / 14.0 instead.
+        Assert.That(l0.Easting, Is.EqualTo(7.5).Within(1e-6));
+        Assert.That(r2.Easting, Is.EqualTo(13.5).Within(1e-6));
+    }
+
+    #endregion
 }

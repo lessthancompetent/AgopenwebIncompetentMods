@@ -99,13 +99,16 @@ namespace AgOpenWeb.Services.YouTurn
             isOutOfBounds = false;
             isOutSameCurve = false;
 
-            // Lateral span of the arc = the pass spacing. NO ToolOffset compensation:
-            // AgOpenGPS shifts the arc by ±2*ToolOffset because its steering applies the
-            // implement offset to the pivot target, so the arc must pre-compensate. AgOpenWeb
-            // steering never applies ToolOffset (it only positions sections in
-            // SectionControlService) — the guidance line IS the pivot path — so adding the
-            // shift here lands the arc end (and exit leg) 2*ToolOffset off the cyan/post-turn
-            // line the pivot actually follows, causing a lateral jump + wiggle on turn exit.
+            // Lateral span of the arc = the VEHICLE-line spacing between the two
+            // passes. With a laterally offset tool the vehicle line for a pass is
+            // the tool line shifted −Offset in the vehicle frame (see
+            // GuidanceGeometry.VehicleDistAway); adjacent opposite-direction
+            // passes therefore sit w∓2·Offset apart and the pre-calculated
+            // TurnOffset (from YouTurnPathingService.ComputeNextTrack, which uses
+            // the same helper) carries that asymmetry. Nothing else may add a
+            // ToolOffset term here — the tool pose itself is handled by
+            // ToolPositionService.ApplyLateralOffset, and sections are laid out
+            // symmetric about that pose (SectionControlService).
             double turnOffset;
             if (input.TurnOffset > 0)
             {
@@ -350,7 +353,12 @@ namespace AgOpenWeb.Services.YouTurn
             int passDelta = (input.IsTurnLeft ^ input.IsHeadingSameWay)
                 ? (input.RowSkipsWidth + 1)
                 : -(input.RowSkipsWidth + 1);
-            double distAway = widthMinusOverlap * (input.HowManyPathsAway + passDelta) + input.NudgeDistance;
+            // Exit pass is driven the OPPOSITE way (turns reverse direction), so
+            // its vehicle line takes the negated travel flag — this is where an
+            // offset tool's asymmetric turn throw (w·Δ ± 2·Offset) comes from.
+            double distAway = Track.GuidanceGeometry.VehicleDistAway(
+                input.HowManyPathsAway + passDelta, widthMinusOverlap, input.NudgeDistance,
+                input.ToolOffset, !input.IsHeadingSameWay);
 
             // Create the next line
             nextCurve = BuildNewOffsetCurveList(input, distAway);
@@ -548,337 +556,9 @@ namespace AgOpenWeb.Services.YouTurn
             return CompleteCurveTurn(input);
         }
 
-        private bool CreateCurveWideTurn(YouTurnCreationInput input, double turnOffset)
-        {
-            // Keep from making turns constantly
-            if (input.MakeUTurnCounter < 4)
-            {
-                youTurnPhase = 0;
-                return true;
-            }
-
-            // Check for valid track mode
-            if (input.TrackMode == 64 || input.TrackMode == 32) // waterPivot or bndCurve
-            {
-                youTurnPhase = 11; // Ignore
-                return false;
-            }
-
-            double head = 0;
-            int count = input.IsHeadingSameWay ? -1 : 1;
-
-            switch (youTurnPhase)
-            {
-                case 0:
-                    // Create first semicircle
-                    if (!FindCurveTurnPoint(input, false))
-                    {
-                        if (input.TrackMode == 32 || input.TrackMode == 64) // waterPivot or bndCurve
-                            youTurnPhase = 11; // Ignore
-                        else
-                            FailCreate();
-                        return false;
-                    }
-
-                    inClosestTurnPt = new TurnClosePoint(closestTurnPt);
-                    startOfTurnPt = new TurnClosePoint(inClosestTurnPt);
-
-                    int stopIfWayOut = 0;
-                    isOutOfBounds = true;
-
-                    while (isOutOfBounds)
-                    {
-                        isOutOfBounds = false;
-                        stopIfWayOut++;
-
-                        Vec3 currentPos = input.GuidancePoints[inClosestTurnPt.CurveIndex];
-
-                        head = currentPos.Heading;
-                        if (!input.IsHeadingSameWay) head += Math.PI;
-                        if (head > TWO_PI) head -= TWO_PI;
-                        currentPos.Heading = head;
-
-                        // Creates half a circle starting at the crossing point
-                        ytList.Clear();
-                        ytList.Add(currentPos);
-
-                        // Taken from Dubins
-                        while (Math.Abs(head - currentPos.Heading) < Math.PI)
-                        {
-                            // Update the position
-                            currentPos.Easting += pointSpacing * Math.Sin(currentPos.Heading);
-                            currentPos.Northing += pointSpacing * Math.Cos(currentPos.Heading);
-
-                            // Which way are we turning?
-                            double turnParameter = input.IsTurnLeft ? -1.0 : 1.0;
-
-                            // Update the heading
-                            currentPos.Heading += (pointSpacing / input.TurnRadius) * turnParameter;
-
-                            // Add the new coordinate
-                            ytList.Add(currentPos);
-                        }
-
-                        int cnt4 = ytList.Count;
-                        if (cnt4 == 0)
-                        {
-                            FailCreate();
-                            return false;
-                        }
-
-                        // Are we out of bounds?
-                        for (int j = 0; j < cnt4; j += 2)
-                        {
-                            if (input.IsPointInsideTurnArea(ytList[j]) != 0)
-                            {
-                                isOutOfBounds = true;
-                                break;
-                            }
-                        }
-
-                        // First check if not out of bounds
-                        if (!isOutOfBounds)
-                        {
-                            ytList = MoveTurnInsideTurnLine(input, ytList, head, true, false);
-                            if (ytList.Count == 0)
-                            {
-                                FailCreate();
-                                return false;
-                            }
-                            youTurnPhase = 1;
-                            return true;
-                        }
-
-                        if (stopIfWayOut == 300 || inClosestTurnPt.CurveIndex < 1 || inClosestTurnPt.CurveIndex > (input.GuidancePoints.Count - 2))
-                        {
-                            FailCreate();
-                            return false;
-                        }
-
-                        // Keep moving infield till pattern is all inside
-                        inClosestTurnPt.CurveIndex = inClosestTurnPt.CurveIndex + count;
-                        var closePt = inClosestTurnPt.ClosePt;
-                        closePt = input.GuidancePoints[inClosestTurnPt.CurveIndex];
-                        inClosestTurnPt.ClosePt = closePt;
-
-                        // Set the flag to Critical stop machine
-                        if (Distance(ytList[0], input.PivotPosition) < 3)
-                        {
-                            FailCreate();
-                            return false;
-                        }
-                    }
-
-                    return false;
-
-                case 1:
-                    // Build the next line
-                    double widthMinusOverlap = input.ToolWidth - input.ToolOverlap;
-                    double distAway = widthMinusOverlap * (input.HowManyPathsAway + ((input.IsTurnLeft ^ input.IsHeadingSameWay) ? input.RowSkipsWidth : -input.RowSkipsWidth))
-                        + (input.IsHeadingSameWay ? input.ToolOffset : -input.ToolOffset) + input.NudgeDistance;
-                    distAway += (0.5 * widthMinusOverlap);
-
-                    nextCurve = BuildNewOffsetCurveList(input, distAway);
-
-                    // Going with or against boundary?
-                    bool isTurnLineSameWay = true;
-                    double headingDifference = Math.Abs(inClosestTurnPt.TurnLineHeading - ytList[ytList.Count - 1].Heading);
-                    if (headingDifference > PI_BY_2 && headingDifference < 3 * PI_BY_2) isTurnLineSameWay = false;
-
-                    if (!FindCurveOutTurnPoint(nextCurve, startOfTurnPt, isTurnLineSameWay))
-                    {
-                        FailCreate();
-                        return false;
-                    }
-                    outClosestTurnPt = new TurnClosePoint(closestTurnPt);
-
-                    // Move the turn inside of turnline
-                    isOutOfBounds = true;
-                    while (isOutOfBounds)
-                    {
-                        isOutOfBounds = false;
-                        Vec3 currentPos = nextCurve[outClosestTurnPt.CurveIndex];
-
-                        head = currentPos.Heading;
-                        if ((!input.IsHeadingSameWay && !isOutSameCurve) || (input.IsHeadingSameWay && isOutSameCurve)) head += Math.PI;
-                        if (head > TWO_PI) head -= TWO_PI;
-                        currentPos.Heading = head;
-
-                        ytList2.Clear();
-                        ytList2.Add(currentPos);
-
-                        while (Math.Abs(head - currentPos.Heading) < Math.PI)
-                        {
-                            currentPos.Easting += pointSpacing * Math.Sin(currentPos.Heading);
-                            currentPos.Northing += pointSpacing * Math.Cos(currentPos.Heading);
-                            double turnParameter = input.IsTurnLeft ? 1.0 : -1.0;
-                            currentPos.Heading += (pointSpacing / input.TurnRadius) * turnParameter;
-                            ytList2.Add(currentPos);
-                        }
-
-                        int cnt3 = ytList2.Count;
-                        if (cnt3 == 0)
-                        {
-                            FailCreate();
-                            return false;
-                        }
-
-                        for (int j = 0; j < cnt3; j += 2)
-                        {
-                            if (input.IsPointInsideTurnArea(ytList2[j]) != 0)
-                            {
-                                isOutOfBounds = true;
-                                break;
-                            }
-                        }
-
-                        if (!isOutOfBounds)
-                        {
-                            ytList2 = MoveTurnInsideTurnLine(input, ytList2, head, true, true);
-                            if (ytList2.Count == 0)
-                            {
-                                FailCreate();
-                                return false;
-                            }
-                            youTurnPhase = 2;
-                            return true;
-                        }
-
-                        if (outClosestTurnPt.CurveIndex < 1 || outClosestTurnPt.CurveIndex > (nextCurve.Count - 2))
-                        {
-                            FailCreate();
-                            return false;
-                        }
-
-                        if (!isOutSameCurve) outClosestTurnPt.CurveIndex = outClosestTurnPt.CurveIndex + count;
-                        else outClosestTurnPt.CurveIndex = outClosestTurnPt.CurveIndex - count;
-
-                        var outPt = outClosestTurnPt.ClosePt;
-                        outPt = nextCurve[outClosestTurnPt.CurveIndex];
-                        outClosestTurnPt.ClosePt = outPt;
-                    }
-                    return false;
-
-                case 2:
-                    // Bind the two turns together
-                    int cnt1 = ytList.Count;
-                    int cnt2 = ytList2.Count;
-
-                    bool isFirstTurnLineSameWay = true;
-                    double firstHeadingDifference = Math.Abs(inClosestTurnPt.TurnLineHeading - ytList[ytList.Count - 1].Heading);
-                    if (firstHeadingDifference > PI_BY_2 && firstHeadingDifference < 3 * PI_BY_2) isFirstTurnLineSameWay = false;
-
-                    FindInnerTurnPoints(ytList[cnt1 - 1], ytList[0].Heading, inClosestTurnPt, isFirstTurnLineSameWay);
-                    TurnClosePoint startClosestTurnPt = new TurnClosePoint(closestTurnPt);
-
-                    FindInnerTurnPoints(ytList2[cnt2 - 1], ytList2[0].Heading + Math.PI, outClosestTurnPt, !isFirstTurnLineSameWay);
-                    TurnClosePoint goalClosestTurnPt = new TurnClosePoint(closestTurnPt);
-
-                    if (startClosestTurnPt.TurnLineNum != goalClosestTurnPt.TurnLineNum)
-                    {
-                        FailCreate();
-                        return false;
-                    }
-
-                    if (startClosestTurnPt.TurnLineIndex == goalClosestTurnPt.TurnLineIndex)
-                    {
-                        for (int a = 0; a < cnt2; cnt2--)
-                        {
-                            ytList.Add(ytList2[cnt2 - 1]);
-                        }
-                    }
-                    else
-                    {
-                        Vec3 tPoint = new Vec3();
-                        int turnCount = input.BoundaryTurnLines[startClosestTurnPt.TurnLineNum].Points.Count;
-                        int loops = Math.Abs(startClosestTurnPt.TurnLineIndex - goalClosestTurnPt.TurnLineIndex);
-
-                        if (loops > (input.BoundaryTurnLines[startClosestTurnPt.TurnLineNum].Points.Count / 2))
-                        {
-                            if (startClosestTurnPt.TurnLineIndex < goalClosestTurnPt.TurnLineIndex)
-                                loops = (turnCount - goalClosestTurnPt.TurnLineIndex) + startClosestTurnPt.TurnLineIndex;
-                            else
-                                loops = (turnCount - startClosestTurnPt.TurnLineIndex) + goalClosestTurnPt.TurnLineIndex;
-                        }
-
-                        if (isFirstTurnLineSameWay)
-                        {
-                            for (int i = 0; i < loops; i++)
-                            {
-                                if ((startClosestTurnPt.TurnLineIndex + 1) >= turnCount) startClosestTurnPt.TurnLineIndex = -1;
-                                tPoint = input.BoundaryTurnLines[startClosestTurnPt.TurnLineNum].Points[startClosestTurnPt.TurnLineIndex + 1];
-                                startClosestTurnPt.TurnLineIndex++;
-                                if (startClosestTurnPt.TurnLineIndex >= turnCount)
-                                    startClosestTurnPt.TurnLineIndex = 0;
-                                ytList.Add(tPoint);
-                            }
-                        }
-                        else
-                        {
-                            for (int i = 0; i < loops; i++)
-                            {
-                                tPoint = input.BoundaryTurnLines[startClosestTurnPt.TurnLineNum].Points[startClosestTurnPt.TurnLineIndex];
-                                startClosestTurnPt.TurnLineIndex--;
-                                if (startClosestTurnPt.TurnLineIndex == -1)
-                                    startClosestTurnPt.TurnLineIndex = turnCount - 1;
-                                ytList.Add(tPoint);
-                            }
-                        }
-
-                        for (int a = 0; a < cnt2; cnt2--)
-                        {
-                            ytList.Add(ytList2[cnt2 - 1]);
-                        }
-                    }
-
-                    if (!AddCurveSequenceLines(input)) return false;
-
-                    double distance;
-                    int cnt = ytList.Count;
-                    for (int i = 1; i < cnt - 2; i++)
-                    {
-                        int j = i + 1;
-                        if (j == cnt - 1) continue;
-                        distance = DistanceSquared(ytList[i], ytList[j]);
-                        if (distance > 1)
-                        {
-                            Vec3 pointB = new Vec3((ytList[i].Easting + ytList[j].Easting) / 2.0,
-                                (ytList[i].Northing + ytList[j].Northing) / 2.0, ytList[i].Heading);
-                            ytList.Insert(j, pointB);
-                            cnt = ytList.Count;
-                            i--;
-                        }
-                    }
-
-                    cnt = ytList.Count;
-                    Vec3[] arr = new Vec3[cnt];
-                    cnt -= 2;
-                    ytList.CopyTo(arr);
-                    ytList.Clear();
-
-                    for (int i = 2; i < cnt; i++)
-                    {
-                        Vec3 pt3 = arr[i];
-                        pt3.Heading = Math.Atan2(arr[i + 1].Easting - arr[i - 1].Easting,
-                            arr[i + 1].Northing - arr[i - 1].Northing);
-                        if (pt3.Heading < 0) pt3.Heading += TWO_PI;
-                        ytList.Add(pt3);
-                    }
-
-                    if (Distance(ytList[0], input.PivotPosition) < 3)
-                    {
-                        FailCreate();
-                        return false;
-                    }
-
-                    isOutOfBounds = false;
-                    youTurnPhase = 10;
-                    ytList2.Clear();
-                    return true;
-            }
-
-            return true;
-        }
+        // (CreateCurveWideTurn deleted 2026-08: unreachable — CreateCurveTurn
+        // dispatches only KStyle/Sagitta/Omega — and it carried the legacy AOG
+        // ±ToolOffset exit-line term that contradicts the AgOpenWeb offset model.)
 
         private bool CreateKStyleTurnCurve(YouTurnCreationInput input, double turnOffset)
         {

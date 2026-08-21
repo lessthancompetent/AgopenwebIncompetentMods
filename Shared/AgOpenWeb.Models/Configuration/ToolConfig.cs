@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+using System;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace AgOpenWeb.Models.Configuration;
@@ -64,11 +65,18 @@ public class ToolConfig : ObservableObject
         set => SetProperty(ref _overlap, value);
     }
 
+    // Lateral tool offset in metres, POSITIVE = RIGHT of the direction of
+    // travel, applied perpendicular in the tool frame (the app-wide sign
+    // convention: ToolPositionService.ApplyLateralOffset, ToolGeometry,
+    // ImplementSweptPath, the offsetSide preset and the web icon all agree).
+    // The tool pose carries it once; guidance derives the vehicle line from
+    // it via GuidanceGeometry.VehicleDistAway — nothing else may re-apply it.
+    // Clamped to ±5 m to match the native config dialog's range.
     private double _offset;
     public double Offset
     {
         get => _offset;
-        set => SetProperty(ref _offset, value);
+        set => SetProperty(ref _offset, Math.Clamp(value, -5.0, 5.0));
     }
 
     // Hitch (rigid tool): axle center -> implement working center (e.g. tiller rotary

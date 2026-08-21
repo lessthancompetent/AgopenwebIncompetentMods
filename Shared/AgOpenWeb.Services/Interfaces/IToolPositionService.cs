@@ -64,29 +64,6 @@ public interface IToolPositionService
     void Update(Vec3 vehiclePivot, double vehicleHeading);
 
     /// <summary>
-    /// Get tool edge positions in world coordinates
-    /// </summary>
-    /// <returns>Left and right edge positions</returns>
-    (Vec3 left, Vec3 right) GetToolEdgePositions();
-
-    /// <summary>
-    /// Get a specific section's center position in world coordinates
-    /// </summary>
-    /// <param name="sectionIndex">Section index (0-based)</param>
-    /// <param name="sectionLeft">Section left edge offset from tool center (negative)</param>
-    /// <param name="sectionRight">Section right edge offset from tool center (positive)</param>
-    /// <returns>Section center position</returns>
-    Vec3 GetSectionPosition(int sectionIndex, double sectionLeft, double sectionRight);
-
-    /// <summary>
-    /// Get section edge positions in world coordinates
-    /// </summary>
-    /// <param name="sectionLeft">Section left edge offset from tool center</param>
-    /// <param name="sectionRight">Section right edge offset from tool center</param>
-    /// <returns>Left and right edge positions</returns>
-    (Vec3 left, Vec3 right) GetSectionEdgePositions(double sectionLeft, double sectionRight);
-
-    /// <summary>
     /// Reset trailing state (e.g., when starting new field or after pause).
     /// Snaps tool directly behind vehicle to prevent jackknife on startup.
     /// </summary>

@@ -91,11 +91,20 @@ public sealed class YouTurnPathingService
 
         double widthMinusOverlap = config.ActualToolWidth - config.Tool.Overlap;
         // Include the nudge so the cyan next-track line matches the U-turn exit leg and the
-        // line the tractor steers after completion exactly (all use base*pathsAway + nudge).
-        double nextDistAway = widthMinusOverlap * nextPathsAway + guidance.NudgeOffset;
+        // line the tractor steers after completion exactly (all via GuidanceGeometry).
+        // The NEXT pass is driven the opposite way, hence the negated travel flag —
+        // an offset tool's vehicle lines therefore sit w·Δ ± 2·Offset apart.
+        double currentDistAway = Track.GuidanceGeometry.VehicleDistAway(
+            guidance.HowManyPathsAway, widthMinusOverlap, guidance.NudgeOffset,
+            guidance.EffectiveToolOffset, guidance.IsHeadingSameWay);
+        double nextDistAway = Track.GuidanceGeometry.VehicleDistAway(
+            nextPathsAway, widthMinusOverlap, guidance.NudgeOffset,
+            guidance.EffectiveToolOffset, !guidance.IsHeadingSameWay);
 
-        // Authoritative perpendicular width for the U-turn arc — direction lives in IsTurnLeft.
-        turn.NextTrackTurnOffset = Math.Abs(pathsToMove * widthMinusOverlap);
+        // Authoritative perpendicular width for the U-turn arc — direction lives in
+        // IsTurnLeft; the magnitude is the actual vehicle-line spacing (asymmetric
+        // with a lateral tool offset), derived by differencing, never re-derived.
+        turn.NextTrackTurnOffset = Math.Abs(nextDistAway - currentDistAway);
 
         Models.Track.Track nextTrack;
         if (referenceTrack.Points.Count == 2)
@@ -194,7 +203,10 @@ public sealed class YouTurnPathingService
     {
 
         double widthMinusOverlap = config.ActualToolWidth - config.Tool.Overlap;
-        double nextDistAway = widthMinusOverlap * nextPathsAway;
+        // Boundary/worked decisions test the TOOL line (where the band actually
+        // lands, direction-independent) — deliberately NOT the vehicle line, so
+        // no Tool.Offset term here. See GuidanceGeometry.ToolDistAway.
+        double nextDistAway = Track.GuidanceGeometry.ToolDistAway(nextPathsAway, widthMinusOverlap, 0);
 
         // Curves: sample the ACTUAL offset curve, not the straight A→B chord. An irregular
         // boundary curve's chord can sit well off the real line, so the chord test picks the

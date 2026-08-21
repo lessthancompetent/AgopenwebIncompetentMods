@@ -287,14 +287,23 @@ public class CurveTurnAlignmentTests
 
         var near = curve.First(p => p.Northing >= 38);
         var pos = new Position { Easting = near.Easting, Northing = near.Northing };
-        var guidance = new GuidanceWorkingState { IsHeadingSameWay = sameWay, HowManyPathsAway = 0 };
+        // EffectiveToolOffset mirrors what the pipeline writes each cycle for an
+        // ordinary (non-"Route ") track: the configured lateral offset.
+        var guidance = new GuidanceWorkingState
+        { IsHeadingSameWay = sameWay, HowManyPathsAway = 0, EffectiveToolOffset = toolOffset };
         var turn = new YouTurnWorkingState { IsTurnLeft = true };
 
-        // The post-turn / cyan pass: basePoints offset by the pass-number distance.
+        // The post-turn / cyan pass: the next pass's VEHICLE line. With a lateral
+        // tool offset the exit pass (driven the opposite way) sits at
+        // w·k ± Offset — the same GuidanceGeometry formula the creation service,
+        // ComputeNextTrack and live guidance all share, so the exit leg, the
+        // cyan line and the steered line stay byte-identical.
         double width = ConfigurationStore.Instance.ActualToolWidth - ConfigurationStore.Instance.Tool.Overlap;
         bool positiveOffset = turn.IsTurnLeft ^ guidance.IsHeadingSameWay;
         int offsetChange = positiveOffset ? 1 : -1; // skip 0 -> move 1 pass
-        double nextDistAway = width * (guidance.HowManyPathsAway + offsetChange);
+        double nextDistAway = AgOpenWeb.Services.Track.GuidanceGeometry.VehicleDistAway(
+            guidance.HowManyPathsAway + offsetChange, width, 0,
+            ConfigurationStore.Instance.Tool.Offset, !sameWay);
         var nextPass = CurveProcessing.ExtendCurveEnds(CurveProcessing.CreateOffsetCurve(curve, nextDistAway));
 
         double heading = sameWay ? near.Heading : near.Heading + Math.PI;

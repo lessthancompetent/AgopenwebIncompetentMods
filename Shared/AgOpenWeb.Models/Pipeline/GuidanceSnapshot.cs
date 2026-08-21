@@ -53,6 +53,7 @@ public record GuidanceSnapshot
 
     // Direction relative to track
     public bool IsHeadingSameWay { get; init; }
+    public double EffectiveToolOffset { get; init; }
     public bool IsReverse { get; init; }
 
     // Line offset

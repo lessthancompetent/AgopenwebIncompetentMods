@@ -43,6 +43,18 @@ public interface IRoutePlanningService
     /// Mirrors ToolConfig.IsKTurnAllowed.</summary>
     bool AllowReverseTurns { get; set; }
 
+    /// <summary>Lateral tool offset (metres, positive = tool right of travel).
+    /// Combs stay tool centerlines; assembled drive geometry shifts
+    /// left-of-travel by this so the band lands on the comb.</summary>
+    double ToolOffset { get; set; }
+
+    /// <summary>Implement body for the swept-path clearance of planned connectors
+    /// (physical width + length behind the attachment); null = tractor-path-only.</summary>
+    AgOpenWeb.Models.Tool.ToolGeometry? SweptToolGeometry { get; set; }
+
+    /// <summary>Outer boundary is a hard fence — the swept body must stay inside it.</summary>
+    bool OuterBoundaryIsHard { get; set; }
+
     /// <summary>
     /// Terrain altitude sampler (field-local metres → altitude, null = no
     /// data) for slope-corrected pass spacing: passes spaced a full width on

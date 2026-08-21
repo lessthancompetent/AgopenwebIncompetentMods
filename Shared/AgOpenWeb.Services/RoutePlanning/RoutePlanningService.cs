@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using AgOpenWeb.Models.Base;
 using AgOpenWeb.Models.Guidance;
 using AgOpenWeb.Models.RoutePlanning;
+using AgOpenWeb.Models.Tool;
 using AgOpenWeb.Models.YouTurn;
 using AgOpenWeb.Services.Geometry;
 using AgOpenWeb.Services.Track;
@@ -38,6 +39,61 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// <inheritdoc />
     public bool AllowReverseTurns { get; set; } = true;
 
+    /// <summary>Lateral tool offset (metres, positive = tool RIGHT of travel —
+    /// ToolConfig.Offset). Generators plan TOOL-centerline combs unchanged; at
+    /// assembly, once each leg's drive direction is final, the DRIVE geometry
+    /// is shifted left-of-travel by this amount so the tool band lands back on
+    /// the comb (same model as GuidanceGeometry.VehicleDistAway). Feasibility
+    /// checks use the TIGHT vehicle spacing (w − 2·|offset|).</summary>
+    public double ToolOffset { get; set; }
+
+    /// <summary>Implement body geometry for the swept-path clearance check on
+    /// planned connectors (null = tractor-path checks only, the old behaviour).
+    /// Width here is the PHYSICAL frame width (a spreader throwing 15 m is
+    /// ~2.8 m of steel), length is the body behind its attachment — a mounted
+    /// drill 3 m behind the axle swings well outside the tractor's own arc.
+    /// Same model the live U-turn uses (ImplementSweptPath + TurnClearance).</summary>
+    public ToolGeometry? SweptToolGeometry { get; set; }
+
+    /// <summary>The outer boundary is a hard fence: the swept implement must stay
+    /// inside it (with the clearance margin). Soft/drive-through outers keep the
+    /// tractor-path-only rule, matching the live turn's hardOuter gate. Hard
+    /// inner holes are always enforced against the swept body.</summary>
+    public bool OuterBoundaryIsHard { get; set; }
+
+    /// <summary>Everything a connector candidate must clear with its swept body.</summary>
+    private sealed record SweptConstraint(
+        ToolGeometry Geom,
+        IReadOnlyList<Vec2>? HardOuter,
+        IReadOnlyList<IReadOnlyList<Vec2>>? Holes,
+        double Margin);
+
+    /// <summary>True when the implement's four body-corner rails along
+    /// <paramref name="path"/> stay inside the hard outer (if any) and outside
+    /// every hard hole, each by the margin.</summary>
+    private static bool SweptClear(IReadOnlyList<Vec3> path, SweptConstraint? c)
+        => SweptIntrusion(path, c) <= 0;
+
+    /// <summary>Worst implement-body intrusion (metres past the margin) of
+    /// <paramref name="path"/> against the hard outer and every hard hole; ≤ 0
+    /// = clear. Lets the turn builder pick the LEAST-intruding candidate when
+    /// nothing clears outright, instead of the shortest clipping one.</summary>
+    private static double SweptIntrusion(IReadOnlyList<Vec3> path, SweptConstraint? c)
+    {
+        if (c == null || path.Count < 2) return double.NegativeInfinity;
+        var swept = ImplementSweptPath.Compute(path, c.Geom);
+        double worst = double.NegativeInfinity;
+        if (c.HardOuter is { Count: >= 3 })
+            worst = Math.Max(worst, TurnClearance.Evaluate(swept, c.HardOuter,
+                TurnClearance.KeepSide.Inside, c.Margin).MaxIntrusion);
+        if (c.Holes != null)
+            foreach (var h in c.Holes)
+                if (h is { Count: >= 3 })
+                    worst = Math.Max(worst, TurnClearance.Evaluate(swept, h,
+                        TurnClearance.KeepSide.Outside, c.Margin).MaxIntrusion);
+        return worst;
+    }
+
     /// <inheritdoc />
     public Func<double, double, double?>? ElevationSampler { get; set; }
 
@@ -52,10 +108,13 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// (≈ one turning diameter), clamped to a sane 1–3. The headland inset is
     /// then <c>passes × toolWidth</c>.
     /// </summary>
-    public static int RecommendHeadlandPasses(double toolWidth, double turnRadius)
+    public static int RecommendHeadlandPasses(double toolWidth, double turnRadius, double toolOffset = 0)
     {
         if (toolWidth <= 0) return 1;
-        int passes = (int)Math.Ceiling((2.0 * turnRadius) / toolWidth);
+        // Offset tool: the binding constraint is the TIGHT vehicle-line spacing
+        // (w − 2·|o|) — the hardest turn the headland must accommodate.
+        double tight = Math.Max(0.5, toolWidth - 2.0 * Math.Abs(toolOffset));
+        int passes = (int)Math.Ceiling((2.0 * turnRadius) / tight);
         return Math.Clamp(passes, 1, 3);
     }
 
@@ -65,10 +124,12 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// Matches the common route-planner default; recompute when the implement
     /// (or vehicle geometry) changes.
     /// </summary>
-    public static double RecommendHeadlandWidth(double toolWidth, double minTurnRadius)
+    public static double RecommendHeadlandWidth(double toolWidth, double minTurnRadius, double toolOffset = 0)
     {
         double r = minTurnRadius > 0 && !double.IsInfinity(minTurnRadius) ? minTurnRadius : 0;
-        return Math.Max(3.0 * r, Math.Max(toolWidth, 0));
+        // An offset tool's vehicle line strays |o| further toward the fence on
+        // one direction of travel — reserve that extra room.
+        return Math.Max(3.0 * r + Math.Abs(toolOffset), Math.Max(toolWidth, 0));
     }
 
     /// <summary>
@@ -77,8 +138,9 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// tight omega turn, so leap-frog (skip) ordering is more efficient.
     /// Otherwise plain back-and-forth.
     /// </summary>
-    public static SwathPattern RecommendPattern(double toolWidth, double turnRadius)
-        => (2.0 * turnRadius > toolWidth) ? SwathPattern.Snake : SwathPattern.Boustrophedon;
+    public static SwathPattern RecommendPattern(double toolWidth, double turnRadius, double toolOffset = 0)
+        => (2.0 * turnRadius > Math.Max(0.5, toolWidth - 2.0 * Math.Abs(toolOffset)))
+            ? SwathPattern.Snake : SwathPattern.Boustrophedon;
 
     public RoutePlan? GenerateBoustrophedon(
         IReadOnlyList<Vec2> outerBoundary,
@@ -263,7 +325,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // fastScore: the passes are still split around obstacles (accurate pass/turn
         // counts for comparing candidate orientations), but the expensive obstacle
         // reroute/smoothing, pond loops and transit-gap fixing are skipped.
-        var plan = Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius, fastScore ? null : holes);
+        var plan = Assemble(ordered, boundary, swathWidth, headlandPasses, startPos, startOppositeSide, turnRadius, boundaryClearance, cornerRadius, fastScore ? null : holes, rawHoles: innerBoundaries);
         if (fastScore || plan == null) return plan;
 
         // Small obstacles: swerve every leg (swaths included) around the physical-width
@@ -683,7 +745,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
             var fa = BuildFamilyPasses(cultivated, headingRad + rot, swathWidth, ext);
             var fb = BuildFamilyPasses(cultivated, headingRad + rot + crossAngleRad, swathWidth, ext);
             if (fa.Count == 0 || fb.Count == 0) continue;
-            var tour = WeaveSequence(fa, fb, startPos, turnRadius, swathWidth);
+            var tour = WeaveSequence(fa, fb, startPos, turnRadius, swathWidth, ToolOffset);
             if (tour.Count == 0) continue;
 
             // Model cost of this candidate: worked legs + Dubins connectors + the
@@ -720,7 +782,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         {
             var built = Assemble(candidates[c].Tour, boundary, swathWidth, headlandPasses, startPos,
                 false, turnRadius, boundaryClearance, cornerRadius, null, preOriented: true,
-                entryRunIn: runIn);
+                entryRunIn: runIn, rawHoles: innerBoundaries);
             if (built == null) continue;
             if (plan == null || built.Metadata.TotalDistanceMeters < plan.Metadata.TotalDistanceMeters)
             {
@@ -820,7 +882,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// </summary>
     private static List<List<Vec3>> WeaveSequence(
         List<(Vec3 A, Vec3 B)> famA, List<(Vec3 A, Vec3 B)> famB,
-        Vec3? startPos, double turnRadius, double legSpacing)
+        Vec3? startPos, double turnRadius, double legSpacing, double toolOffset = 0)
     {
         int nA = famA.Count, n = nA + famB.Count;
         if (n == 0) return new List<List<Vec3>>();
@@ -883,7 +945,10 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // so the weave never loses to the sequential baseline by more than noise.
         void BuildBlockSeed()
         {
-            int skip = Math.Max(1, (int)Math.Ceiling(2.0 * r / Math.Max(0.5, legSpacing)));
+            // Offset tool: block-skip drivability is bound by the TIGHT
+            // vehicle-line spacing (legSpacing − 2·|offset| on one pairing).
+            int skip = Math.Max(1, (int)Math.Ceiling(
+                2.0 * r / Math.Max(0.5, legSpacing - 2.0 * Math.Abs(toolOffset))));
             int k = 0;
             Vec3? cur = startPos;
             foreach (var (offset, count) in new[] { (0, nA), (nA, n - nA) })
@@ -1567,6 +1632,34 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// optional drive-to-start approach, outer-to-inner headland laps, then the
     /// interior passes alternated and linked with semicircle U-turns.
     /// </summary>
+    /// <summary>Shift a drive polyline perpendicular to its own travel
+    /// direction so the laterally offset tool lands on the planned comb: the
+    /// vehicle drives left-of-travel by ToolOffset (positive offset = tool
+    /// right of the tractor). Directions come from the point sequence (the
+    /// FINAL drive order — call only after reversals are done), not stored
+    /// headings, so it works for combs, laps and spirals alike. No-op at
+    /// zero offset.</summary>
+    private List<Vec3> ShiftLeftOfTravel(List<Vec3> poly)
+    {
+        double o = ToolOffset;
+        if (Math.Abs(o) < 0.001 || poly.Count < 2) return poly;
+        var shifted = new List<Vec3>(poly.Count);
+        for (int i = 0; i < poly.Count; i++)
+        {
+            var a = poly[Math.Max(0, i - 1)];
+            var b = poly[Math.Min(poly.Count - 1, i + 1)];
+            double dE = b.Easting - a.Easting, dN = b.Northing - a.Northing;
+            double len = Math.Sqrt(dE * dE + dN * dN);
+            if (len < 1e-9) { shifted.Add(poly[i]); continue; }
+            // right of travel = (dN, −dE)/len; vehicle goes LEFT by o.
+            shifted.Add(new Vec3(
+                poly[i].Easting - (dN / len) * o,
+                poly[i].Northing + (dE / len) * o,
+                poly[i].Heading));
+        }
+        return shifted;
+    }
+
     private RoutePlan? Assemble(
         List<List<Vec3>> ordered,
         IReadOnlyList<Vec2> boundary,
@@ -1579,9 +1672,17 @@ public sealed class RoutePlanningService : IRoutePlanningService
         double cornerRadius = 0,
         List<List<Vec2>>? holes = null,
         bool preOriented = false,
-        double entryRunIn = 0)
+        double entryRunIn = 0,
+        IReadOnlyList<IReadOnlyList<Vec2>>? rawHoles = null)
     {
         if (ordered.Count == 0) return null;
+
+        // Swept-body constraint for every connector built below: the raw fence
+        // (only if hard) and the raw hard holes — the inflated `holes` are the
+        // tractor-path proxy, the swept check wants the real polygons.
+        SweptConstraint? swept = SweptToolGeometry is { } sg
+            ? new SweptConstraint(sg, OuterBoundaryIsHard ? boundary : null, rawHoles, Math.Max(0, boundaryClearance))
+            : null;
 
         // Headland-lap corners are filleted to the tractor's real turning circle
         // (cornerRadius, from the vehicle setup); fall back to the U-turn radius.
@@ -1608,7 +1709,10 @@ public sealed class RoutePlanningService : IRoutePlanningService
         }
         var headland = new List<RouteSegment>();
         foreach (var lap in lapPaths)
-            headland.Add(new RouteSegment(RouteSegmentType.Headland, lap));
+            // Lap traversal direction is final (RotateToNearest / back-cut
+            // reversal already applied) — shift the DRIVE line so the offset
+            // tool's band stays on the planned lap inset.
+            headland.Add(new RouteSegment(RouteSegmentType.Headland, ShiftLeftOfTravel(lap)));
 
         var interior = new List<RouteSegment>();
         double totalDist = 0;
@@ -1649,6 +1753,12 @@ public sealed class RoutePlanningService : IRoutePlanningService
             }
             poly[^1] = new Vec3(poly[^1].Easting, poly[^1].Northing, poly[^2].Heading);
 
+            // Drive direction is now FINAL — shift the vehicle line off the
+            // tool comb for a laterally offset implement. Connectors below are
+            // built from the SHIFTED poses, so the alternating w∓2·offset turn
+            // throws fall out with no turn-side special casing.
+            poly = ShiftLeftOfTravel(poly);
+
             if (prevExit.HasValue)
             {
                 // Straighten-up run (the cross-drill weave): the connector targets a
@@ -1666,7 +1776,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
                     runIn = new List<Vec3> { pulled, target };
                     target = pulled;
                 }
-                var turn = BuildTurn(prevExit.Value, target, turnRadius, turnLimit, holes);
+                var turn = BuildTurn(prevExit.Value, target, turnRadius, turnLimit, holes, swept: swept);
                 if (turn.Count < 2 && runIn != null)
                     turn = new List<Vec3> { prevExit.Value, target };
                 if (turn.Count >= 2)
@@ -1712,7 +1822,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // straight jump the tractor can't pivot onto.
         void Link(Vec3 from, Vec3 to)
         {
-            var connector = BuildTurn(from, to, turnRadius, turnLimit, holes);
+            var connector = BuildTurn(from, to, turnRadius, turnLimit, holes, swept: swept);
             if (connector.Count < 2) connector = new List<Vec3> { from, to };
             segments.Add(new RouteSegment(RouteSegmentType.Turn, connector));
         }
@@ -2829,7 +2939,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
     /// turn at radius R is used instead — so the path stays physically drivable.
     /// </summary>
     private static List<Vec3> BuildTurn(Vec3 from, Vec3 to, double turnRadius,
-        IReadOnlyList<Vec2>? limit, List<List<Vec2>>? holes, bool allowReverse = false)
+        IReadOnlyList<Vec2>? limit, List<List<Vec2>>? holes, bool allowReverse = false,
+        SweptConstraint? swept = null)
     {
         var toPt = new Vec2(to.Easting, to.Northing);
 
@@ -2840,7 +2951,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
         // 1. Direct Dubins turn at the min radius. Shortest-valid picks the tidy
         //    headland omega when it fits, or a longer loop into open space when
         //    the omega would poke past the fence / into an obstacle.
-        var direct = ValidatedDubinsTurn(from, 0, to, turnRadius, limit, holes);
+        var best = swept != null ? new BestEffort() : null;
+        var direct = ValidatedDubinsTurn(from, 0, to, turnRadius, limit, holes, swept, best);
         if (direct != null) return direct;
 
         // 2. Nothing fit at the pass end. Drive further forward first (into the
@@ -2848,7 +2960,7 @@ public sealed class RoutePlanningService : IRoutePlanningService
         //    a valid turn appears — "drive on, turn where there's space, come back".
         for (double d = turnRadius; d <= turnRadius * 6.0 + 1e-6; d += turnRadius)
         {
-            var extended = ValidatedDubinsTurn(from, d, to, turnRadius, limit, holes);
+            var extended = ValidatedDubinsTurn(from, d, to, turnRadius, limit, holes, swept, best);
             if (extended != null) return extended;
         }
 
@@ -2864,18 +2976,22 @@ public sealed class RoutePlanningService : IRoutePlanningService
                 {
                     var rsPts = new List<Vec2>(rs.Waypoints.Count);
                     foreach (var w in rs.Waypoints) rsPts.Add(new Vec2(w.Easting, w.Northing));
-                    if (PathInside(rsPts, limit) && PathClearsHoles(rsPts, holes))
+                    if (PathInside(rsPts, limit) && PathClearsHoles(rsPts, holes)
+                        && SweptClear(rs.Waypoints, swept))
                         return new List<Vec3>(rs.Waypoints);
                 }
             }
             catch { /* degenerate poses — fall through to the clamped fallback */ }
 
-        // 4. No fully-in-bounds turn found. Prefer the shortest *min-radius* Dubins
-        //    path even though it clips the boundary/an obstacle: it's smooth and
-        //    drivable, and the later RouteAroundHoles / CloseTransitGaps stages
-        //    detour it around obstacles. This is the common case for long
-        //    block-transition connectors around a pond. Only if Dubins yields
-        //    nothing at all do we drop to the legacy omega.
+        // 4. No fully-in-bounds turn found. With a swept-body constraint, prefer
+        //    the candidate whose implement clipped the LEAST (tractor path was
+        //    fine) — that's the safest drivable option near a hard fence.
+        if (best?.Path != null) return best.Path;
+        //    Otherwise the shortest *min-radius* Dubins path even though it clips
+        //    the boundary/an obstacle: it's smooth and drivable, and the later
+        //    RouteAroundHoles / CloseTransitGaps stages detour it around obstacles.
+        //    This is the common case for long block-transition connectors around
+        //    a pond. Only if Dubins yields nothing at all do we drop to the legacy omega.
         var fallback = DubinsTurn.AllPaths(from, to, turnRadius, CcBlendFor(turnRadius));
         if (fallback.Count > 0)
             return DensifyToVec3(fallback[0].Coords, from.Heading);
@@ -2897,7 +3013,8 @@ public sealed class RoutePlanningService : IRoutePlanningService
     private static double CcBlendFor(double turnRadius) => Math.Min(1.5, turnRadius * 0.25);
 
     private static List<Vec3>? ValidatedDubinsTurn(Vec3 from, double forward, Vec3 to,
-        double turnRadius, IReadOnlyList<Vec2>? limit, List<List<Vec2>>? holes)
+        double turnRadius, IReadOnlyList<Vec2>? limit, List<List<Vec2>>? holes,
+        SweptConstraint? swept = null, BestEffort? best = null)
     {
         double dE = Math.Sin(from.Heading), dN = Math.Cos(from.Heading);
         var arcStart = new Vec3(from.Easting + forward * dE, from.Northing + forward * dN, from.Heading);
@@ -2919,9 +3036,27 @@ public sealed class RoutePlanningService : IRoutePlanningService
 
             if (!PathInside(dense, limit)) continue;
             if (!PathClearsHoles(dense, holes)) continue;
-            return DensifyToVec3(dense, from.Heading);
+            // Tractor path fits — now the implement body: rear corners of a long
+            // mounted tool swing wide of the pivot's arc, a trailed one off-tracks.
+            var vec3 = DensifyToVec3(dense, from.Heading);
+            double intrusion = SweptIntrusion(vec3, swept);
+            if (intrusion > 0)
+            {
+                // Tractor fits but the implement clips: keep as best-effort fallback.
+                if (best != null && intrusion < best.Intrusion) { best.Intrusion = intrusion; best.Path = vec3; }
+                continue;
+            }
+            return vec3;
         }
         return null;
+    }
+
+    /// <summary>Least-intruding candidate seen while searching for a fully clear
+    /// one — used as the fallback when none clears.</summary>
+    private sealed class BestEffort
+    {
+        public double Intrusion = double.PositiveInfinity;
+        public List<Vec3>? Path;
     }
 
     private static bool PathInside(IReadOnlyList<Vec2> pts, IReadOnlyList<Vec2>? limit)

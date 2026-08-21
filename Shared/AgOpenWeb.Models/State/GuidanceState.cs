@@ -151,6 +151,16 @@ public class GuidanceState : ObservableObject
         set => SetProperty(ref _isHeadingSameWay, value);
     }
 
+    // Lateral tool offset the current track's guidance math uses (0 for
+    // planner "Route …" tracks whose geometry is already the vehicle line).
+    // Mirror of GuidanceWorkingState.EffectiveToolOffset.
+    private double _effectiveToolOffset;
+    public double EffectiveToolOffset
+    {
+        get => _effectiveToolOffset;
+        set => SetProperty(ref _effectiveToolOffset, value);
+    }
+
     private bool _isReverse;
     public bool IsReverse
     {
@@ -202,6 +212,7 @@ public class GuidanceState : ObservableObject
         RadiusPoint = new Vec2();
         PurePursuitRadius = 0;
         IsHeadingSameWay = true;
+        EffectiveToolOffset = 0;
         IsReverse = false;
         HowManyPathsAway = 0;
         NudgeOffset = 0;

@@ -96,7 +96,8 @@ public sealed class YouTurnStateMachine
         int UTurnSkipRows,
         bool IsSkipWorkedMode,
         double HeadlandCalculatedWidth,
-        double HeadlandDistance);
+        double HeadlandDistance,
+        bool IsReversing = false);
 
     /// <summary>
     /// Run one cycle of the state machine. Precondition: autosteer engaged, track active,
@@ -295,6 +296,18 @@ public sealed class YouTurnStateMachine
             double distToTurnEnd = Math.Sqrt(
                 (currentPosition.Easting - endPoint.Easting) * (currentPosition.Easting - endPoint.Easting) +
                 (currentPosition.Northing - endPoint.Northing) * (currentPosition.Northing - endPoint.Northing));
+
+            // K-style completes on reverse: the K path is only the forward
+            // arc — the operator backing up IS the completion signal. Hand
+            // guidance to the next pass, which is then acquired in reverse.
+            if (ctx.IsReversing
+                && _configStore.Guidance.UTurnStyle == (int)Models.YouTurn.YouTurnType.KStyle)
+            {
+                _logger.LogDebug("[YouTurn] K-style completion on reverse (distStart={DistStart:F1}m)",
+                    distToTurnStart);
+                CompleteTurn(in ctx, guidance, turn, effects);
+                return effects;
+            }
 
             // Early-completion: ARC-LENGTH-based, NOT Euclidean. On omega
             // U-turns the path's start and end are physically close
@@ -611,7 +624,12 @@ public sealed class YouTurnStateMachine
 
         var config = _configStore;
         double widthMinusOverlap = config.ActualToolWidth - config.Tool.Overlap;
-        double nextDistAway = widthMinusOverlap * nextPath.Value;
+        // Snake next pass is driven the opposite way — negated travel flag, so an
+        // offset tool's vehicle line lands where guidance will actually steer.
+        // (Snake mode historically omits the nudge; preserved as zero here.)
+        double nextDistAway = Services.Track.GuidanceGeometry.VehicleDistAway(
+            nextPath.Value, widthMinusOverlap, 0,
+            guidance.EffectiveToolOffset, !guidance.IsHeadingSameWay);
         int pathDiff = nextPath.Value - guidance.HowManyPathsAway;
 
         // Snake mode directly sets the turn geometry without going through the regular
@@ -626,7 +644,12 @@ public sealed class YouTurnStateMachine
             turn.NextUTurnDirectionLeftOverride = null;
         }
         turn.WasHeadingSameWayAtTurnStart = guidance.IsHeadingSameWay;
-        turn.NextTrackTurnOffset = Math.Abs(pathDiff) * widthMinusOverlap;
+        // Actual vehicle-line spacing (asymmetric with lateral tool offset) —
+        // difference of the two passes' vehicle lines, matching ComputeNextTrack.
+        double curDistAway = Services.Track.GuidanceGeometry.VehicleDistAway(
+            guidance.HowManyPathsAway, widthMinusOverlap, 0,
+            guidance.EffectiveToolOffset, guidance.IsHeadingSameWay);
+        turn.NextTrackTurnOffset = Math.Abs(nextDistAway - curDistAway);
 
         var refA = track.Points[0];
         var refB = track.Points[track.Points.Count - 1];

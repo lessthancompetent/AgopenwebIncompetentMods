@@ -211,8 +211,7 @@ public class SectionControlService : ISectionControlService
         _configStore.Tool.PropertyChanged += (sender, e) =>
         {
             if (e.PropertyName == nameof(ToolConfig.SectionWidths) ||
-                e.PropertyName == nameof(ToolConfig.TotalSectionWidth) ||
-                e.PropertyName == nameof(ToolConfig.Offset))
+                e.PropertyName == nameof(ToolConfig.TotalSectionWidth))
             {
                 RecalculateSectionPositions();
             }
@@ -1228,8 +1227,14 @@ public class SectionControlService : ISectionControlService
             totalWidth += tool.GetSectionWidth(i) / 100.0; // Convert cm to meters
         }
 
-        // Position sections from left to right, centered on tool
-        double currentPos = -totalWidth / 2.0 + tool.Offset;
+        // Position sections from left to right, SYMMETRIC about the tool
+        // center. Tool.Offset must NOT appear here: the ToolPosition this
+        // service is fed already carries the lateral offset
+        // (ToolPositionService.ApplyLateralOffset), so baking it into the
+        // spans painted coverage and ran section queries at 2× the
+        // configured offset — the pre-existing double-application bug the
+        // 2026-08 tool-offset survey uncovered.
+        double currentPos = -totalWidth / 2.0;
 
         for (int i = 0; i < numSections; i++)
         {

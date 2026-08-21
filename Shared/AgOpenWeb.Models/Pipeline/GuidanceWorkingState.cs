@@ -57,6 +57,14 @@ public class GuidanceWorkingState
     // Default matches GuidanceState — the backing field defaults to false at construction,
     // and only Reset() sets it to true (the "assume aligned" post-reset convention).
     public bool IsHeadingSameWay { get; set; }
+
+    /// <summary>The lateral tool offset the CURRENT track's guidance math must
+    /// use. Written by the pipeline each guidance cycle: Tool.Offset for
+    /// ordinary tracks, ZERO for planner-emitted "Route …" steer tracks whose
+    /// geometry is already the vehicle line (the planner shifted it at
+    /// assembly) — without this gate the offset would apply twice. All offset
+    /// consumers (pipeline + YouTurn) read this, never ToolConfig directly.</summary>
+    public double EffectiveToolOffset { get; set; }
     public bool IsReverse { get; set; }
 
     // Line offset (how many passes from original)
@@ -82,6 +90,7 @@ public class GuidanceWorkingState
         RadiusPoint = new Vec2();
         PurePursuitRadius = 0;
         IsHeadingSameWay = true;
+        EffectiveToolOffset = 0;
         IsReverse = false;
         HowManyPathsAway = 0;
         NudgeOffset = 0;

@@ -176,8 +176,14 @@ public partial class YouTurnCreationService
                     }
                 }
 
-                // ~π expected for U-turn; tolerate ±30° slack to account for approach angle.
-                bool netIsUTurnLike = Math.Abs(Math.Abs(netHeadingChange) - Math.PI) < Math.PI / 6.0;
+                // ~π expected for a U-turn; tolerate ±30° slack for approach angle.
+                // A K-style path is only the FIRST forward arc — the builder stops
+                // at ~2.2 rad and the rest of the turn happens in reverse after the
+                // guidance handover — so its expected net is that arc span, not π.
+                double expectedNet = MapTurnStyle(config.Guidance.UTurnStyle) == YouTurnType.KStyle
+                    ? 2.2
+                    : Math.PI;
+                bool netIsUTurnLike = Math.Abs(Math.Abs(netHeadingChange) - expectedNet) < Math.PI / 6.0;
                 bool cumulativeRunaway = totalHeadingChange > Math.PI * 4.0;
 
                 if (!netIsUTurnLike || cumulativeRunaway)
@@ -383,7 +389,12 @@ public partial class YouTurnCreationService
             : DensifyAbLine(track.Points);
 
         double widthMinusOverlap = toolWidth - config.Tool.Overlap;
-        double offsetDistance = guidance.HowManyPathsAway * widthMinusOverlap + guidance.NudgeOffset;
+        // VEHICLE line of the CURRENT pass (turns are planned driving forward,
+        // so travel == IsHeadingSameWay) — byte-identical with the line
+        // GpsPipelineService steers, per the handoff invariant.
+        double offsetDistance = Track.GuidanceGeometry.VehicleDistAway(
+            guidance.HowManyPathsAway, widthMinusOverlap, guidance.NudgeOffset,
+            guidance.EffectiveToolOffset, guidance.IsHeadingSameWay);
         List<Vec3> offsetCurve = Math.Abs(offsetDistance) < 0.01
             ? new List<Vec3>(basePoints)
             : CurveProcessing.CreateOffsetCurve(basePoints, offsetDistance);
@@ -426,7 +437,9 @@ public partial class YouTurnCreationService
             PivotPosition = pivotPosition,
             ToolWidth = toolWidth,
             ToolOverlap = config.Tool.Overlap,
-            ToolOffset = config.Tool.Offset,
+            // Effective, not raw: zero when the current track is a planner
+            // "Route …" line whose geometry already IS the vehicle line.
+            ToolOffset = guidance.EffectiveToolOffset,
             TurnRadius = config.Guidance.UTurnRadius,
 
             // Matches the cyan next-track line exactly.

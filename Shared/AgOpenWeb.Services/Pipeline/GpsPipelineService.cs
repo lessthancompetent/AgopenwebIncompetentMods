@@ -146,6 +146,14 @@ public sealed class GpsPipelineService : IGpsPipelineService
     // Previous along-track travel direction; a change forces a global nearest
     // re-acquire so a stranded local index can recover (#422).
     private bool _lastHeadingSameWay = true;
+
+    // Reverse detection: GPS/NMEA speed is unsigned (and the sim reports
+    // magnitude), so travel direction comes from comparing the fix-to-fix
+    // motion bearing against the vehicle heading. Debounced over consecutive
+    // cycles so jitter at standstill can't flip the flag.
+    private bool _isReversing;
+    private int _reverseStreak;
+    private double _prevFixEasting, _prevFixNorthing;
     private double _simulatorSteerAngle;
 
     // Phase E: cycle-local cache of a LocalPlane auto-created from the first
@@ -663,6 +671,36 @@ public sealed class GpsPipelineService : IGpsPipelineService
         double driftedNorthing = posNorthing + driftN;
         double headingRad = pos.Heading * Math.PI / 180.0;
 
+        // ── (2a) Reverse detection ──────────────────────────────────────
+        // Needs >5 cm of actual motion per cycle to update (below that the
+        // previous verdict holds — standstill RTK jitter is 1-2 cm), and
+        // 3 consecutive contradicting cycles to flip. Feeds the K-style
+        // turn's complete-on-reverse handover and reverse line guidance.
+        {
+            double stepE = driftedEasting - _prevFixEasting;
+            double stepN = driftedNorthing - _prevFixNorthing;
+            if ((stepE * stepE + stepN * stepN) > 0.0025)
+            {
+                bool backward = (stepE * Math.Sin(headingRad) + stepN * Math.Cos(headingRad)) < 0;
+                if (backward != _isReversing)
+                {
+                    if (++_reverseStreak >= 3)
+                    {
+                        _isReversing = backward;
+                        _reverseStreak = 0;
+                        _logger.LogDebug("[Reverse] Travel direction now {Dir}", backward ? "REVERSE" : "FORWARD");
+                    }
+                }
+                else
+                {
+                    _reverseStreak = 0;
+                }
+                _prevFixEasting = driftedEasting;
+                _prevFixNorthing = driftedNorthing;
+            }
+            _guidanceWorking.IsReverse = _isReversing;
+        }
+
         // ── (2b) Publish canonical pose to the position estimator ───────
         // The estimator is the bridge between GPS arrivals (10 Hz) and
         // the host control loop (100 Hz). Readers — control loop,
@@ -711,7 +749,8 @@ public sealed class GpsPipelineService : IGpsPipelineService
             uTurnSkipRows,
             isSkipWorkedMode,
             headlandCalculatedWidth,
-            headlandDistanceConfig);
+            headlandDistanceConfig,
+            _isReversing);
 
         // Manual trigger — runs even when the auto gate would fail (e.g., YouTurn
         // toggle off). TriggerManual enforces its own preconditions (autosteer +
@@ -839,7 +878,13 @@ public sealed class GpsPipelineService : IGpsPipelineService
         {
             var config2 = _configStore;
             double widthMinusOverlap = config2.ActualToolWidth - config2.Tool.Overlap;
-            double distAway = widthMinusOverlap * passNumber + nudgeOffset;
+            // Display shows the STEERED (vehicle) line — same formula as
+            // CalculateTrackGuidance; sameWay is that computation's per-cycle
+            // authority (at worst one 100 ms cycle stale for display).
+            double distAway = Track.GuidanceGeometry.VehicleDistAway(
+                passNumber, widthMinusOverlap, nudgeOffset,
+                _guidanceWorking.EffectiveToolOffset,
+                _guidanceWorking.IsHeadingSameWay ^ _isReversing);
 
             // Curve tracks: extend the displayed (magenta) line straight to the U-turn so
             // there's no visible gap between the guidance line and the turn (the line the
@@ -1003,9 +1048,12 @@ public sealed class GpsPipelineService : IGpsPipelineService
             driftedEasting, driftedNorthing);
 
         // ── (10) Headland proximity ─────────────────────────────────────
+        // Reference the OFFSET tool position (same as hyd-lift above) so an
+        // offset implement's raise/lower and proximity warnings agree — the
+        // pivot-based reference was laterally off by Tool.Offset.
         double? headlandDist = null;
         bool headlandWarning = false;
-        ComputeHeadlandProximity(headlandLine, _toolPositionService.ToolPivotPosition,
+        ComputeHeadlandProximity(headlandLine, _toolPositionService.ToolPosition,
             out headlandDist, out headlandWarning);
 
         // Hold last valid distance so the HUD doesn't disappear in gaps
@@ -1190,6 +1238,7 @@ public sealed class GpsPipelineService : IGpsPipelineService
         RadiusPoint = src.RadiusPoint,
         PurePursuitRadius = src.PurePursuitRadius,
         IsHeadingSameWay = src.IsHeadingSameWay,
+        EffectiveToolOffset = src.EffectiveToolOffset,
         IsReverse = src.IsReverse,
         HowManyPathsAway = src.HowManyPathsAway,
         NudgeOffset = src.NudgeOffset,
@@ -1233,9 +1282,34 @@ public sealed class GpsPipelineService : IGpsPipelineService
         double steerE = driftedEasting + Math.Sin(headingRad) * config.Vehicle.Wheelbase;
         double steerN = driftedNorthing + Math.Cos(headingRad) * config.Vehicle.Wheelbase;
 
-        // Calculate parallel offset
+        // Calculate parallel offset. The travel direction comes FIRST: it places
+        // the vehicle line for a laterally offset tool (GuidanceGeometry), and
+        // this per-cycle computation is THE authority for IsHeadingSameWay —
+        // written into guidance state here so nudge/snap/offset sign flips never
+        // read a stale copy (previously only the YouTurn state machine wrote it,
+        // so it froze whenever YouTurn wasn't ticking). Computed against the
+        // BASE track: offset passes are parallel, so the nearest-segment heading
+        // is identical and this avoids needing the offset line before placing it.
+        double baseHeading = FindNearestSegmentHeading(track.Points, driftedEasting, driftedNorthing);
+        double baseHeadingDiff = headingRad - baseHeading;
+        while (baseHeadingDiff > Math.PI) baseHeadingDiff -= 2 * Math.PI;
+        while (baseHeadingDiff < -Math.PI) baseHeadingDiff += 2 * Math.PI;
+        bool sameWayNow = Math.Abs(baseHeadingDiff) < Math.PI / 2;
+        _guidanceWorking.IsHeadingSameWay = sameWayNow;
+        // Planner "Route …" steer tracks are ALREADY vehicle lines (shifted at
+        // assembly) — zero the term for them or the offset applies twice. This
+        // per-cycle value is the single authority every offset consumer reads.
+        _guidanceWorking.EffectiveToolOffset =
+            track.Name != null && track.Name.StartsWith("Route ", StringComparison.Ordinal)
+                ? 0 : config.Tool.Offset;
+
         double widthMinusOverlap = config.ActualToolWidth - config.Tool.Overlap;
-        double distAway = widthMinusOverlap * passNumber + nudgeOffset;
+        // Direction of TRAVEL, not of the nose: reversing flips where the tool
+        // band lands, so the vehicle-line term flips with it.
+        bool travelSameWay = sameWayNow ^ _isReversing;
+        double distAway = Track.GuidanceGeometry.VehicleDistAway(
+            passNumber, widthMinusOverlap, nudgeOffset,
+            _guidanceWorking.EffectiveToolOffset, travelSameWay);
 
         if (_cycleCounter % 50 == 0)
         {
@@ -1326,7 +1400,7 @@ public sealed class GpsPipelineService : IGpsPipelineService
             PurePursuitIntegralGain = config.Guidance.PurePursuitIntegralGain,
             FixHeading = headingRad,
             AvgSpeed = speedKmh,
-            IsReverse = false,
+            IsReverse = _isReversing,
             IsAutoSteerOn = true,
             IsYouTurnTriggered = isYouTurnTriggered,
             ImuRoll = 88888,
@@ -1370,11 +1444,17 @@ public sealed class GpsPipelineService : IGpsPipelineService
         double sampleDist = CalculatePerpendicularDistance(track, sampleEasting, sampleNorthing);
 
         // Match AgOpen CABLine.BuildCurrentABLineList — subtract the accumulated nudge
-        // before rounding to the nearest pass. Without this, nudging the line perpendicular
-        // can cause the auto-select to fight the nudge each cycle.
-        double refDist = (sampleDist - nudgeOffset) / widthMinusOverlap;
+        // (and the direction-dependent vehicle-offset term) before rounding to the
+        // nearest pass. Without the mirror, auto-select fights the nudge/offset
+        // each cycle — same bug class for both terms.
+        bool travelSameWay = _guidanceWorking.IsHeadingSameWay ^ _isReversing;
+        double effOffset = track.Name != null && track.Name.StartsWith("Route ", StringComparison.Ordinal)
+            ? 0 : config.Tool.Offset;
+        double fieldOffsetTerm = travelSameWay ? -effOffset : effOffset;
+        double refDist = (sampleDist - nudgeOffset - fieldOffsetTerm) / widthMinusOverlap;
         int nearestPass = refDist < 0 ? (int)(refDist - 0.5) : (int)(refDist + 0.5);
-        double distAway = widthMinusOverlap * nearestPass + nudgeOffset;
+        double distAway = Track.GuidanceGeometry.VehicleDistAway(
+            nearestPass, widthMinusOverlap, nudgeOffset, effOffset, travelSameWay);
 
         Models.Track.Track? resultTrack = null;
         if (Math.Abs(distAway) < 0.01)
@@ -1466,7 +1546,7 @@ public sealed class GpsPipelineService : IGpsPipelineService
             UTurnCompensation = config.Guidance.UTurnCompensation,
             FixHeading = headingRad,
             AvgSpeed = speedKmh,
-            IsReverse = false,
+            IsReverse = _isReversing,
             UTurnStyle = config.Guidance.UTurnStyle
         };
 

@@ -412,48 +412,10 @@ public class ToolPositionService : IToolPositionService
         );
     }
 
-    public (Vec3 left, Vec3 right) GetToolEdgePositions()
-    {
-        var tool = _configStore.Tool;
-        double halfWidth = tool.Width / 2.0;
-
-        return GetSectionEdgePositions(-halfWidth, halfWidth);
-    }
-
-    public Vec3 GetSectionPosition(int sectionIndex, double sectionLeft, double sectionRight)
-    {
-        double sectionCenter = (sectionLeft + sectionRight) / 2.0;
-
-        // Read consistent pose from snapshot.
-        var snap = Volatile.Read(ref _snapshot);
-        double perpHeading = snap.ToolHeading + Math.PI / 2.0;
-
-        return new Vec3(
-            snap.ToolPosition.Easting + Math.Sin(perpHeading) * sectionCenter,
-            snap.ToolPosition.Northing + Math.Cos(perpHeading) * sectionCenter,
-            snap.ToolHeading
-        );
-    }
-
-    public (Vec3 left, Vec3 right) GetSectionEdgePositions(double sectionLeft, double sectionRight)
-    {
-        var snap = Volatile.Read(ref _snapshot);
-        double perpHeading = snap.ToolHeading + Math.PI / 2.0;
-
-        var left = new Vec3(
-            snap.ToolPosition.Easting + Math.Sin(perpHeading) * sectionLeft,
-            snap.ToolPosition.Northing + Math.Cos(perpHeading) * sectionLeft,
-            snap.ToolHeading
-        );
-
-        var right = new Vec3(
-            snap.ToolPosition.Easting + Math.Sin(perpHeading) * sectionRight,
-            snap.ToolPosition.Northing + Math.Cos(perpHeading) * sectionRight,
-            snap.ToolHeading
-        );
-
-        return (left, right);
-    }
+    // (GetToolEdgePositions / GetSectionPosition / GetSectionEdgePositions
+    // removed 2026-08: dead API with no callers, and their caller-supplied
+    // span arguments were ambiguous about whether Tool.Offset was baked in —
+    // the trap that produced the section-chain double-application bug.)
 
     public void ResetTrailingState(Vec3 vehiclePivot, double vehicleHeading)
     {

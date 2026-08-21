@@ -31,10 +31,8 @@ public class Vehicle
     /// </summary>
     public double ToolWidth { get; set; }
 
-    /// <summary>
-    /// Tool offset from vehicle center in meters
-    /// </summary>
-    public double ToolOffset { get; set; }
+    // (ToolOffset removed 2026-08: dead legacy duplicate — the live setting is
+    // ToolConfig.Offset, right-positive; this copy had zero consumers.)
 
     /// <summary>
     /// Antenna height above ground in meters

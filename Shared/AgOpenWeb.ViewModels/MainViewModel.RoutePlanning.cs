@@ -108,6 +108,10 @@ public partial class MainViewModel
             var root = new Dictionary<string, object?>
             {
                 ["w"] = _currentRoutePlan?.Metadata.ToolWidthMeters ?? 0,
+                // The plan's drive geometry embeds this lateral tool offset —
+                // resuming with a different implement config mis-drives by the
+                // difference, so the loader warns on mismatch.
+                ["toolOffset"] = _configStore.Tool.Offset,
                 ["famB"] = _crossFamilyBHeadingRad,
                 ["layers"] = layersOut,
             };
@@ -167,7 +171,16 @@ public partial class MainViewModel
             {
                 ComposeRouteLayers();
                 RegisterRouteSteerTracks();
-                StatusMessage = "Saved route plan restored — steer a Route track or Drive to continue";
+                // The saved drive geometry embeds the lateral tool offset it was
+                // planned with — a different current offset mis-places every band
+                // by the difference. Warn loudly; the operator replans or refits.
+                double planOffset = root.TryGetProperty("toolOffset", out var po)
+                    && po.ValueKind == System.Text.Json.JsonValueKind.Number ? po.GetDouble() : 0;
+                if (Math.Abs(planOffset - _configStore.Tool.Offset) > 0.05)
+                    StatusMessage = $"Route plan was made for tool offset {planOffset:0.0#} m "
+                        + $"but the current tool is {_configStore.Tool.Offset:0.0#} m — REPLAN before drilling";
+                else
+                    StatusMessage = "Saved route plan restored — steer a Route track or Drive to continue";
             }
         }
         catch
@@ -299,6 +312,32 @@ public partial class MainViewModel
         // Trailed implements jackknife in reverse — the tool setting decides
         // whether any planner connector may fall back to a 3-point K-turn.
         RoutePlanner.AllowReverseTurns = _configStore.Tool.IsKTurnAllowed;
+        // Lateral tool offset: combs stay tool centerlines; the assembled DRIVE
+        // geometry shifts left-of-travel so the band lands on the comb.
+        RoutePlanner.ToolOffset = _configStore.Tool.Offset;
+        // Swept-path clearance for planned connectors: the implement BODY —
+        // physical frame width (a spreader throws 15 m but is ~2.8 m of steel),
+        // length behind its attachment, mount type — must clear a HARD fence and
+        // every hard hole, the same way the live U-turn checks it.
+        {
+            var t = _configStore.Tool;
+            var mount = t.IsToolFrontFixed ? AgOpenWeb.Models.Tool.ToolMount.FrontFixed
+                      : t.IsToolTBT ? AgOpenWeb.Models.Tool.ToolMount.TBT
+                      : t.IsToolTrailing ? AgOpenWeb.Models.Tool.ToolMount.Trailing
+                      : AgOpenWeb.Models.Tool.ToolMount.RearFixed;
+            double bodyWidth = t.PhysicalWidth > 0.1 ? t.PhysicalWidth : _configStore.ActualToolWidth;
+            RoutePlanner.SweptToolGeometry = new AgOpenWeb.Models.Tool.ToolGeometry(
+                Mount: mount,
+                Width: bodyWidth,
+                Offset: t.Offset,
+                VehicleHitchLength: _configStore.Vehicle.HitchLength,
+                ToolHitchLength: t.HitchLength,
+                TrailingHitchLength: t.TrailingHitchLength,
+                TrailingToolToPivotLength: t.TrailingToolToPivotLength,
+                TankTrailingHitchLength: t.TankTrailingHitchLength,
+                Length: t.Length);
+            RoutePlanner.OuterBoundaryIsHard = outer.IsHard;
+        }
 
         var ctx = new RouteCtx();
         var pts = new List<Vec2>(outer.Points.Count);

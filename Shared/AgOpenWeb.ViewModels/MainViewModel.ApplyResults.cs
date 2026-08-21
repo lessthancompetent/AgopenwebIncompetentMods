@@ -173,6 +173,7 @@ public partial class MainViewModel
             sg.RadiusPoint = g.RadiusPoint;
             sg.PurePursuitRadius = g.PurePursuitRadius;
             sg.IsHeadingSameWay = g.IsHeadingSameWay;
+            sg.EffectiveToolOffset = g.EffectiveToolOffset;
             sg.IsReverse = g.IsReverse;
             sg.HowManyPathsAway = g.HowManyPathsAway;
             sg.NudgeOffset = g.NudgeOffset;
