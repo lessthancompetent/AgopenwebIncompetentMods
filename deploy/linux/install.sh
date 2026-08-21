@@ -28,8 +28,13 @@ ARCH="x64"
 MODE="build"          # build | from | unit-only
 FROM_DIR=""
 PREFIX="/opt/agopenweb"
-STATE_DIR="/home/agopenweb"   # the agopenweb user's home — where people look for user data
-SVC_USER="agopenweb"
+# Override for a tablet whose data already lives under a login user:
+#   AGWEB_USER=agopenweb AGWEB_STATE=/home/agopenweb/Documents sudo -E ./install.sh ...
+# Safer on an EXISTING install: leave these default and add a
+# /etc/systemd/system/agopenweb.service.d/*.conf setting User=/AGOPENWEB_DATA=
+# (this script never writes service.d, so that override survives re-installs).
+STATE_DIR="${AGWEB_STATE:-/home/agopenweb}"   # the agopenweb user's home — where people look for user data
+SVC_USER="${AGWEB_USER:-agopenweb}"
 UNIT="agopenweb.service"
 
 while [[ $# -gt 0 ]]; do
@@ -94,7 +99,11 @@ if ! id -u "$SVC_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$STATE_DIR" --shell /usr/sbin/nologin "$SVC_USER"
 else
   # Existing account (possibly from an earlier /var/lib home) — repoint its home.
-  usermod --home "$STATE_DIR" "$SVC_USER" 2>/dev/null || true
+  _shell="$(getent passwd "$SVC_USER" | cut -d: -f7)"
+  case "$_shell" in
+    */nologin|*/false|"") usermod --home "$STATE_DIR" "$SVC_USER" 2>/dev/null || true ;;
+    *) echo "==> service user is a login account; leaving its home as-is." ;;
+  esac
 fi
 # Best-effort device groups (may not exist on every distro).
 for g in dialout can; do getent group "$g" >/dev/null && usermod -aG "$g" "$SVC_USER" || true; done
