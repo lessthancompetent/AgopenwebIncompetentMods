@@ -1269,6 +1269,235 @@ document.getElementById('ft-setapplied').addEventListener('pointerdown', e => {
 document.getElementById('ft-exportcov').addEventListener('pointerdown', e => {
   e.stopPropagation(); transport.send('job.exportCoverage');
 });
+// ---- Tank Mix calculator --------------------------------------------------
+// All arithmetic client-side and shown WITH its working (rate × area = total)
+// so amounts can be sanity-checked at the induction hopper. The mix persists
+// with the JOB (mix.save); the chemical list + remembered rates app-wide
+// (mix.catalog). Rate bases cover per-hectare and per-100L-water products.
+const TM_BASES = ['L/ha', 'mL/ha', 'kg/ha', 'g/ha', 'mL/100L', 'L/100L'];
+let tmState = { areaHa: 0, carrier: 150, tank: 0, buffer: 0, chems: [] };
+let tmCatalog = [];      // [{name, rate, basis}]
+let tmSaveTimer = null;
+let showRefills = false;
+
+function tmFieldHa() { return workableAreaSqM() / 10000; }
+function tmLeftHa() {
+  const worked = (statusBar && statusBar.workedAreaSqM) || 0;
+  return Math.max(0, (workableAreaSqM() - worked) / 10000);
+}
+function tmSave() {
+  clearTimeout(tmSaveTimer);
+  tmSaveTimer = setTimeout(() => transport.send('mix.save|' + JSON.stringify(tmState)), 800);
+}
+function tmSaveCatalog() { transport.send('mix.catalog|' + JSON.stringify(tmCatalog)); }
+function tmUpsertCatalog(chem) {
+  const i = tmCatalog.findIndex(c => c.name === chem.name);
+  if (i >= 0) tmCatalog[i] = { name: chem.name, rate: chem.rate, basis: chem.basis };
+  else tmCatalog.push({ name: chem.name, rate: chem.rate, basis: chem.basis });
+  tmSaveCatalog();
+}
+// Amount of one chemical for a given WATER volume (L) and AREA (ha), in its
+// native unit. Per-ha bases ignore water; per-100L bases ignore area.
+function tmAmount(chem, waterL, areaHa) {
+  switch (chem.basis) {
+    case 'L/ha': case 'mL/ha': case 'kg/ha': case 'g/ha': return chem.rate * areaHa;
+    case 'mL/100L': case 'L/100L': return chem.rate * waterL / 100;
+    default: return 0;
+  }
+}
+function tmFmt(amount, basis) {
+  // Display in the sensible big unit: mL → L past 1000, g → kg past 1000.
+  const small = basis.startsWith('mL') ? 'mL' : basis.startsWith('g') ? 'g' : null;
+  if (small && amount >= 1000)
+    return (amount / 1000).toFixed(amount >= 10000 ? 0 : 2) + (small === 'mL' ? ' L' : ' kg');
+  const big = basis.startsWith('L') ? ' L' : basis.startsWith('kg') ? ' kg' : ' ' + small;
+  return amount.toFixed(amount >= 100 ? 0 : amount >= 10 ? 1 : 2) + big;
+}
+function tmRenderChems() {
+  const host = document.getElementById('tm-chems');
+  host.innerHTML = '';
+  tmState.chems.forEach((c, i) => {
+    const row = document.createElement('div');
+    row.className = 'rp-row';
+    const name = document.createElement('span');
+    name.className = 'cfg-label'; name.style.flex = '1'; name.textContent = c.name;
+    const rate = document.createElement('input');
+    rate.className = 'cfg-num'; rate.type = 'number'; rate.step = '0.1'; rate.min = '0';
+    rate.style.width = '58px'; rate.value = c.rate;
+    rate.addEventListener('change', () => {
+      const v = parseFloat(rate.value);
+      if (Number.isFinite(v) && v >= 0) { c.rate = v; tmUpsertCatalog(c); tmSave(); tmRenderOut(); }
+    });
+    const basis = document.createElement('select');
+    basis.className = 'cfg-sel'; basis.style.width = '86px';
+    for (const b of TM_BASES) {
+      const o = document.createElement('option');
+      o.value = b; o.textContent = b; if (b === c.basis) o.selected = true;
+      basis.appendChild(o);
+    }
+    basis.addEventListener('change', () => { c.basis = basis.value; tmUpsertCatalog(c); tmSave(); tmRenderOut(); });
+    const del = document.createElement('button');
+    del.className = 'cfg-act fj-danger'; del.textContent = '✕'; del.title = 'Remove from this mix';
+    del.addEventListener('pointerdown', e => {
+      e.stopPropagation(); tmState.chems.splice(i, 1); tmSave(); tmRenderChems(); tmRenderOut();
+    });
+    row.append(name, rate, basis, del);
+    host.appendChild(row);
+  });
+  // Catalogue chips: one tap adds a known chemical at its remembered rate.
+  const chips = document.getElementById('tm-catchips');
+  chips.innerHTML = '';
+  const unused = tmCatalog.filter(c => !tmState.chems.some(m => m.name === c.name));
+  chips.style.display = unused.length ? '' : 'none';
+  for (const c of unused) {
+    const b = document.createElement('button');
+    b.className = 'rp-pat';
+    b.textContent = c.name;
+    b.title = c.rate + ' ' + c.basis + ' — tap to add to the mix';
+    b.addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      tmState.chems.push({ name: c.name, rate: c.rate, basis: c.basis });
+      tmSave(); tmRenderChems(); tmRenderOut();
+    });
+    chips.appendChild(b);
+  }
+}
+function tmRenderOut() {
+  const el = document.getElementById('tm-output');
+  const A = tmState.areaHa, C = tmState.carrier, T = tmState.tank, B = tmState.buffer;
+  if (!(A > 0) || !(C > 0)) { el.textContent = 'Set an area and a carrier rate.'; return; }
+  const water = A * C + B;
+  const lines = [];
+  lines.push(A.toFixed(1) + ' ha × ' + C + ' L/ha' + (B > 0 ? ' + ' + B + ' L buffer' : '')
+    + ' = ' + Math.round(water) + ' L water');
+  let full = 0, rem = water;
+  if (T > 0) {
+    full = Math.floor(water / T);
+    rem = water - full * T;
+    if (rem < 1) { rem = 0; }
+    const haTank = T / C;
+    const fills = full + (rem > 0 ? 1 : 0);
+    lines.push(fills + (fills === 1 ? ' fill' : ' fills') + ' from a ' + T + ' L tank ('
+      + haTank.toFixed(1) + ' ha per full tank)');
+  }
+  for (const c of tmState.chems) {
+    lines.push('');
+    lines.push(c.name + '  —  ' + c.rate + ' ' + c.basis);
+    lines.push('  total: ' + tmFmt(tmAmount(c, water, A), c.basis));
+    if (T > 0 && full > 0) {
+      const perFullWater = T;
+      const perFullArea = T / C;
+      lines.push('  per full tank: ' + tmFmt(tmAmount(c, perFullWater, perFullArea), c.basis));
+      if (rem > 0)
+        lines.push('  last fill (' + Math.round(rem) + ' L): ' + tmFmt(tmAmount(c, rem, rem / C), c.basis));
+    }
+  }
+  if (B > 0 && tmState.chems.some(c => c.basis.endsWith('/ha')))
+    lines.push('\nBuffer water carries only the per-100L chemicals — per-ha amounts stay matched to the area.');
+  el.textContent = lines.join('\n');
+}
+function tmRender() {
+  document.getElementById('tm-area').value = tmState.areaHa ? tmState.areaHa.toFixed(1) : '';
+  document.getElementById('tm-carrier').value = tmState.carrier;
+  document.getElementById('tm-tank').value = tmState.tank || '';
+  document.getElementById('tm-buffer').value = tmState.buffer || '';
+  document.getElementById('tm-refills').classList.toggle('on', showRefills);
+  tmRenderChems();
+  tmRenderOut();
+}
+function openTankMix() {
+  fetch('/api/tankmix').then(r => r.json()).then(d => {
+    tmCatalog = Array.isArray(d.catalog) ? d.catalog : [];
+    if (d.mix && typeof d.mix === 'object') tmState = Object.assign(tmState, d.mix);
+    if (!(tmState.tank > 0)) {
+      // Default the tank from Rate Control's product tank size when available.
+      fetch('/api/ratecontrol').then(r => r.json()).then(rc => {
+        const p = rc && rc.products && rc.products[0];
+        if (p && p.tankSize > 0 && !(tmState.tank > 0)) { tmState.tank = p.tankSize; tmRender(); }
+      }).catch(() => {});
+    }
+    if (!(tmState.areaHa > 0)) tmState.areaHa = tmFieldHa();
+    tmRender();
+  }).catch(() => tmRender());
+}
+document.getElementById('ft-tankmix').addEventListener('pointerdown', e => {
+  e.stopPropagation(); lnOpen('tankmix', 'ln-fieldtools', openTankMix);
+});
+document.getElementById('tm-area-field').addEventListener('pointerdown', e => {
+  e.stopPropagation(); tmState.areaHa = tmFieldHa(); tmSave(); tmRender();
+});
+document.getElementById('tm-area-left').addEventListener('pointerdown', e => {
+  e.stopPropagation(); tmState.areaHa = tmLeftHa(); tmSave(); tmRender();
+});
+for (const [id, key] of [['tm-area', 'areaHa'], ['tm-carrier', 'carrier'], ['tm-tank', 'tank'], ['tm-buffer', 'buffer']]) {
+  document.getElementById(id).addEventListener('change', e => {
+    const v = parseFloat(e.target.value);
+    if (Number.isFinite(v) && v >= 0) { tmState[key] = v; tmSave(); tmRenderOut(); }
+  });
+}
+document.getElementById('tm-addchem').addEventListener('pointerdown', e => {
+  e.stopPropagation();
+  askKeypad({
+    title: 'Add chemical',
+    textLabel: 'Chemical name',
+    numLabel: 'Rate',
+    units: TM_BASES,
+  }, r => {
+    if (!r || !r.text || !(r.value > 0)) return;
+    const chem = { name: _sanitise(r.text), rate: r.value, basis: r.unit || 'L/ha' };
+    tmState.chems.push(chem);
+    tmUpsertCatalog(chem);
+    tmSave(); tmRenderChems(); tmRenderOut();
+  });
+});
+document.getElementById('tm-clear').addEventListener('pointerdown', e => {
+  e.stopPropagation(); tmState.chems = []; tmSave(); tmRenderChems(); tmRenderOut();
+});
+document.getElementById('tm-refills').addEventListener('pointerdown', e => {
+  e.stopPropagation(); showRefills = !showRefills; tmRender();
+});
+// Refill points on the planned route: walk the working segments in drive order
+// accumulating sprayed volume (length × tool width × carrier); every time it
+// crosses a full tank, mark the spot. The map shows where each fill runs dry.
+let _tmRefillPaint = null, _tmRefillRing = null;
+function drawRefillSk(canvas) {
+  if (!showRefills || !routePlan || !routePlan.layers || !routePlan.meta) return;
+  const C = tmState.carrier, T = tmState.tank, w = routePlan.meta.toolWidthM;
+  if (!(C > 0 && T > 0 && w > 0)) return;
+  const areaPerTankM2 = (T / C) * 10000;
+  let acc = 0, next = areaPerTankM2;
+  const marks = [];
+  for (const layer of routePlan.layers) {
+    for (const seg of layer.segments) {
+      if (seg.type !== 'Swath' && seg.type !== 'Headland') continue;
+      const pts = seg.pts;
+      for (let i = 1; i < pts.length; i++) {
+        const dx = pts[i].e - pts[i - 1].e, dy = pts[i].n - pts[i - 1].n;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 1e-9) continue;
+        let segArea = len * w;
+        while (acc + segArea >= next) {
+          const t = (next - acc) / (len * w);
+          marks.push({ e: pts[i - 1].e + dx * t, n: pts[i - 1].n + dy * t });
+          next += areaPerTankM2;
+        }
+        acc += segArea;
+      }
+    }
+  }
+  if (!marks.length) return;
+  if (!_tmRefillPaint) {
+    _tmRefillPaint = new CK.Paint(); _tmRefillPaint.setAntiAlias(true);
+    _tmRefillPaint.setStyle(CK.PaintStyle.Fill); _tmRefillPaint.setColor(CK.Color(255, 194, 75, 0.9));
+    _tmRefillRing = new CK.Paint(); _tmRefillRing.setAntiAlias(true);
+    _tmRefillRing.setStyle(CK.PaintStyle.Stroke); _tmRefillRing.setStrokeWidth(0.8);
+    _tmRefillRing.setColor(CK.Color(40, 30, 5, 0.9));
+  }
+  for (const m of marks) {
+    canvas.drawCircle(m.e, m.n, 2.5, _tmRefillPaint);
+    canvas.drawCircle(m.e, m.n, 2.5, _tmRefillRing);
+  }
+}
 function planRoute() {
   transport.send('route.plan|' + [rpPattern, rpHeadland, rpSkip, rpBlock, rpAngle, rpCornerFill ? 1 : 0,
     rpHlStyle, rpHlFirst ? 1 : 0, rpBackCut ? 1 : 0, rpRowSp, rpWeave ? 1 : 0, rpSlope ? 1 : 0].join(','));
@@ -2131,7 +2360,7 @@ document.getElementById('dlg-tracks-close').addEventListener('pointerdown', e =>
 // to ConfigurationStore). Grows one entry per sub-phase.
 // Navigation: top-level buttons open a panel; sub-panels (vehicle/tool config) are
 // reached from the hub and carry a Back button. One panel open at a time.
-const LN_NAV_PANELS = ['routeplan', 'ratecontrol', 'modulesetup', 'obstacles', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
+const LN_NAV_PANELS = ['routeplan', 'ratecontrol', 'modulesetup', 'obstacles', 'tankmix', 'screenalerts', 'tools', 'rollcorr', 'fieldtools', 'fieldbuilder', 'offsetfix', 'importtracks', 'recpath', 'boundarymenu', 'boundaryplayer', 'kmlboundary', 'vehtoolhub', 'vehiclecfg', 'toolcfg', 'autosteercfg', 'networkio', 'ntripprofiles', 'ntripeditor', 'smartwas', 'fieldops', 'fieldsandjobs', 'newfield', 'fromexisting', 'isoimport', 'kmlimport', 'resumejob', 'agsettings', 'agupload', 'agdownload', 'filemenu', 'appsettings', 'language', 'viewsettings', 'logviewer', 'hotkeys', 'help', 'about', 'bugreport'];
 // Watch-the-tractor panels opt OUT of the light-dismiss scrim — the map must stay
 // interactive (pan/zoom to follow the tractor while capturing). They close only via
 // the header (Back / ✕). The Route Planner joined them: the operator pans/inspects
@@ -6800,6 +7029,7 @@ function renderSkia(canvas, rp) {
   drawTerrainSk(canvas); // Terrain: recorded elevation shading (under coverage/routes)
   drawPickOutlinesSk(canvas); // pick-from-map: all mapped field outlines
   drawRoutePlanSk(canvas); // route planner: generated coverage-route preview
+  drawRefillSk(canvas);    // tank-mix: where each fill runs dry along the route
   drawRouteSplitsSk(canvas); // field-split divider lines (dashed magenta)
   drawAngleRefSk(canvas); // live pass-direction preview while the planner is open
   drawMissedSk(canvas); // missed-spots tint: red under coverage, so unworked ground shows

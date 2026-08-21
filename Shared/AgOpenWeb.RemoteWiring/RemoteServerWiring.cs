@@ -446,6 +446,16 @@ public static partial class RemoteServerWiring
                                         pp.Length > 2 ? pp[2] : "");
                                     return;
                                 }
+                                case "mix.save": // Tank mix calculator state (opaque client JSON) → active job (Tier-1)
+                                    vm.SetActiveJobTankMix(arg);
+                                    return;
+                                case "mix.catalog": // Chemical catalogue (opaque client JSON) → appstate.json (Tier-1)
+                                {
+                                    var psTm = services.GetRequiredService<IPersistentStateService>();
+                                    psTm.State.TankMixCatalogJson = arg ?? "";
+                                    psTm.Save();
+                                    return;
+                                }
                                 case "job.setApplied": // arg = "amount,unit" — measured total product used (Tier-1)
                                 {
                                     var ap = arg.Split(',', 2);
@@ -1078,6 +1088,18 @@ public static partial class RemoteServerWiring
                     // its own lock), so serving from the HTTP thread is fine.
                     var elevationMap = services.GetRequiredService<AgOpenWeb.Services.Interfaces.IElevationMapService>();
                     server.ElevationJsonProvider = () => elevationMap.BuildElevationJson();
+
+                    // Tank mix: app-wide chemical catalogue (appstate.json) + the
+                    // active job's saved mix. Both are opaque client JSON blobs;
+                    // embed raw with safe fallbacks so a blank store still parses.
+                    server.TankMixJsonProvider = () =>
+                    {
+                        var ps = services.GetRequiredService<AgOpenWeb.Services.Interfaces.IPersistentStateService>();
+                        string cat = ps.State.TankMixCatalogJson;
+                        string mix = vm.GetActiveJobTankMixJson();
+                        return "{\"catalog\":" + (string.IsNullOrWhiteSpace(cat) ? "[]" : cat)
+                             + ",\"mix\":" + (string.IsNullOrWhiteSpace(mix) ? "null" : mix) + "}";
+                    };
 
                     // Rate control (AOG_RC port): start the module plane (29999/28888)
                     // and expose status for the web Rate panel.

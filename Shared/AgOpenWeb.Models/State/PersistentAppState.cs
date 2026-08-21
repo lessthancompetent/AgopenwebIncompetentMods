@@ -87,6 +87,13 @@ public class PersistentAppState : ObservableObject
     private CameraMode _cameraMode = CameraMode.Map;
     public CameraMode CameraMode { get => _cameraMode; set => SetProperty(ref _cameraMode, value); }
 
+    // ---- Tank-mix chemical catalogue ----
+    // Client JSON blob: [{name, rate, basis}, …] — the sprayer chemicals the
+    // operator has used, with their remembered default rates. App-wide (not
+    // per field): glyphosate's rate doesn't change per paddock.
+    private string _tankMixCatalogJson = string.Empty;
+    public string TankMixCatalogJson { get => _tankMixCatalogJson; set => SetProperty(ref _tankMixCatalogJson, value); }
+
     // ---- Web client camera view (browser / CanvasKit PWA) ----
     // Separate coordinate system from the native CameraZoom/Pitch above: the web
     // camera is client-owned live, but its last tilt+zoom are persisted HERE so any

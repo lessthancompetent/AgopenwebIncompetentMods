@@ -1572,6 +1572,32 @@
     <div class="rp-row" id="rp-obsalarm-dist-row"><span class="cfg-label">Alarm dist m</span>
       <div class="rp-step"><button class="rp-sb" data-rp="obsalarmdist" data-d="-1">−</button><span id="rp-obsalarmdist">10</span><button class="rp-sb" data-rp="obsalarmdist" data-d="1">+</button></div></div>
   </div>
+  <!-- Tank mix calculator (Field Tools): area × carrier → water + fills, plus
+       per-chemical totals and per-tank amounts. Mix saves with the JOB; the
+       chemical list with its remembered rates is app-wide. All maths client-side,
+       shown with its working so amounts can be sanity-checked at the hopper. -->
+  <div id="tankmix" class="ln-panel rp-panel">
+    <div class="ln-hdr"><span class="ln-hdr-title">Tank Mix</span><button class="ln-x ln-closex" title="Close">✕</button></div>
+    <div class="rp-row"><span class="cfg-label">Area (ha)</span>
+      <button class="cfg-act" id="tm-area-field" title="Whole field, from the boundary">Field</button>
+      <button class="cfg-act" id="tm-area-left" title="Unworked area: field minus painted coverage">Left</button>
+      <input id="tm-area" class="cfg-num" type="number" step="0.1" min="0" style="width:64px">
+    </div>
+    <div class="rp-row"><span class="cfg-label">Carrier (L/ha)</span><input id="tm-carrier" class="cfg-num" type="number" step="5" min="1" style="width:64px"></div>
+    <div class="rp-row" title="Sprayer tank size. Pre-filled from Rate Control's tank size when a rate product is set up."><span class="cfg-label">Tank (L)</span><input id="tm-tank" class="cfg-num" type="number" step="50" min="0" style="width:64px"></div>
+    <div class="rp-row" title="Extra water on top of the area requirement — priming, double-sprayed headlands, don't-run-dry margin. Water-rate chemicals (per 100 L) scale with it; per-hectare chemicals don't."><span class="cfg-label">Buffer (L)</span><input id="tm-buffer" class="cfg-num" type="number" step="10" min="0" style="width:64px"></div>
+    <div class="cfg-label">Chemicals</div>
+    <div id="tm-catchips" class="rp-pats" style="grid-template-columns:1fr 1fr;display:none"></div>
+    <div id="tm-chems"></div>
+    <div class="rp-btns">
+      <button class="cfg-act" id="tm-addchem">+ Add chemical</button>
+      <button class="cfg-act fj-danger" id="tm-clear">Clear mix</button>
+    </div>
+    <div id="tm-output" class="rp-stats" style="white-space:pre-line">Set an area and a carrier rate.</div>
+    <div class="rp-pats" style="grid-template-columns:1fr">
+      <button class="rp-pat" id="tm-refills" title="Mark on the planned route where each tank runs dry (needs a planned route, carrier and tank size)">Show refill points on route</button>
+    </div>
+  </div>
   <!-- Screen & Alerts (Phase 9a) — non-modal flyout. Units toggle proves the config
        bridge (config.set|units:…); more settings accrue here in later sub-phases. -->
   <div id="screenalerts" class="ln-panel sa-panel">
@@ -2523,6 +2549,12 @@
           <path d="M17 4c3.9 4.9 6.6 8.1 6.6 11.2a6.6 6.6 0 0 1-13.2 0C10.4 12.1 13.1 8.9 17 4z" stroke="var(--ic-blue)"/>
           <path d="M13.3 15.5c1.2-.9 2.5-.9 3.7 0s2.5.9 3.7 0" stroke-opacity=".7" stroke="var(--ic-blue)"/>
         </svg>Job Product</button>
+      <button class="fo-btn" id="ft-tankmix" title="Tank mix calculator: area × carrier → total water, fills, and per-tank chemical amounts">
+        <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 3h6M15.5 3v6.2L23 21a2.4 2.4 0 0 1-2.1 3.5H13.1A2.4 2.4 0 0 1 11 21l7.5-11.8V3"/>
+          <path d="M12.6 18.5h8.8" stroke="var(--ic-blue)"/>
+          <path d="M14.4 21.4c.9-.7 1.9-.7 2.8 0s1.9.7 2.8 0" stroke="var(--ic-blue)" stroke-opacity=".7"/>
+        </svg>Tank Mix</button>
       <button class="fo-btn" id="ft-setapplied" title="Record the measured total product used this job (loader scale weight, tank total, drill counter) — actual rate = amount / covered area">
         <svg class="ft-ic" viewBox="0 0 34 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="10" y="5" width="14" height="17" rx="2"/>

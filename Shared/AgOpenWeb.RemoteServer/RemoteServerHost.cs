@@ -105,6 +105,9 @@ public sealed class RemoteServerHost
     /// cells, field-local metres). Served at GET /api/elevation.</summary>
     public Func<string>? ElevationJsonProvider { get; set; }
 
+    /// <summary>GET /api/tankmix payload: {"catalog":[…],"mix":{…}|null}.</summary>
+    public Func<string>? TankMixJsonProvider { get; set; }
+
     /// <summary>Host-supplied JSON of rate-control products + module state.
     /// Served at GET /api/ratecontrol.</summary>
     public Func<string>? RateControlJsonProvider { get; set; }
@@ -247,6 +250,10 @@ public sealed class RemoteServerHost
         // Terrain: recorded elevation grid for the map shading overlay.
         server.MapGet("/api/elevation", () => SimpleWebServer.Response.Text(
             ElevationJsonProvider?.Invoke() ?? "{}", "application/json", noStore));
+
+        // Tank mix: chemical catalogue (app-wide) + the active job's saved mix.
+        server.MapGet("/api/tankmix", () => SimpleWebServer.Response.Text(
+            TankMixJsonProvider?.Invoke() ?? "{}", "application/json", noStore));
 
         // Rate control: products + live module state for the Rate panel.
         server.MapGet("/api/ratecontrol", () => SimpleWebServer.Response.Text(

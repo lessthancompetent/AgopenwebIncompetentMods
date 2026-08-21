@@ -10,6 +10,8 @@ Written for the person in the tractor seat, not for programmers.
 | [Headland styles](headland-styles.md) | The Route Planner's Headland tab: Classic laps, Spiral in, Spiral out, None — and which one suits which job |
 | [Route Planner basics](route-planner-basics.md) | A short tour of the Route Planner: patterns, split lines, planning, steering the plan, and the ETA |
 | [Terrain](terrain-map.md) | The field elevation map: recorded automatically while you drive, shown with the Terrain toggle, and what altitude accuracy to expect |
+| [Tank mix calculator](tank-mix.md) | Spray mix arithmetic: water, fills, per-tank chemical amounts, refill points on the route |
 
 All screenshots of button and tab names in these guides match the app as built.
 If a name here doesn't match your screen, you are probably on an older version.
+

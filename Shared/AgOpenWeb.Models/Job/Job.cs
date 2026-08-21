@@ -76,6 +76,14 @@ public class Job
     /// <summary>Unit of <see cref="AppliedAmount"/>, e.g. "kg" or "L".</summary>
     public string AppliedUnit { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Tank-mix calculator state for this job (client JSON blob: area mode,
+    /// carrier L/ha, tank/buffer volumes, chemical rows). Opaque to the
+    /// backend — persisted with the job so a refill mid-job reopens the
+    /// same mix. Empty = no mix set.
+    /// </summary>
+    public string TankMixJson { get; set; } = string.Empty;
+
     public DateTime StartedAt { get; set; } = DateTime.Now;
 
     /// <summary>

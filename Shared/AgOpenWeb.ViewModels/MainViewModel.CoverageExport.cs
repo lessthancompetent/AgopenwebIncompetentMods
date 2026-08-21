@@ -38,6 +38,19 @@ public partial class MainViewModel
             (job.Rate > 0 ? $" @ {job.Rate:0.###} {job.RateUnit}" : "");
     }
 
+    /// <summary>Persist the tank-mix calculator's state (opaque client JSON)
+    /// with the active job, so a refill mid-job reopens the same mix.</summary>
+    public void SetActiveJobTankMix(string json)
+    {
+        var job = _jobService.ActiveJob;
+        if (job == null) { StatusMessage = "Open a job first — tank mix not saved"; return; }
+        job.TankMixJson = json ?? string.Empty;
+        _jobService.SaveActiveJob();
+    }
+
+    /// <summary>The active job's saved tank mix (empty when none).</summary>
+    public string GetActiveJobTankMixJson() => _jobService.ActiveJob?.TankMixJson ?? string.Empty;
+
     /// <summary>Record the measured total product applied this job (e.g. loader-scale
     /// weight loaded into the spreader) and persist to job.json. Re-exports the
     /// coverage record so the stats land in the remote history immediately.</summary>

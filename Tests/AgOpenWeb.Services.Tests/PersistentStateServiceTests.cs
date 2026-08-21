@@ -143,6 +143,7 @@ public class PersistentStateServiceTests
             IsDayMode = false, Is2DMode = true, IsNorthUp = true,
             SimulatorLatitude = 12.5, SimulatorLongitude = 13.5, SimulatorSpeed = 9, SimulatorSteerAngle = 8,
             LastOpenedField = "X", BoundaryDrawRightSide = false, BoundaryDrawAtPivot = true, BoundaryOffset = 42,
+            TankMixCatalogJson = "[{\"name\":\"Y\"}]",
         };
         NewService(save).Save();
 
