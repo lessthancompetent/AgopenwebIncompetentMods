@@ -6,8 +6,9 @@ switchbox, the rate readout, the physical switchbox, and the drop-off alarm.
 
 **You will need**
 
-- A tool with **Rate control** turned on (Tool setup) and at least one product
-  enabled in the **Rate** panel
+- A tool with **Use rate control** turned on (**Tool Configuration** → **Machine**
+  → **Rate Control**) and at least one product enabled in the **Rate Control**
+  panel
 - An AOG_RC rate module on the network (an RC15 or similar), optionally the
   physical AOG_RC switchbox
 
@@ -26,7 +27,7 @@ where you put it). Left to right:
 | **+ / −** | Nudge the target rate 5% per press (vertical rocker, + on top) |
 
 Show or hide it with the **SW** button on the rate readout, or
-*Rate → Switches → Show on main screen*.
+*Rate Control → Switches → Show on main screen*.
 
 ## The rate readout
 

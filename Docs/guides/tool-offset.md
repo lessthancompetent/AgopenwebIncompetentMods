@@ -8,9 +8,10 @@ plans drive lines that keep the worked bands seam-tight.
 
 **You will need**
 
-- **Tool setup → Offset**: the distance from the tractor centreline to the
-  implement's working centre, in metres. **Positive = implement to the RIGHT** of
-  the direction of travel. Limited to ±5 m.
+- **Tool Configuration** → **Tool** → **Offset**: set **Tool offset (m)** — the
+  distance from the tractor centreline to the implement's working centre — and
+  **Direction** (**Left** / **Zero** / **Right**, looking in the direction of
+  travel). Limited to ±5 m.
 - That's it — nothing else to set. Leave it at 0 for a centred implement.
 
 ## What you'll see
@@ -35,7 +36,8 @@ or the bands will be off by the difference.
 - Reversing flips which side the implement is on, and the app follows that — the
   K-style turn's reverse leg lands on the right line.
 - The planner keeps the implement **body** clear of a hard fence (see
-  *Tool setup → Physical width* and *Length*): a long mounted implement swings
+  **Physical width (m)** and **Implement length (m)** on the **Tool** → **Hitch**
+  tab): a long mounted implement swings
   wider than the tractor in a turn, and planned turns make room for it.
 - Headland laps shift with the lap direction; the outermost lap still dresses
   the fence.
