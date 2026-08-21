@@ -903,7 +903,7 @@ public partial class MainViewModel
         {
             var fieldsDir = _settingsService.Settings.FieldsDirectory;
             if (string.IsNullOrEmpty(fieldsDir))
-                fieldsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AgOpenWeb", "Fields");
+                fieldsDir = Path.Combine(AgOpenWeb.Services.AppDataRoot.Documents, "Fields");
             var fieldPath = Path.Combine(fieldsDir, CurrentFieldName);
             Services.Headland.HeadlandSegmentFileService.Save(fieldPath, HeadlandSegments);
         }

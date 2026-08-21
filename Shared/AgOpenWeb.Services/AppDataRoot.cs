@@ -35,6 +35,11 @@ public static class AppDataRoot
     /// (e.g. <c>Path.Combine(AppDataRoot.Documents, "Fields")</c>).</summary>
     public static string Documents => Path.Combine(BaseDirectory(), "AgOpenWeb");
 
+    /// <summary>The base directory the AgOpenWeb folder lives in (the env-var
+    /// override, else the platform documents dir). For the rare caller that
+    /// composes its own sibling path — everything else uses <see cref="Documents"/>.</summary>
+    public static string Base => BaseDirectory();
+
     private static string BaseDirectory()
     {
         var explicitRoot = Environment.GetEnvironmentVariable(EnvVar);

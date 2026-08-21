@@ -265,8 +265,8 @@ public partial class MainViewModel
                 try
                 {
                     var bugReportsDir = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                        "AgOpenWeb", "BugReports");
+                        AgOpenWeb.Services.AppDataRoot.Documents,
+                        "BugReports");
 
                     var savedPath = Services.DebugDumpService.FinalizeBugReport(
                         sourceZipPath: _bugReportTempZipPath,
@@ -307,8 +307,8 @@ public partial class MainViewModel
                 await System.Threading.Tasks.Task.Delay(50);
 
                 var bugReportsDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                    "AgOpenWeb", "BugReports");
+                    AgOpenWeb.Services.AppDataRoot.Documents,
+                    "BugReports");
 
                 // Build filename from title: sanitize, replace spaces with hyphens
                 var titleSlug = string.IsNullOrWhiteSpace(BugReportTitle)

@@ -4563,13 +4563,7 @@ public partial class MainViewModel : ObservableObject
     {
         AvailableKmlFiles.Clear();
 
-        var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        if (string.IsNullOrEmpty(documentsPath))
-        {
-            documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-        }
-
-        var importDir = Path.Combine(documentsPath, "AgOpenWeb", "Import");
+        var importDir = Path.Combine(Services.AppDataRoot.Documents, "Import");
 
         if (!Directory.Exists(importDir))
         {
@@ -4834,13 +4828,7 @@ public partial class MainViewModel : ObservableObject
     {
         AvailableIsoXmlFiles.Clear();
 
-        var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        if (string.IsNullOrEmpty(documentsPath))
-        {
-            documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-        }
-
-        var importDir = Path.Combine(documentsPath, "AgOpenWeb", "Import");
+        var importDir = Path.Combine(Services.AppDataRoot.Documents, "Import");
 
         if (!Directory.Exists(importDir))
         {
@@ -4900,8 +4888,8 @@ public partial class MainViewModel : ObservableObject
         if (string.IsNullOrEmpty(fieldsDir))
         {
             fieldsDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "AgOpenWeb", "Fields");
+                AgOpenWeb.Services.AppDataRoot.Documents,
+                "Fields");
         }
 
         var fieldPath = Path.Combine(fieldsDir, CurrentFieldName);
@@ -4972,8 +4960,8 @@ public partial class MainViewModel : ObservableObject
         if (string.IsNullOrEmpty(fieldsDir))
         {
             fieldsDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "AgOpenWeb", "Fields");
+                AgOpenWeb.Services.AppDataRoot.Documents,
+                "Fields");
         }
 
         var fieldPath = Path.Combine(fieldsDir, CurrentFieldName);

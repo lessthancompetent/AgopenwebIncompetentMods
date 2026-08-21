@@ -129,6 +129,11 @@ public static class DiagFlags
     {
         try
         {
+            // Models can't reference Services.AppDataRoot — honour the same
+            // AGOPENWEB_DATA override inline so diag flags follow the data root.
+            var explicitRoot = Environment.GetEnvironmentVariable("AGOPENWEB_DATA");
+            if (!string.IsNullOrWhiteSpace(explicitRoot))
+                return Path.Combine(explicitRoot, "AgOpenWeb");
             var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             if (string.IsNullOrEmpty(documents)) return null;
             return Path.Combine(documents, "AgOpenWeb");

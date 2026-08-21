@@ -461,9 +461,7 @@ public sealed class SceneProjector
         var kml = new System.Collections.Generic.List<string>();
         try
         {
-            var docs = System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments);
-            if (string.IsNullOrEmpty(docs)) docs = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Personal);
-            var importDir = System.IO.Path.Combine(docs, "AgOpenWeb", "Import");
+            var importDir = System.IO.Path.Combine(AgOpenWeb.Services.AppDataRoot.Documents, "Import");
             if (!System.IO.Directory.Exists(importDir)) return (iso, kml);
             foreach (var dir in System.IO.Directory.GetDirectories(importDir))
                 if (System.IO.File.Exists(System.IO.Path.Combine(dir, "TASKDATA.xml")))
