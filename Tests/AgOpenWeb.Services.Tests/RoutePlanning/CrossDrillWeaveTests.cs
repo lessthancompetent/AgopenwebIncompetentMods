@@ -128,7 +128,7 @@ public class CrossDrillWeaveTests
             "most junctions are gentler than 135°");
     }
 
-    // The real Beehive paddock boundary (field-local metres) — the irregular
+    // A real irregular paddock boundary (field-local metres, no georeference) — the irregular
     // shape the first weave sequencer LOST on (28.1 km vs 23.1 km sequential).
     private static readonly List<Vec2> Irregular = new()
     {
@@ -172,7 +172,7 @@ public class CrossDrillWeaveTests
     [Test]
     public void Woven_CompetitiveOnIrregularPaddock()
     {
-        // Beehive's longest edge (its south fence) runs ~E-W: heading ≈ 1.545 rad.
+        // The paddock's longest edge (its south fence) runs ~E-W: heading ≈ 1.545 rad.
         var (woven, sequential) = TotalsOn(Irregular, 2.9, 4.0, longestEdgeHeading: 1.545);
         Assert.That(woven, Is.LessThanOrEqualTo(sequential * 1.02),
             $"weave {woven:F0} m must not lose to sequential {sequential:F0} m on the irregular paddock");

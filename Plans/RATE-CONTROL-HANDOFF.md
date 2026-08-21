@@ -228,8 +228,7 @@ truncate each page at `glyf`/`fpgm`/`Adobe UCS` to drop the embedded font tables
 dotnet publish Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj -c Release -r linux-x64 --self-contained true -o /tmp/pub-linux-x64
 ```
 
-Then tar `/tmp/pub-linux-x64`, `scp` it to `agopenweb@TABLET_TAILSCALE_IP` (key
-`~/.ssh/agpc_ed25519`), unpack over `/opt/agopenweb` and
+Then tar `/tmp/pub-linux-x64`, `scp` it to `<user>@<tractor-tablet>` (your ssh key), unpack over `/opt/agopenweb` and
 `sudo systemctl restart agopenweb`. **wwwroot is embedded in the binary — a
 change to `index.html`, `app.js` or `transport.js` does nothing until you
 rebuild.**
