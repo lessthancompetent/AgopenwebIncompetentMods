@@ -348,9 +348,12 @@ public sealed class RateControlService : IRateControlService, IDisposable
             SaveSwitchbox();
         }
         RcSwitchboxActions act;
-        lock (_ioLock) act = _physBox.Apply(f, DateTime.UtcNow, _switchbox.SwitchType == 1);
+        bool parked = Math.Abs(_state.Vehicle.Speed) * 3.6 <= 0.5;
+        lock (_ioLock) act = _physBox.Apply(f, DateTime.UtcNow, _switchbox.SwitchType == 1,
+            _primed.MasterDelayS, parked);
 
         if (act.SetMaster is bool m) SetMaster(m);
+        if (act.PrimeHoldEdge) StartPrimed();   // hold-to-prime from the physical box
         if (act.RateUpEdge || act.RateDownEdge)
         {
             // RateUp wins a simultaneous press, like the reference parser.

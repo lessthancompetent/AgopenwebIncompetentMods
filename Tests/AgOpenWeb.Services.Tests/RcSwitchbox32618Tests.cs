@@ -254,4 +254,49 @@ public class RcSwitchbox32618Tests
         Assert.That(RcPhysicalSwitchbox.SectionGateMask(s, 0b0100) & 0b0111, Is.EqualTo(0b0111),
             "switch 3 up frees the whole group");
     }
+
+    // ── Hold-to-prime (momentary master held while parked) ──────────────────
+
+    private static RcSwitchboxActions ApplyHold(RcPhysicalSwitchbox box, byte status,
+        DateTime at, double delayS, bool parked, bool maintained = false)
+    {
+        Assert.That(RcPgn.TryParseSwitchbox(Frame(status, 0, 0), out var f), Is.True);
+        return box.Apply(f, at, maintained, delayS, parked);
+    }
+
+    [Test]
+    public void MasterHeldPastDelayWhileParked_FiresPrimeOnce()
+    {
+        var box = new RcPhysicalSwitchbox();
+        var t = new DateTime(2026, 8, 21, 12, 0, 0, DateTimeKind.Utc);
+        ApplyHold(box, 0, t, 3, true);                               // idle, connected
+        var press = ApplyHold(box, 0b10, t.AddSeconds(0.2), 3, true); // MasterOn 0->1
+        Assert.That(press.SetMaster, Is.True, "press edge still sets master");
+        Assert.That(press.PrimeHoldEdge, Is.False, "not yet held long enough");
+        Assert.That(ApplyHold(box, 0b10, t.AddSeconds(2.0), 3, true).PrimeHoldEdge, Is.False);
+        Assert.That(ApplyHold(box, 0b10, t.AddSeconds(3.3), 3, true).PrimeHoldEdge, Is.True, "held >= delay");
+        Assert.That(ApplyHold(box, 0b10, t.AddSeconds(4.0), 3, true).PrimeHoldEdge, Is.False, "once per hold");
+        // Release and press again → a fresh hold can fire again.
+        ApplyHold(box, 0, t.AddSeconds(4.5), 3, true);
+        ApplyHold(box, 0b10, t.AddSeconds(5.0), 3, true);
+        Assert.That(ApplyHold(box, 0b10, t.AddSeconds(8.1), 3, true).PrimeHoldEdge, Is.True);
+    }
+
+    [Test]
+    public void ReleasedBeforeDelay_OrPressedWhileMoving_OrMaintained_NeverPrimes()
+    {
+        var box = new RcPhysicalSwitchbox();
+        var t = new DateTime(2026, 8, 21, 12, 0, 0, DateTimeKind.Utc);
+        ApplyHold(box, 0, t, 3, true);
+        ApplyHold(box, 0b10, t.AddSeconds(0.2), 3, true);
+        ApplyHold(box, 0, t.AddSeconds(1.0), 3, true);               // released early
+        Assert.That(ApplyHold(box, 0b10, t.AddSeconds(1.2), 3, false).PrimeHoldEdge, Is.False, "pressed while moving");
+        Assert.That(ApplyHold(box, 0b10, t.AddSeconds(5.0), 3, false).PrimeHoldEdge, Is.False, "moving press never arms");
+
+        var maintained = new RcPhysicalSwitchbox();
+        ApplyHold(maintained, 0, t, 3, true, maintained: true);
+        ApplyHold(maintained, 0b10, t.AddSeconds(0.2), 3, true, maintained: true);
+        Assert.That(ApplyHold(maintained, 0b10, t.AddSeconds(9), 3, true, maintained: true).PrimeHoldEdge,
+            Is.False, "maintained master never primes");
+    }
 }

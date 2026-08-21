@@ -27,6 +27,10 @@ public readonly struct RcSwitchboxActions
     public bool? SetMaster { get; init; }
     public bool RateUpEdge { get; init; }
     public bool RateDownEdge { get; init; }
+    /// <summary>Momentary master held down for the hold-to-prime delay (while
+    /// the machine was parked at the press): start a primed run. Fires once per
+    /// hold. Never with a maintained master (AOG_RC disables priming there).</summary>
+    public bool PrimeHoldEdge { get; init; }
     /// <summary>Auto-section toggle moved; the value is its new position.</summary>
     public bool? SetAutoSection { get; init; }
     /// <summary>Auto-rate toggle moved; the value is its new position.</summary>
@@ -40,6 +44,8 @@ public sealed class RcPhysicalSwitchbox
 
     private RcSwitchboxFrame _last;
     private bool _fresh = true;   // next frame is the first after (re)connect
+    private DateTime? _masterHeldSinceUtc;   // 0→1 edge time of a momentary MasterOn press
+    private bool _primeFiredThisHold;
 
     public DateTime LastFrameUtc { get; private set; } = DateTime.MinValue;
     public bool WorkSwitchOn { get; private set; }
@@ -55,7 +61,8 @@ public sealed class RcPhysicalSwitchbox
     /// long enough to have read as "disconnected" clears the edge history: a
     /// button already down on the first frame back is a HELD button, not a
     /// press, so nothing momentary fires from it.</summary>
-    public RcSwitchboxActions Apply(in RcSwitchboxFrame f, DateTime nowUtc, bool masterMaintained)
+    public RcSwitchboxActions Apply(in RcSwitchboxFrame f, DateTime nowUtc, bool masterMaintained,
+        double primeHoldSeconds = 0, bool stationary = false)
     {
         bool fresh = _fresh || !Connected(nowUtc);
         var prev = _last;
@@ -86,9 +93,35 @@ public sealed class RcPhysicalSwitchbox
             if (!fresh && f.MasterOffPressed && !prev.MasterOffPressed) master = false;
         }
 
+        // Hold-to-prime (AOG_RC SetPriming): a momentary MasterOn press that
+        // started while parked arms a timer; if the button is STILL held after
+        // the delay, one primed run starts. Released early or pressed while
+        // moving → nothing. Maintained master never primes.
+        bool primeHold = false;
+        if (masterMaintained || fresh || !f.MasterOnPressed)
+        {
+            _masterHeldSinceUtc = null;
+            _primeFiredThisHold = false;
+        }
+        else
+        {
+            if (!prev.MasterOnPressed)
+            {
+                _masterHeldSinceUtc = stationary ? nowUtc : null;
+                _primeFiredThisHold = false;
+            }
+            if (_masterHeldSinceUtc is { } t0 && !_primeFiredThisHold && primeHoldSeconds > 0
+                && (nowUtc - t0).TotalSeconds >= primeHoldSeconds)
+            {
+                primeHold = true;
+                _primeFiredThisHold = true;
+            }
+        }
+
         return new RcSwitchboxActions
         {
             SetMaster = master,
+            PrimeHoldEdge = primeHold,
             RateUpEdge = !fresh && f.RateUpPressed && !prev.RateUpPressed,
             RateDownEdge = !fresh && f.RateDownPressed && !prev.RateDownPressed,
             SetAutoSection = !fresh && f.AutoSectionOn != prev.AutoSectionOn
