@@ -2,6 +2,12 @@
 # One-shot bootstrap for the FZ-G1 in-cab tablet (Debian 13, XFCE).
 # Run after a fresh install:  curl -fsSL <raw-url>/setup-fzg1.sh | sudo bash
 #
+# Site-specific values come from the environment (none are committed):
+#   HOUSE_SSID=...        your farm/house WiFi name (PSK entered on the tablet)
+#   HOUSE_SYNC_ID=...     Syncthing device ID of the house PC
+#   COWSHED_SYNC_ID=...   Syncthing device ID of the cowshed/server box
+#   (the tablet login is the user running sudo; fzg1-buttonsd falls back to AGUSER=agopenweb)
+#
 # Turns the tablet into the tractor guidance unit:
 #  - Tailscale + OpenSSH with the house key (remote maintenance from anywhere)
 #  - Syncthing sharing the app's Fields tree (send/receive with House + cowshed)
@@ -53,7 +59,9 @@ if [ -n "$WIFI_DEV" ]; then
         wifi-sec.key-mgmt wpa-psk connection.autoconnect yes \
         connection.autoconnect-priority "$2" ipv4.route-metric 600 ipv6.route-metric 600 >/dev/null
   }
-  addwifi "HOUSE_SSID" 10
+  # Your farm/house WiFi: pass HOUSE_SSID=... to the script (PSK is entered on
+  # first connect from the tablet itself — nothing secret is stored here).
+  [ -n "${HOUSE_SSID:-}" ] && addwifi "$HOUSE_SSID" 10
   addwifi "rtkwifi" 5
   nmcli connection modify "Wired connection 1" ipv4.route-metric 100 2>/dev/null || true
 fi
@@ -63,10 +71,13 @@ FIELDS="$AGHOME/Documents/AgOpenWeb/Fields"
 mkdir -p "$FIELDS"; chown -R "$AGUSER:$AGUSER" "$AGHOME/Documents"
 systemctl enable --now "syncthing@$AGUSER"
 sleep 5
-HOUSE=HOUSE_SYNC_ID
-COWSHED=COWSHED_SYNC_ID
-sudo -u "$AGUSER" syncthing cli config devices add --device-id "$HOUSE" --name House || true
-sudo -u "$AGUSER" syncthing cli config devices add --device-id "$COWSHED" --name cowshed || true
+# Syncthing device IDs of the machines that will share the Fields folder.
+# Pass them in the environment (HOUSE_SYNC_ID / COWSHED_SYNC_ID) — they are
+# installation-specific and deliberately not committed.
+HOUSE="${HOUSE_SYNC_ID:-}"
+COWSHED="${COWSHED_SYNC_ID:-}"
+[ -n "$HOUSE" ] && sudo -u "$AGUSER" syncthing cli config devices add --device-id "$HOUSE" --name House || true
+[ -n "$COWSHED" ] && sudo -u "$AGUSER" syncthing cli config devices add --device-id "$COWSHED" --name cowshed || true
 sudo -u "$AGUSER" syncthing cli config folders add --id agopen-fields \
   --label "AgOpenWeb Fields" --path "$FIELDS" --type sendreceive || true
 sudo -u "$AGUSER" syncthing cli config folders agopen-fields devices add --device-id "$HOUSE" || true

@@ -144,7 +144,7 @@ async function loadProducts() {
 for (const id of ['f-product', 'f-from', 'f-to'])
   document.getElementById(id).addEventListener('change', loadApps);
 
-map.setView([0, 0], 13);   // sensible start until fields load
+map.setView([0, 0], 2);   // world view until the first field loads, then fit to it
 loadFields().then(loadApps);
 loadProducts();
 </script>

@@ -2,6 +2,8 @@
 # One-shot bootstrap for the farm server (Debian/Ubuntu mini PC in the cabinet).
 # Run on a fresh install:  curl -fsSL <raw-url>/setup-linux-server.sh | sudo bash
 #
+# Site-specific: HOUSE_SYNC_ID=<Syncthing device ID of the house PC> (not committed).
+#
 # Sets up: Tailscale (with SSH so the house PC can deploy/maintain remotely),
 # Syncthing (receives the AgOpenWeb Fields tree), the coverage stack
 # (ingest + map viewer, same files as deploy/pi-coverage), and a restic
@@ -50,8 +52,9 @@ systemctl enable --now "syncthing@$AGUSER"
 sleep 5
 # Pre-trust the house PC and create the receive-only Fields folder; the house
 # side completes the pairing (adds this device ID and shares the folder).
-HOUSE=HOUSE_SYNC_ID
-sudo -u "$AGUSER" syncthing cli config devices add --device-id "$HOUSE" --name House || true
+# Pass HOUSE_SYNC_ID=<syncthing device id> — installation-specific, not committed.
+HOUSE="${HOUSE_SYNC_ID:-}"
+[ -n "$HOUSE" ] && sudo -u "$AGUSER" syncthing cli config devices add --device-id "$HOUSE" --name House || true
 sudo -u "$AGUSER" syncthing cli config folders add --id agopen-fields \
   --label "AgOpenWeb Fields" --path /srv/agdata/fields --type receiveonly || true
 sudo -u "$AGUSER" syncthing cli config folders agopen-fields devices add --device-id "$HOUSE" || true

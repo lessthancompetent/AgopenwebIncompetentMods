@@ -15,7 +15,7 @@ NOTIFY() { command -v notify-send >/dev/null && notify-send "Module WiFi" "$1" |
 
 if [ "${1:-}" = "back" ]; then
   # Drop the module AP; NetworkManager then reconnects by priority (rtkwifi,
-  # else REDACTED). Nothing is deleted, so this is repeatable.
+  # else the farm/house network). Nothing is deleted, so this is repeatable.
   for c in $(nmcli -t -f NAME connection show --active | grep -i '^RateModule'); do
     nmcli connection down "$c" >/dev/null 2>&1
   done
