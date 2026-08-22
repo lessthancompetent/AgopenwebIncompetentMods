@@ -278,9 +278,17 @@ jobs:
             if [ -n "${{ github.event.inputs.release_tag }}" ]; then TAG="${{ github.event.inputs.release_tag }}"; else TAG="${GITHUB_REF#refs/tags/}"; fi
             echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
             echo "name=AgOpenWeb ${TAG}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
             echo "nightly=false" >> "$GITHUB_OUTPUT"
-            echo "banner=" >> "$GITHUB_OUTPUT"
+            # A suffixed tag (e.g. v26.8.0-lessthancompetent) marks an unofficial fork / preview
+            # build: flag it as a GitHub pre-release and add a disclaimer so testers don't mistake
+            # it for an official AgOpenGPS release. A clean vX.Y.Z stays a normal release.
+            if [[ "$TAG" == *-* ]]; then
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
+              echo "banner=> 🧪 **Unofficial fork build** — a route-planning preview for testing, from the @lessthancompetent fork. **Not** an official AgOpenGPS release." >> "$GITHUB_OUTPUT"
+            else
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+              echo "banner=" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: List bundles
